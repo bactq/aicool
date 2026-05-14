@@ -4,7 +4,7 @@ CFLAGS  = -c -g -W -Wall -Wcast-qual -Wcast-align \
           -Wno-long-long -Wpointer-arith -Werror -Wshadow -O2 \
           -D_REENTRANT -D_POSIX_PTHREAD_SEMANTICS -D_USE_FAST_MACRO
 
-PROG    = aicool
+PROG    = webcool
 .DEFAULT_GOAL := all
 
 ###########################################################
@@ -65,6 +65,7 @@ endif
 # ACL 根目录（相对本 Makefile 的位置）
 ACL_PATH ?= ../third-party/acl
 ACL_BUILD_TARGET ?= all_lib
+BUILD_ACL ?= 1
 
 CFLAGS += \
 	-I$(ACL_PATH)/lib_acl/include \
@@ -92,7 +93,13 @@ OBJ = $(patsubst %.cpp, %.o, $(SRC))
 acl_libs:
 	$(MAKE) -C $(ACL_PATH) $(ACL_BUILD_TARGET)
 
-$(PROG): acl_libs $(OBJ)
+ifeq ($(BUILD_ACL),1)
+PROG_DEPS = acl_libs $(OBJ)
+else
+PROG_DEPS = $(OBJ)
+endif
+
+$(PROG): $(PROG_DEPS)
 	$(CC) $(OBJ) $(LDFLAGS) -o $@
 	@echo ""
 	@echo "构建成功：$(PROG)"
