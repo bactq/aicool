@@ -6,8 +6,8 @@ namespace action {
 
 bool IndexAction::run(request_t& req, response_t& res) {
 	acl::string buf;
-	if (!acl::ifstream::load("html/upload.html", &buf)) {
-		return sendText(res, 500, "load html/upload.html failed\n",
+	if (!acl::ifstream::load("html/main.html", &buf)) {
+		return sendText(res, 500, "load html/main.html failed\n",
 			req.isKeepAlive());
 	}
 
