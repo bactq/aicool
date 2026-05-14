@@ -49,4 +49,10 @@ private:
 		acl::json_node& files_array, int& saved_count);
 };
 
+class VideoConvertAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
 } // namespace action

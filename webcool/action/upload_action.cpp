@@ -1,5 +1,15 @@
 #include "actions.h"
 #include "action_util.h"
+#include <sys/stat.h>
+#include <time.h>
+#include <strings.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 namespace action {
 
@@ -78,7 +88,7 @@ bool UploadAction::run(request_t& req, response_t& res,
 	int saved_count = 0;
 	bool ok = saveFiles(*mime, upload_dir, files, saved_count);
 
-	::unlink(tmp_path.c_str());
+	//::unlink(tmp_path.c_str());
 
 	if (!ok) {
 		acl::json err;
@@ -108,8 +118,13 @@ bool UploadAction::readBody(request_t& req, long long content_length,
 		}
 
 		int n = in.read(buf, want);
-		if (n <= 0) {
-			break;
+		if (n < 0) {
+			fprintf(stderr, "read request body error: %s\n", acl::last_serror());
+			return false;
+		}
+		if (n == 0) {
+			fprintf(stderr, "read request body got 0 bytes before completion\n");
+			return false;
 		}
 
 		if (fp.write(buf, n) == -1) {
@@ -124,8 +139,9 @@ bool UploadAction::readBody(request_t& req, long long content_length,
 		}
 	}
 
-	if (in.eof()) {
-		fprintf(stderr, "read from client error (eof)\n");
+	if (read_total != content_length) {
+		fprintf(stderr, "request body incomplete: read=%lld, expect=%lld\n",
+			read_total, content_length);
 		return false;
 	}
 
@@ -159,7 +175,6 @@ bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir
 		acl::string dest;
 		dest.format("%s/%s", upload_dir.c_str(), basename);
 		acl::json_node& item = files_array.add_child(false, true);
-		item.add_text("name", basename);
 
 		if (node->save(dest.c_str())) {
 			acl::ifstream fin;
@@ -169,6 +184,18 @@ bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir
 				fin.close();
 			}
 
+			if (fsize <= 0) {
+				fprintf(stderr, "Saved file is empty or invalid: %s (%lld bytes), dest: %s\n",
+					dest.c_str(), fsize, dest.c_str());
+				::unlink(dest.c_str());
+				item.add_text("name", basename);
+				item.add_number("size", fsize);
+				item.add_bool("saved", false);
+				item.add_text("error", "empty or invalid file");
+				continue;
+			}
+
+			item.add_text("name", basename);
 			item.add_number("size", fsize);
 			item.add_bool("saved", true);
 			saved_count++;
@@ -176,6 +203,7 @@ bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir
 		} else {
 			fprintf(stderr, "Save file %s to %s failed: %s\n",
 				basename, dest.c_str(), acl::last_serror());
+			item.add_text("name", basename);
 			item.add_bool("saved", false);
 		}
 	}

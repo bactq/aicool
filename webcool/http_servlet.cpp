@@ -36,6 +36,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/delete", &http_servlet::routeDelete },
 		{ "/api/v1/files", &http_servlet::routeFiles },
 		{ "/api/v1/download", &http_servlet::routeDownload },
+		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },
 		{ "/api/v1/upload", &http_servlet::routeUpload },
 	};
 	std::map<std::string, get_route_handler>::const_iterator it = routes.find(path);
@@ -66,6 +67,10 @@ bool http_servlet::routeUpload(request_t& req, response_t& res) {
 	return action::UploadAction::run(req, res, upload_dir_);
 }
 
+bool http_servlet::routeVideoConvert(request_t& req, response_t& res) {
+	return action::VideoConvertAction::run(req, res, upload_dir_);
+}
+
 // ────────────────────────────────────────────────────────────────
 // doPost
 // ────────────────────────────────────────────────────────────────
@@ -73,6 +78,9 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 	const char* path = req.getPathInfo();
 	if (path && strcmp(path, "/api/v1/upload") == 0) {
 		return action::UploadAction::run(req, res, upload_dir_);
+	}
+	if (path && strcmp(path, "/api/v1/video/convert") == 0) {
+		return action::VideoConvertAction::run(req, res, upload_dir_);
 	}
 
 	acl::json json;

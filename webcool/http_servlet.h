@@ -36,5 +36,6 @@ private:
 	bool routeDelete(request_t& req, response_t& res);
 	bool routeFiles(request_t& req, response_t& res);
 	bool routeDownload(request_t& req, response_t& res);
+	bool routeVideoConvert(request_t& req, response_t& res);
 	bool routeUpload(request_t& req, response_t& res);
 };

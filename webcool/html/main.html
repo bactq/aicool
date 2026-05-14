@@ -33,21 +33,81 @@
         radial-gradient(circle at 12% 18%, rgba(123, 210, 255, 0.25), transparent 36%),
         radial-gradient(circle at 90% 10%, rgba(255, 192, 128, 0.28), transparent 32%),
         linear-gradient(145deg, var(--bg1), var(--bg2));
-      display: flex;
-      align-items: center;
-      justify-content: center;
       padding: 22px;
     }
 
-    .card {
-      width: min(760px, 100%);
+    .shell {
+      width: min(1180px, 100%);
+      min-height: calc(100vh - 44px);
+      margin: 0 auto;
       background: var(--card);
       border: 1px solid var(--line);
       border-radius: 18px;
       box-shadow: 0 18px 40px rgba(26, 49, 78, 0.12);
-      padding: 26px;
       animation: rise 420ms ease-out both;
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr);
+      overflow: hidden;
     }
+
+    .left-pane {
+      border-right: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,.94), rgba(245,251,255,.92));
+      padding: 20px 14px;
+    }
+
+    .brand {
+      margin: 0 0 6px;
+      font-size: 20px;
+      font-weight: 800;
+      color: #27476b;
+    }
+
+    .brand-sub {
+      margin: 0 0 16px;
+      color: #647a94;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .menu {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .menu-btn {
+      text-align: left;
+      border: 1px solid #d5e3f3;
+      background: #f5faff;
+      color: #345372;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all .16s ease;
+    }
+
+    .menu-btn:hover {
+      border-color: #bcd2ea;
+      background: #edf6ff;
+    }
+
+    .menu-btn.active {
+      border-color: #9bc0eb;
+      background: #dff0ff;
+      color: #16416d;
+      box-shadow: inset 0 0 0 1px rgba(30,111,217,.15);
+    }
+
+    .right-pane {
+      padding: 24px;
+      overflow: auto;
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
 
     .section + .section {
       margin-top: 22px;
@@ -482,80 +542,123 @@
       to   { opacity: 1; transform: translateY(0); }
     }
 
+    @media (max-width: 900px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .left-pane {
+        border-right: none;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .menu {
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+
+      .menu-btn {
+        flex: 1 1 140px;
+      }
+
+      .right-pane {
+        padding: 20px;
+      }
+    }
+
     @media (max-width: 640px) {
-      .card { padding: 20px; }
       .file-row { grid-template-columns: 1fr; gap: 6px; }
     }
   </style>
 </head>
 <body>
-  <main class="card">
-    <section class="section">
-      <h1>文件管理控制台</h1>
-      <p class="sub">前后端分离模式：页面通过 JS 调用 JSON API 完成上传、列表、删除与缓存刷新。</p>
-      <div class="tool-row">
-        <button id="reload-template-btn" type="button">刷新模板缓存</button>
-      </div>
-      <form id="upload-form" enctype="multipart/form-data">
-        <div class="upload-box">
-          <div class="file-row"><label>文件一</label><input type="file" name="file1"></div>
-          <div class="file-row"><label>文件二</label><input type="file" name="file2"></div>
-          <div class="file-row"><label>文件三</label><input type="file" name="file3"></div>
-        </div>
-        <input class="btn" type="submit" value="上传文件">
-      </form>
-      <div id="upload-progress" class="progress-wrap" aria-live="polite">
-        <div class="progress-track">
-          <div id="upload-progress-fill" class="progress-fill"></div>
-        </div>
-        <div id="upload-progress-text" class="progress-text">准备上传...</div>
-      </div>
-      <div id="status" class="status"></div>
-    </section>
+  <main class="shell">
+    <aside class="left-pane">
+      <h1 class="brand">文件控制台</h1>
+      <p class="brand-sub">左帧用于功能切换，右帧展示对应内容与操作结果。</p>
+      <nav class="menu" aria-label="功能菜单">
+        <button type="button" class="menu-btn" data-panel="panel-upload">上传文件</button>
+        <button type="button" class="menu-btn active" data-panel="panel-files">文件列表</button>
+        <button type="button" class="menu-btn" data-panel="panel-admin">系统管理</button>
+      </nav>
+    </aside>
 
-    <section class="section">
-      <div class="list-head">
-        <h2>已上传文件</h2>
-        <div class="sort-row">
-          <span class="counter" id="file-counter">0 个文件</span>
-          <label for="sort-key">排序</label>
-          <select id="sort-key">
-            <option value="name">按名称</option>
-            <option value="size">按大小</option>
-            <option value="uploaded_at">按上传时间</option>
-          </select>
-          <select id="sort-order">
-            <option value="asc">升序</option>
-            <option value="desc">降序</option>
-          </select>
+    <section class="right-pane">
+      <section class="panel section" id="panel-upload">
+        <h1>上传文件</h1>
+        <p class="sub">支持最多三个文件同时上传，并展示实时上传进度。</p>
+        <form id="upload-form" enctype="multipart/form-data">
+          <div class="upload-box">
+            <div class="file-row"><label>文件一</label><input type="file" name="file1"></div>
+            <div class="file-row"><label>文件二</label><input type="file" name="file2"></div>
+            <div class="file-row"><label>文件三</label><input type="file" name="file3"></div>
+          </div>
+          <input class="btn" type="submit" value="上传文件">
+        </form>
+        <div id="upload-progress" class="progress-wrap" aria-live="polite">
+          <div class="progress-track">
+            <div id="upload-progress-fill" class="progress-fill"></div>
+          </div>
+          <div id="upload-progress-text" class="progress-text">准备上传...</div>
         </div>
-      </div>
-      <div class="file-table-wrap">
-        <table class="file-table" id="file-table" style="display:none;">
-          <thead>
-            <tr>
-              <th>
-                <button class="sort-btn" data-sort-key="name" type="button">
-                  文件名 <span class="arrow">-</span>
-                </button>
-              </th>
-              <th>
-                <button class="sort-btn" data-sort-key="size" type="button">
-                  文件大小 <span class="arrow">-</span>
-                </button>
-              </th>
-              <th>
-                <button class="sort-btn" data-sort-key="uploaded_at" type="button">
-                  上传时间 <span class="arrow">-</span>
-                </button>
-              </th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="file-list"></tbody>
-        </table>
-      </div>
-      <p id="file-empty" class="empty">加载中...</p>
+      </section>
+
+      <section class="panel section active" id="panel-files">
+        <h1>文件列表</h1>
+        <p class="sub">查看、排序、预览、下载和删除已上传文件。</p>
+        <div class="list-head">
+          <h2>已上传文件</h2>
+          <div class="sort-row">
+            <span class="counter" id="file-counter">0 个文件</span>
+            <label for="sort-key">排序</label>
+            <select id="sort-key">
+              <option value="name">按名称</option>
+              <option value="size">按大小</option>
+              <option value="uploaded_at">按上传时间</option>
+            </select>
+            <select id="sort-order">
+              <option value="asc">升序</option>
+              <option value="desc">降序</option>
+            </select>
+          </div>
+        </div>
+        <div class="file-table-wrap">
+          <table class="file-table" id="file-table" style="display:none;">
+            <thead>
+              <tr>
+                <th>
+                  <button class="sort-btn" data-sort-key="name" type="button">
+                    文件名 <span class="arrow">-</span>
+                  </button>
+                </th>
+                <th>
+                  <button class="sort-btn" data-sort-key="size" type="button">
+                    文件大小 <span class="arrow">-</span>
+                  </button>
+                </th>
+                <th>
+                  <button class="sort-btn" data-sort-key="uploaded_at" type="button">
+                    上传时间 <span class="arrow">-</span>
+                  </button>
+                </th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="file-list"></tbody>
+          </table>
+        </div>
+        <p id="file-empty" class="empty">加载中...</p>
+      </section>
+
+      <section class="panel section" id="panel-admin">
+        <h1>系统管理</h1>
+        <p class="sub">执行维护操作。当前支持刷新模板缓存。</p>
+        <div class="tool-row">
+          <button id="reload-template-btn" type="button">刷新模板缓存</button>
+        </div>
+      </section>
+
+      <div id="status" class="status"></div>
     </section>
   </main>
 
@@ -568,7 +671,8 @@
         upload: '/api/v1/upload',
         del: '/api/v1/delete',
         download: '/api/v1/download',
-        reloadTpl: '/api/v1/admin/template/reload'
+        reloadTpl: '/api/v1/admin/template/reload',
+        convertVideo: '/api/v1/video/convert'
       };
 
       const uploadForm = document.getElementById('upload-form');
@@ -585,10 +689,25 @@
       const sortOrder = document.getElementById('sort-order');
       const sortButtons = Array.from(document.querySelectorAll('.sort-btn[data-sort-key]'));
       const previewLayer = document.getElementById('preview-layer');
+      const menuButtons = Array.from(document.querySelectorAll('.menu-btn[data-panel]'));
+      const panels = Array.from(document.querySelectorAll('.panel'));
       let allFiles = [];
       let previewZ = 900;
       let activeDrag = null;
       const openedPreviewWindows = new Map();
+
+      function activatePanel(panelId) {
+        panels.forEach(function (panel) {
+          panel.classList.toggle('active', panel.id === panelId);
+        });
+        menuButtons.forEach(function (btn) {
+          btn.classList.toggle('active', btn.getAttribute('data-panel') === panelId);
+        });
+
+        if (panelId === 'panel-files') {
+          loadFiles();
+        }
+      }
 
       function isImageName(name) {
     	      return /\.(png|jpg|jpeg|gif)$/i.test(String(name || ''));
@@ -596,6 +715,81 @@
 
       function isVideoName(name) {
         return /\.(mp4|avi|mkv|rmvb)$/i.test(String(name || ''));
+      }
+
+      function isVideoPlayable(fileName, timeoutMs) {
+        return new Promise(function (resolve) {
+          const encoded = encodeURIComponent(fileName || '');
+          const src = api.download + '?preview=1&file=' + encoded;
+          const video = document.createElement('video');
+          let done = false;
+
+          function cleanup(ok, reason) {
+            if (done) {
+              return;
+            }
+            done = true;
+            video.pause();
+            video.removeAttribute('src');
+            video.load();
+            resolve({ ok: ok, reason: reason || '' });
+          }
+
+          const timer = setTimeout(function () {
+            cleanup(false, '加载元数据超时');
+          }, timeoutMs || 8000);
+
+          video.preload = 'metadata';
+          video.muted = true;
+          video.playsInline = true;
+
+          video.onloadedmetadata = function () {
+            clearTimeout(timer);
+            cleanup(true);
+          };
+
+          video.onerror = function () {
+            clearTimeout(timer);
+            cleanup(false, '浏览器不支持该视频编码或容器');
+          };
+
+          video.src = src;
+        });
+      }
+
+      async function verifyUploadedVideos(uploadResult) {
+        const items = Array.isArray(uploadResult) ? uploadResult : [];
+        const videoNames = items
+          .filter(function (it) {
+            return it && it.saved === true && isVideoName(it.name || '');
+          })
+          .map(function (it) {
+            return String(it.name || '');
+          });
+
+        if (!videoNames.length) {
+          return [];
+        }
+
+        const failed = [];
+        for (const name of videoNames) {
+          const probe = await isVideoPlayable(name, 8000);
+          if (!probe.ok) {
+            failed.push({ name: name, reason: probe.reason || '无法解析视频' });
+            try {
+              const convertData = await fetchJson(api.convertVideo + '?file=' + encodeURIComponent(name), {
+                method: 'POST'
+              });
+              if (convertData && convertData.name) {
+                failed[failed.length - 1].convertedName = convertData.name;
+              }
+            } catch (err) {
+              failed[failed.length - 1].convertError = err.message;
+            }
+          }
+        }
+
+        return failed;
       }
 
       function isTextName(name) {
@@ -1017,6 +1211,17 @@
           showStatus('上传完成：成功保存 ' + (data.count || 0) + ' 个文件', 'ok');
           uploadForm.reset();
           await loadFiles();
+
+          const videoProbeFails = await verifyUploadedVideos(data.files);
+          if (videoProbeFails.length) {
+            const names = videoProbeFails.map(function (x) { return x.convertedName || x.name; }).join('、');
+            showStatus(
+              '已尝试通知服务端转码以下视频：' + names + '。如仍无法播放，请重新下载或转码为 H.264 + AAC 并加 faststart。',
+              'warn'
+            );
+            await loadFiles();
+          }
+
           setTimeout(hideUploadProgress, 700);
         } catch (err) {
           setUploadProgress(0, '上传失败');
@@ -1159,7 +1364,16 @@
         Array.prototype.forEach.call(wins, clampWindowPosition);
       });
 
-      loadFiles();
+      menuButtons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const panelId = btn.getAttribute('data-panel');
+          if (panelId) {
+            activatePanel(panelId);
+          }
+        });
+      });
+
+      activatePanel('panel-files');
     })();
   </script>
 </body>

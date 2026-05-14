@@ -358,6 +358,10 @@ bool DownloadAction::run(request_t& req, response_t& res,
 		in.close();
 		return sendText(res, 500, "cannot read file size\n", req.isKeepAlive());
 	}
+	if (fsize == 0) {
+		in.close();
+		return sendText(res, 409, "file is empty, please re-upload\n", req.isKeepAlive());
+	}
 
 	const bool is_image = is_image_file(basename);
 	const bool is_video = is_video_file(basename);
