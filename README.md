@@ -1,4 +1,4 @@
-# aicool
+# aicool(爱酷)
 
 [English](#english) | [中文](#chinese)
 
@@ -69,6 +69,12 @@ aicool 是一个基于 ACL 库的 C++ Web 服务示例。
 git clone --recurse-submodules https://github.com/chat-client/aicool 
 cd aicool
 git submodule status
+```
+或直接
+```bash
+git clonet https://github.com/chat-client/aicool
+cd aicool
+git submodule update --init --recursive
 ```
 
 ### 已有仓库执行 PULL 后同步 submodule
