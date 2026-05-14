@@ -79,6 +79,19 @@ bool UploadAction::run(request_t& req, response_t& res,
 	}
 	fp.close();
 
+	// Verify temporary MIME file was actually written
+	{
+		acl::ifstream tmp_check;
+		long long tmp_size = -1;
+		if (tmp_check.open_read(tmp_path.c_str())) {
+			tmp_size = tmp_check.fsize();
+			tmp_check.close();
+			fprintf(stderr, "[TMP-FILE] %s size=%lld bytes\n", tmp_path.c_str(), tmp_size);
+		} else {
+			fprintf(stderr, "[TMP-ERROR] Cannot open tmp file %s: %s\n", tmp_path.c_str(), acl::last_serror());
+		}
+	}
+
 	acl::json json;
 	acl::json_node& root = json.create_node();
 	root.add_bool("ok", true);
@@ -88,7 +101,7 @@ bool UploadAction::run(request_t& req, response_t& res,
 	int saved_count = 0;
 	bool ok = saveFiles(*mime, upload_dir, files, saved_count);
 
-	//::unlink(tmp_path.c_str());
+	::unlink(tmp_path.c_str());
 
 	if (!ok) {
 		acl::json err;
@@ -108,7 +121,8 @@ bool UploadAction::readBody(request_t& req, long long content_length,
 	acl::istream& in = req.getInputStream();
 	char buf[8192];
 	long long read_total = 0;
-	bool mime_done = false;
+
+	fprintf(stderr, "[MIME-DEBUG] readBody: content_length=%lld\n", content_length);
 
 	while (read_total < content_length) {
 		size_t want = sizeof(buf);
@@ -133,10 +147,7 @@ bool UploadAction::readBody(request_t& req, long long content_length,
 		}
 
 		read_total += n;
-
-		if (!mime_done && mime.update(buf, (size_t) n)) {
-			mime_done = true;
-		}
+		(void) mime.update(buf, (size_t) n);
 	}
 
 	if (read_total != content_length) {
@@ -145,6 +156,7 @@ bool UploadAction::readBody(request_t& req, long long content_length,
 		return false;
 	}
 
+	fprintf(stderr, "[MIME-DEBUG] readBody completed: total_read=%lld\n", read_total);
 	return true;
 }
 
@@ -154,10 +166,17 @@ bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir
 	saved_count = 0;
 
 	const std::list<acl::http_mime_node*>& nodes = mime.get_nodes();
+	fprintf(stderr, "[MIME-DEBUG] saveFiles: mime nodes count=%zu\n", nodes.size());
+
 	for (std::list<acl::http_mime_node*>::const_iterator it = nodes.begin();
 		it != nodes.end(); ++it)
 	{
 		const acl::http_mime_node* node = *it;
+		
+		fprintf(stderr, "[MIME-NODE] type=%d, filename=%s\n",
+			node->get_mime_type(),
+			node->get_filename() ? node->get_filename() : "(null)");
+
 		if (node->get_mime_type() != acl::HTTP_MIME_FILE) {
 			continue;
 		}
@@ -176,17 +195,47 @@ bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir
 		dest.format("%s/%s", upload_dir.c_str(), basename);
 		acl::json_node& item = files_array.add_child(false, true);
 
+		off_t body_begin = node->get_bodyBegin();
+		off_t body_end = node->get_bodyEnd();
+		item.add_number("mime_begin", (long long) body_begin);
+		item.add_number("mime_end", (long long) body_end);
+		item.add_number("mime_size", (long long) (body_end > body_begin ? body_end - body_begin : 0));
+
+		fprintf(stderr, "[MIME-BODY] file=%s, begin=%lld, end=%lld, size=%lld\n",
+			basename, (long long) body_begin, (long long) body_end,
+			(long long) (body_end > body_begin ? body_end - body_begin : 0));
+
+		// Additional node state info
+		fprintf(stderr, "[NODE-STATE] name=%s\n",
+			node->get_name() ? node->get_name() : "(null)");
+
+		if (body_begin < 0 || body_end <= body_begin) {
+			fprintf(stderr, "[MIME-ERROR] MIME parsed empty body for %s: begin=%lld end=%lld\n",
+				basename, (long long) body_begin, (long long) body_end);
+			item.add_text("name", basename);
+			item.add_number("size", 0);
+			item.add_bool("saved", false);
+			item.add_text("error", "mime parsed empty body");
+			continue;
+		}
+
+		fprintf(stderr, "[MIME-SAVE] Calling node->save(%s)...\n", dest.c_str());
 		if (node->save(dest.c_str())) {
+			fprintf(stderr, "[MIME-SAVE] node->save() returned true\n");
+
 			acl::ifstream fin;
 			long long fsize = -1;
 			if (fin.open_read(dest.c_str())) {
 				fsize = fin.fsize();
+				fprintf(stderr, "[FILE-CHECK] %s size=%lld\n", dest.c_str(), fsize);
 				fin.close();
+			} else {
+				fprintf(stderr, "[FILE-ERROR] Cannot open file %s: %s\n", dest.c_str(), acl::last_serror());
 			}
 
 			if (fsize <= 0) {
-				fprintf(stderr, "Saved file is empty or invalid: %s (%lld bytes), dest: %s\n",
-					dest.c_str(), fsize, dest.c_str());
+				fprintf(stderr, "[SAVE-FAIL] Saved file is empty or invalid: %s (%lld bytes), body_begin=%lld body_end=%lld\n",
+					dest.c_str(), fsize, (long long) body_begin, (long long) body_end);
 				::unlink(dest.c_str());
 				item.add_text("name", basename);
 				item.add_number("size", fsize);
@@ -199,14 +248,15 @@ bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir
 			item.add_number("size", fsize);
 			item.add_bool("saved", true);
 			saved_count++;
-			printf("Saved: %s (%lld bytes)\n", dest.c_str(), fsize);
+			printf("Saved: %s (%lld bytes), body_begin=%lld body_end=%lld\n", dest.c_str(), fsize, (long long) body_begin, (long long) body_end);
 		} else {
-			fprintf(stderr, "Save file %s to %s failed: %s\n",
-				basename, dest.c_str(), acl::last_serror());
+			fprintf(stderr, "[SAVE-ERROR] node->save() failed for %s: %s, body_begin=%lld body_end=%lld\n",
+				basename, acl::last_serror(), (long long) body_begin, (long long) body_end);
 			item.add_text("name", basename);
 			item.add_bool("saved", false);
 		}
 	}
+	fprintf(stderr, "[MIME-DEBUG] saveFiles completed: saved_count=%d\n", saved_count);
 	return true;
 }
 
