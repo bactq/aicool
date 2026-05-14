@@ -860,6 +860,16 @@
         return /\.(mp4|avi|mkv|rmvb)$/i.test(String(name || ''));
       }
 
+      function toVttSidecarName(name) {
+        const text = String(name || '');
+        const slash = Math.max(text.lastIndexOf('/'), text.lastIndexOf('\\\\'));
+        const dot = text.lastIndexOf('.');
+        if (dot <= slash) {
+          return text + '.vtt';
+        }
+        return text.slice(0, dot) + '.vtt';
+      }
+
       function isVideoPlayable(fileName, timeoutMs) {
         return new Promise(function (resolve) {
           const encoded = encodeURIComponent(fileName || '');
@@ -1413,7 +1423,12 @@
 
         let mediaHtml = '';
         if (kind === 'video') {
-          mediaHtml = '<video class="preview-video" controls preload="metadata" src="' + url + '"></video>';
+          const rawName = decodeURIComponent(String(file || '')) || String(name || '');
+          const subtitleName = toVttSidecarName(rawName);
+          const subtitleUrl = api.download + '?preview=1&file=' + encodeURIComponent(subtitleName) + '&v=' + Date.now();
+          mediaHtml = '<video class="preview-video" controls preload="metadata" src="' + url + '">' +
+            '<track kind="subtitles" srclang="zh-CN" label="中文字幕" default src="' + subtitleUrl + '">' +
+            '</video>';
         } else if (kind === 'text') {
           mediaHtml = '<pre class="preview-text">加载中...</pre>';
         } else {
