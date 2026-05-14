@@ -250,6 +250,141 @@
     .status.warn { color: var(--warn); background: var(--warn-bg); border: 1px solid #efd59f; }
     .status.err { color: var(--danger); background: #fff1f2; border: 1px solid #f2b6bd; }
 
+    .transcode-list {
+      margin-top: 10px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .transcode-item {
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid #ebd7ac;
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .transcode-item.state-running {
+      border-color: #ebd7ac;
+      background: rgba(255, 250, 236, 0.9);
+    }
+
+    .transcode-item.state-done {
+      border-color: #b9ecc8;
+      background: rgba(236, 255, 241, 0.9);
+    }
+
+    .transcode-item.state-failed {
+      border-color: #f2b6bd;
+      background: rgba(255, 241, 242, 0.9);
+    }
+
+    .transcode-item.state-cancelled {
+      border-color: #cfd8e3;
+      background: rgba(244, 247, 251, 0.92);
+    }
+
+    .transcode-item-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    .transcode-item-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #6c4b00;
+      word-break: break-all;
+    }
+
+    .transcode-item-reason {
+      font-size: 12px;
+      color: #8a5a00;
+    }
+
+    .transcode-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .transcode-btn {
+      border: 1px solid #d1b57d;
+      background: #ffecc4;
+      color: #6f4a00;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .transcode-btn:hover {
+      background: #ffe3aa;
+    }
+
+    .transcode-btn[disabled] {
+      opacity: .6;
+      cursor: not-allowed;
+    }
+
+    .transcode-cancel-btn {
+      border: 1px solid #e4b4b9;
+      background: #fff1f2;
+      color: #9f2f3d;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .transcode-cancel-btn:hover {
+      background: #ffe4e7;
+    }
+
+    .transcode-cancel-btn[disabled] {
+      opacity: .6;
+      cursor: not-allowed;
+    }
+
+    .transcode-progress {
+      width: 180px;
+      height: 8px;
+      border-radius: 999px;
+      border: 1px solid #e5d0a1;
+      background: #fff4dd;
+      overflow: hidden;
+    }
+
+    .transcode-progress-fill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #f39c12, #0d8b74);
+      transition: width .2s linear;
+    }
+
+    .transcode-progress-fill.state-done {
+      background: linear-gradient(90deg, #27ae60, #1f8f4a);
+    }
+
+    .transcode-progress-fill.state-failed {
+      background: linear-gradient(90deg, #c0392b, #8e2a20);
+    }
+
+    .transcode-progress-fill.state-cancelled {
+      background: linear-gradient(90deg, #7f8c8d, #5f6f73);
+    }
+
+    .transcode-progress-text {
+      font-size: 12px;
+      color: #7b5700;
+      min-width: 120px;
+    }
+
     .list-head {
       display: flex;
       justify-content: space-between;
@@ -672,7 +807,13 @@
         del: '/api/v1/delete',
         download: '/api/v1/download',
         reloadTpl: '/api/v1/admin/template/reload',
-        convertVideo: '/api/v1/video/convert'
+        convertVideo: '/api/v1/video/convert',
+        convertCancel: '/api/v1/video/convert/cancel',
+        convertProgress: '/api/v1/video/convert/progress',
+        convertTasks: '/api/v1/video/convert/tasks',
+        probeVideo: '/api/v1/video/probe',
+        videoResume: '/api/v1/video/resume',
+        videoResumeSave: '/api/v1/video/resume/save'
       };
 
       const uploadForm = document.getElementById('upload-form');
@@ -695,6 +836,8 @@
       let previewZ = 900;
       let activeDrag = null;
       const openedPreviewWindows = new Map();
+      const transcodeProgressTimers = new Map();
+      const videoResumeSaveTimers = new Map();
 
       function activatePanel(panelId) {
         panels.forEach(function (panel) {
@@ -774,18 +917,18 @@
         const failed = [];
         for (const name of videoNames) {
           const probe = await isVideoPlayable(name, 8000);
-          if (!probe.ok) {
-            failed.push({ name: name, reason: probe.reason || '无法解析视频' });
-            try {
-              const convertData = await fetchJson(api.convertVideo + '?file=' + encodeURIComponent(name), {
-                method: 'POST'
-              });
-              if (convertData && convertData.name) {
-                failed[failed.length - 1].convertedName = convertData.name;
-              }
-            } catch (err) {
-              failed[failed.length - 1].convertError = err.message;
-            }
+          const audioProbe = await checkVideoAudio(name);
+
+          let needConvert = !probe.ok;
+          let reason = probe.reason || '无法解析视频';
+
+          if (audioProbe && audioProbe.ok && audioProbe.has_audio && audioProbe.browser_audio_supported === false) {
+            needConvert = true;
+            reason = '音频编码 ' + (audioProbe.audio_codec || 'unknown') + ' 浏览器不支持';
+          }
+
+          if (needConvert) {
+            failed.push({ name: name, reason: reason });
           }
         }
 
@@ -794,6 +937,19 @@
 
       function isTextName(name) {
         return /\.(txt|md|log|csv|json|xml|yaml|yml|ini|conf|c|h|cpp|hpp|cc|java|py|js|ts|sh|go|sql|proto)$/i.test(String(name || ''));
+      }
+
+      async function checkVideoAudio(videoFileName) {
+        try {
+          const response = await fetch(api.probeVideo + '?file=' + encodeURIComponent(videoFileName || ''));
+          if (!response.ok) {
+            return { ok: false };
+          }
+          const data = await response.json();
+          return data;
+        } catch (err) {
+          return { ok: false, error: err.message };
+        }
       }
 
       function detectCodeLang(name) {
@@ -853,7 +1009,299 @@
         statusBox.textContent = msg;
       }
 
+      function showManualTranscodePrompt(candidates) {
+        const list = Array.isArray(candidates) ? candidates : [];
+        if (!list.length) {
+          return;
+        }
+
+        statusBox.className = 'status show warn';
+        statusBox.innerHTML =
+          '<div>检测到以下视频建议转码（需你确认后才会开始）：</div>' +
+          '<div class="transcode-list">' +
+          list.map(function (item) {
+            const name = String(item.name || '');
+            const reason = String(item.reason || '浏览器兼容性不足');
+            const encoded = encodeURIComponent(name);
+            return (
+              '<div class="transcode-item" data-transcode-item="' + encoded + '">' +
+                '<div class="transcode-item-head">' +
+                  '<div>' +
+                    '<div class="transcode-item-name">' + escapeHtml(name) + '</div>' +
+                    '<div class="transcode-item-reason">原因：' + escapeHtml(reason) + '</div>' +
+                  '</div>' +
+                  '<div class="transcode-actions">' +
+                    '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '">确认转码</button>' +
+                    '<button type="button" class="transcode-cancel-btn" data-cancel-file="' + encoded + '" disabled>取消转码</button>' +
+                    '<div class="transcode-progress"><div class="transcode-progress-fill" data-progress-fill="' + encoded + '"></div></div>' +
+                    '<span class="transcode-progress-text" data-progress-text="' + encoded + '">等待确认</span>' +
+                  '</div>' +
+                '</div>' +
+              '</div>'
+            );
+          }).join('') +
+          '</div>';
+      }
+
+      function updateTranscodeProgress(encodedName, percent, text) {
+        const fill = statusBox.querySelector('[data-progress-fill="' + encodedName + '"]');
+        const label = statusBox.querySelector('[data-progress-text="' + encodedName + '"]');
+        if (fill) {
+          fill.style.width = Math.max(0, Math.min(100, percent || 0)) + '%';
+        }
+        if (label) {
+          label.textContent = text || '';
+        }
+      }
+
+      function setTranscodeVisualState(encodedName, state) {
+        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
+        const fill = statusBox.querySelector('[data-progress-fill="' + encodedName + '"]');
+        if (item) {
+          item.classList.remove('state-running', 'state-done', 'state-failed', 'state-cancelled');
+          if (state) {
+            item.classList.add('state-' + state);
+          }
+        }
+        if (fill) {
+          fill.classList.remove('state-done', 'state-failed', 'state-cancelled');
+          if (state === 'done' || state === 'failed' || state === 'cancelled') {
+            fill.classList.add('state-' + state);
+          }
+        }
+      }
+
+      function setTranscodeTaskId(encodedName, taskId) {
+        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
+        if (!item) {
+          return;
+        }
+        if (taskId) {
+          item.setAttribute('data-task-id', taskId);
+        } else {
+          item.removeAttribute('data-task-id');
+        }
+      }
+
+      function getTranscodeTaskId(encodedName) {
+        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
+        return item ? (item.getAttribute('data-task-id') || '') : '';
+      }
+
+      function setTranscodeButtons(encodedName, options) {
+        const opts = options || {};
+        const startBtn = statusBox.querySelector('[data-transcode-file="' + encodedName + '"]');
+        const cancelBtn = statusBox.querySelector('[data-cancel-file="' + encodedName + '"]');
+        if (startBtn && typeof opts.startDisabled === 'boolean') {
+          startBtn.disabled = opts.startDisabled;
+        }
+        if (cancelBtn && typeof opts.cancelDisabled === 'boolean') {
+          cancelBtn.disabled = opts.cancelDisabled;
+        }
+      }
+
+      function upsertTranscodeTaskItem(item) {
+        if (!item || !item.name) {
+          return;
+        }
+
+        const encoded = encodeURIComponent(String(item.name));
+        if (!statusBox.querySelector('.transcode-list')) {
+          statusBox.className = 'status show warn';
+          statusBox.innerHTML =
+            '<div>检测到以下视频建议转码（需你确认后才会开始）：</div>' +
+            '<div class="transcode-list"></div>';
+        }
+
+        const listEl = statusBox.querySelector('.transcode-list');
+        if (!listEl) {
+          return;
+        }
+
+        let row = statusBox.querySelector('[data-transcode-item="' + encoded + '"]');
+        if (!row) {
+          row = document.createElement('div');
+          row.className = 'transcode-item state-running';
+          row.setAttribute('data-transcode-item', encoded);
+          row.innerHTML =
+            '<div class="transcode-item-head">' +
+              '<div>' +
+                '<div class="transcode-item-name"></div>' +
+                '<div class="transcode-item-reason"></div>' +
+              '</div>' +
+              '<div class="transcode-actions">' +
+                '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '" disabled>确认转码</button>' +
+                '<button type="button" class="transcode-cancel-btn" data-cancel-file="' + encoded + '">取消转码</button>' +
+                '<div class="transcode-progress"><div class="transcode-progress-fill" data-progress-fill="' + encoded + '"></div></div>' +
+                '<span class="transcode-progress-text" data-progress-text="' + encoded + '"></span>' +
+              '</div>' +
+            '</div>';
+          listEl.appendChild(row);
+        }
+
+        const title = row.querySelector('.transcode-item-name');
+        if (title) {
+          title.textContent = String(item.name);
+        }
+
+        const reason = row.querySelector('.transcode-item-reason');
+        if (reason) {
+          reason.textContent = '状态：' + String(item.message || '后台转码中');
+        }
+
+        setTranscodeTaskId(encoded, String(item.task_id || ''));
+        setTranscodeButtons(encoded, { startDisabled: true, cancelDisabled: !!item.cancel_requested });
+        setTranscodeVisualState(encoded, item.cancel_requested ? 'cancelled' : 'running');
+        updateTranscodeProgress(encoded, Number(item.progress || 0), String(item.message || '转码中'));
+      }
+
+      async function recoverRunningTranscodeTasks() {
+        try {
+          const data = await fetchJson(api.convertTasks);
+          const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+          for (let i = 0; i < tasks.length; i += 1) {
+            const task = tasks[i];
+            if (!task || !task.task_id || !task.name) {
+              continue;
+            }
+            upsertTranscodeTaskItem(task);
+            const encoded = encodeURIComponent(String(task.name));
+            stopTranscodePolling(encoded);
+            const timer = setInterval(function () {
+              pollTranscodeProgress(encoded, String(task.task_id));
+            }, 1000);
+            transcodeProgressTimers.set(encoded, timer);
+            await pollTranscodeProgress(encoded, String(task.task_id));
+          }
+        } catch (_) {
+        }
+      }
+
+      function setTranscodeReason(encodedName, text) {
+        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
+        if (!item) {
+          return;
+        }
+        const reason = item.querySelector('.transcode-item-reason');
+        if (reason) {
+          reason.textContent = text || '';
+        }
+      }
+
+      function stopTranscodePolling(encodedName) {
+        const timer = transcodeProgressTimers.get(encodedName);
+        if (timer) {
+          clearInterval(timer);
+          transcodeProgressTimers.delete(encodedName);
+        }
+      }
+
+      async function pollTranscodeProgress(encodedName, taskId) {
+        try {
+          const data = await fetchJson(api.convertProgress + '?task_id=' + encodeURIComponent(taskId));
+          const progress = Number(data.progress || 0);
+          updateTranscodeProgress(encodedName, progress, (data.message || '转码中') + ' ' + Math.max(0, Math.min(100, Math.round(progress))) + '%');
+
+          if (data.done) {
+            stopTranscodePolling(encodedName);
+            setTranscodeTaskId(encodedName, '');
+            if (data.success) {
+              setTranscodeVisualState(encodedName, 'done');
+              updateTranscodeProgress(encodedName, 100, '已完成');
+              setTranscodeReason(encodedName, '状态：已完成，输出文件 ' + String(data.name || decodeURIComponent(encodedName)));
+              setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true });
+              await loadFiles();
+            } else {
+              const cancelled = data.cancel_requested || String(data.message || '').indexOf('取消') >= 0;
+              setTranscodeVisualState(encodedName, cancelled ? 'cancelled' : 'failed');
+              updateTranscodeProgress(encodedName, progress, cancelled ? '已取消' : '失败');
+              setTranscodeReason(encodedName, cancelled
+                ? '状态：已取消'
+                : '状态：失败，' + String(data.error || data.message || '未知错误'));
+              setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
+            }
+          }
+        } catch (err) {
+          stopTranscodePolling(encodedName);
+          setTranscodeTaskId(encodedName, '');
+          setTranscodeVisualState(encodedName, 'failed');
+          updateTranscodeProgress(encodedName, 0, '进度查询失败');
+          setTranscodeReason(encodedName, '状态：进度查询失败，' + err.message);
+          setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
+        }
+      }
+
+      async function cancelManualTranscode(encodedName) {
+        const taskId = getTranscodeTaskId(encodedName);
+        if (!taskId) {
+          setTranscodeReason(encodedName, '状态：找不到任务号，无法取消');
+          return;
+        }
+
+        try {
+          setTranscodeButtons(encodedName, { cancelDisabled: true });
+          await fetchJson(api.convertCancel + '?task_id=' + encodeURIComponent(taskId), {
+            method: 'POST'
+          });
+          setTranscodeVisualState(encodedName, 'cancelled');
+          updateTranscodeProgress(encodedName, 0, '取消中');
+          setTranscodeReason(encodedName, '状态：已发送取消请求，等待后台停止');
+        } catch (err) {
+          setTranscodeVisualState(encodedName, 'failed');
+          setTranscodeReason(encodedName, '状态：取消失败，' + err.message);
+          setTranscodeButtons(encodedName, { cancelDisabled: false });
+        }
+      }
+
+      async function startManualTranscode(encodedName) {
+        setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true });
+
+        const fileName = decodeURIComponent(encodedName);
+        try {
+          setTranscodeVisualState(encodedName, 'running');
+          updateTranscodeProgress(encodedName, 0, '任务创建中...');
+          setTranscodeReason(encodedName, '状态：正在请求后台启动转码任务');
+          const data = await fetchJson(api.convertVideo + '?file=' + encodeURIComponent(fileName), {
+            method: 'POST'
+          });
+
+          if (data.completed) {
+            setTranscodeVisualState(encodedName, 'done');
+            updateTranscodeProgress(encodedName, 100, '无需转码');
+            setTranscodeReason(encodedName, '状态：文件已经可直接播放');
+            setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true });
+            return;
+          }
+
+          if (!data.task_id) {
+            throw new Error('missing task id');
+          }
+
+          setTranscodeTaskId(encodedName, String(data.task_id));
+          setTranscodeReason(encodedName, '状态：后台任务已启动，任务号 ' + String(data.task_id));
+          updateTranscodeProgress(encodedName, Number(data.progress || 0), '已启动');
+          setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: false });
+          stopTranscodePolling(encodedName);
+          const timer = setInterval(function () {
+            pollTranscodeProgress(encodedName, data.task_id);
+          }, 1000);
+          transcodeProgressTimers.set(encodedName, timer);
+          await pollTranscodeProgress(encodedName, data.task_id);
+        } catch (err) {
+          stopTranscodePolling(encodedName);
+          setTranscodeTaskId(encodedName, '');
+          setTranscodeVisualState(encodedName, 'failed');
+          updateTranscodeProgress(encodedName, 0, '失败：' + err.message);
+          setTranscodeReason(encodedName, '状态：失败，' + err.message);
+          setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
+        }
+      }
+
       function resetStatus() {
+        transcodeProgressTimers.forEach(function (timer) {
+          clearInterval(timer);
+        });
+        transcodeProgressTimers.clear();
         statusBox.className = 'status';
         statusBox.textContent = '';
       }
@@ -879,6 +1327,10 @@
       function safeSize(file) {
         const n = Number(file.size || 0);
         return Number.isFinite(n) ? n : 0;
+      }
+
+      function formatNumber(num) {
+        return String(Number(num) || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
       }
 
       function compareFiles(a, b, key, order) {
@@ -930,7 +1382,7 @@
           return (
             '<tr>' +
               '<td><a class="file-name" href="' + api.download + '?file=' + encoded + '">' + name + '</a></td>' +
-              '<td><span class="size">' + size + ' 字节</span></td>' +
+              '<td><span class="size">' + formatNumber(size) + ' 字节</span></td>' +
               '<td><span class="time">' + uploaded + '</span></td>' +
               '<td class="actions">' + previewBtn + videoBtn + textBtn + '<button class="delete-btn" data-file="' + encoded + '" data-name="' + name + '">删除</button></td>' +
             '</tr>'
@@ -981,7 +1433,26 @@
 
         const mediaVideo = win.querySelector('video');
         if (mediaVideo) {
+          bindVideoResume(mediaVideo, decodeURIComponent(file || ''));
           mediaVideo.play().catch(function () {});
+
+          // Check if video has audio track
+          checkVideoAudio(String(name || '')).then(function (probeResult) {
+            if (probeResult.ok === false || !probeResult.has_audio || probeResult.browser_audio_supported === false) {
+              // No audio or unsupported browser audio codec
+              var message = '此视频文件不含音频轨道，音量按钮将不可用。';
+              if (probeResult && probeResult.has_audio && probeResult.browser_audio_supported === false) {
+                message = '此视频音频编码为 ' + (probeResult.audio_codec || 'unknown') + '，浏览器通常不支持播放声音。';
+              }
+              const warning = document.createElement('div');
+              warning.style.cssText = 'margin-top: 8px; padding: 8px 10px; background: #fff7e8; border: 1px solid #e3c89d; border-radius: 6px; font-size: 12px; color: #8a5a00; display: flex; align-items: flex-start; gap: 8px;';
+              warning.innerHTML = '<span style="flex-shrink: 0; font-weight: 700;">!</span><span>' + escapeHtml(message) + ' 请在页面提示中手动确认是否转码。</span>';
+              const body = win.querySelector('.preview-body');
+              if (body && body.querySelector('video')) {
+                body.insertBefore(warning, body.querySelector('video').nextSibling);
+              }
+            }
+          });
         }
 
         const mediaText = win.querySelector('.preview-text');
@@ -1044,6 +1515,13 @@
         }
         const v = win.querySelector('video');
         if (v) {
+          const resumeFile = v.getAttribute('data-resume-file') || '';
+          if (resumeFile) {
+            clearScheduledVideoResumeSave(resumeFile);
+            const ms = Math.max(0, Math.round((Number(v.currentTime) || 0) * 1000));
+            saveVideoResumePosition(resumeFile, ms).catch(function () {});
+          }
+          v.setAttribute('data-resume-closing', '1');
           v.pause();
           v.src = '';
         }
@@ -1140,11 +1618,142 @@
         return data;
       }
 
+      async function loadVideoResumePosition(fileName) {
+        const data = await fetchJson(api.videoResume + '?file=' + encodeURIComponent(fileName || ''));
+        return {
+          found: !!data.found,
+          positionMs: Math.max(0, Number(data.position_ms || 0))
+        };
+      }
+
+      async function saveVideoResumePosition(fileName, positionMs) {
+        const safeMs = Math.max(0, Math.round(Number(positionMs) || 0));
+        await fetchJson(
+          api.videoResumeSave
+            + '?file=' + encodeURIComponent(fileName || '')
+            + '&position_ms=' + encodeURIComponent(String(safeMs)),
+          { method: 'POST' }
+        );
+      }
+
+      function scheduleSaveVideoResumePosition(fileName, positionMs) {
+        const key = String(fileName || '');
+        if (!key) {
+          return;
+        }
+
+        const existed = videoResumeSaveTimers.get(key);
+        if (existed) {
+          existed.positionMs = positionMs;
+          return;
+        }
+
+        const state = {
+          positionMs: positionMs,
+          timer: setTimeout(function () {
+            const latest = videoResumeSaveTimers.get(key);
+            if (!latest) {
+              return;
+            }
+            clearTimeout(latest.timer);
+            videoResumeSaveTimers.delete(key);
+            saveVideoResumePosition(key, latest.positionMs).catch(function () {});
+          }, 800)
+        };
+        videoResumeSaveTimers.set(key, state);
+      }
+
+      function clearScheduledVideoResumeSave(fileName) {
+        const key = String(fileName || '');
+        if (!key) {
+          return;
+        }
+
+        const existed = videoResumeSaveTimers.get(key);
+        if (!existed) {
+          return;
+        }
+
+        clearTimeout(existed.timer);
+        videoResumeSaveTimers.delete(key);
+      }
+
+      function bindVideoResume(video, fileName) {
+        const key = String(fileName || '');
+        if (!video || !key) {
+          return;
+        }
+
+        video.setAttribute('data-resume-file', key);
+        let restored = false;
+        let lastSavedSec = -1;
+
+        video.addEventListener('loadedmetadata', function () {
+          if (restored) {
+            return;
+          }
+          restored = true;
+
+          loadVideoResumePosition(key).then(function (resume) {
+            if (!resume.found || resume.positionMs <= 0) {
+              return;
+            }
+
+            const seekSec = resume.positionMs / 1000.0;
+            const duration = Number(video.duration);
+            if (!Number.isFinite(duration) || duration <= 1) {
+              video.currentTime = seekSec;
+              return;
+            }
+
+            if (seekSec >= duration - 0.6) {
+              return;
+            }
+
+            video.currentTime = Math.max(0, Math.min(seekSec, duration - 0.5));
+          }).catch(function () {});
+        });
+
+        video.addEventListener('timeupdate', function () {
+          if (video.getAttribute('data-resume-closing') === '1') {
+            return;
+          }
+
+          const sec = Math.floor(Number(video.currentTime) || 0);
+          if (sec < 0) {
+            return;
+          }
+
+          if (lastSavedSec >= 0 && Math.abs(sec - lastSavedSec) < 3) {
+            return;
+          }
+
+          lastSavedSec = sec;
+          scheduleSaveVideoResumePosition(key, sec * 1000);
+        });
+
+        video.addEventListener('pause', function () {
+          if (video.getAttribute('data-resume-closing') === '1') {
+            return;
+          }
+          const sec = Math.floor(Number(video.currentTime) || 0);
+          scheduleSaveVideoResumePosition(key, Math.max(0, sec * 1000));
+        });
+
+        video.addEventListener('ended', function () {
+          if (video.getAttribute('data-resume-closing') === '1') {
+            return;
+          }
+          scheduleSaveVideoResumePosition(key, 0);
+        });
+      }
+
       async function loadFiles() {
         try {
           const data = await fetchJson(api.files);
           allFiles = Array.isArray(data.files) ? data.files : [];
           renderFiles(allFiles);
+          await recoverRunningTranscodeTasks();
         } catch (err) {
           fileList.innerHTML = '';
           fileTable.style.display = 'none';
@@ -1214,12 +1823,7 @@
 
           const videoProbeFails = await verifyUploadedVideos(data.files);
           if (videoProbeFails.length) {
-            const names = videoProbeFails.map(function (x) { return x.convertedName || x.name; }).join('、');
-            showStatus(
-              '已尝试通知服务端转码以下视频：' + names + '。如仍无法播放，请重新下载或转码为 H.264 + AAC 并加 faststart。',
-              'warn'
-            );
-            await loadFiles();
+            showManualTranscodePrompt(videoProbeFails);
           }
 
           setTimeout(hideUploadProgress, 700);
@@ -1263,6 +1867,25 @@
           showStatus('模板缓存已刷新', 'warn');
         } catch (err) {
           showStatus('刷新模板缓存失败：' + err.message, 'err');
+        }
+      });
+
+      statusBox.addEventListener('click', function (e) {
+        const btn = e.target.closest('.transcode-btn[data-transcode-file]');
+        if (btn && !btn.disabled) {
+          const encoded = btn.getAttribute('data-transcode-file');
+          if (encoded) {
+            startManualTranscode(encoded);
+          }
+          return;
+        }
+
+        const cancelBtn = e.target.closest('.transcode-cancel-btn[data-cancel-file]');
+        if (cancelBtn && !cancelBtn.disabled) {
+          const encoded = cancelBtn.getAttribute('data-cancel-file');
+          if (encoded) {
+            cancelManualTranscode(encoded);
+          }
         }
       });
 

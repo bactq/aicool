@@ -37,5 +37,11 @@ private:
 	bool routeFiles(request_t& req, response_t& res);
 	bool routeDownload(request_t& req, response_t& res);
 	bool routeVideoConvert(request_t& req, response_t& res);
+	bool routeVideoConvertProgress(request_t& req, response_t& res);
+	bool routeVideoConvertTasks(request_t& req, response_t& res);
+	bool routeVideoConvertCancel(request_t& req, response_t& res);
+	bool routeVideoProbe(request_t& req, response_t& res);
+	bool routeVideoResumeGet(request_t& req, response_t& res);
+	bool routeVideoResumeSet(request_t& req, response_t& res);
 	bool routeUpload(request_t& req, response_t& res);
 };

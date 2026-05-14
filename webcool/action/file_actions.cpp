@@ -261,6 +261,10 @@ bool FilesAction::run(request_t& req, response_t& res,
 	int count = 0;
 	const char* name;
 	while ((name = scanner.next_file(false)) != NULL) {
+		if (strcmp(name, ".video_resume.db") == 0) {
+			continue;
+		}
+
 		acl::string full;
 		full.format("%s/%s", upload_dir.c_str(), name);
 

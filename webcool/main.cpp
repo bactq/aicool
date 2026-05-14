@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "http_servlet.h"
+#include "action/actions.h"
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -163,6 +164,13 @@ int main(int argc, char* argv[]) {
 	printf("  监听地址: %s\n", addr.c_str());
 	printf("  上传目录: %s\n", g_upload_dir);
 	printf("  工作线程: %d\n", nthreads);
+
+	std::string resume_db_err;
+	if (!action::init_video_resume_db(g_upload_dir, resume_db_err)) {
+		fprintf(stderr, "初始化续播数据库失败: %s\n", resume_db_err.c_str());
+		return 1;
+	}
+	printf("  续播数据库: 已初始化\n");
 
 	acl::server_socket server;
 

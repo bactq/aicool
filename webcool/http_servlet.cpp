@@ -37,6 +37,12 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/files", &http_servlet::routeFiles },
 		{ "/api/v1/download", &http_servlet::routeDownload },
 		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },
+		{ "/api/v1/video/convert/cancel", &http_servlet::routeVideoConvertCancel },
+		{ "/api/v1/video/convert/progress", &http_servlet::routeVideoConvertProgress },
+		{ "/api/v1/video/convert/tasks", &http_servlet::routeVideoConvertTasks },
+		{ "/api/v1/video/probe", &http_servlet::routeVideoProbe },
+		{ "/api/v1/video/resume", &http_servlet::routeVideoResumeGet },
+		{ "/api/v1/video/resume/save", &http_servlet::routeVideoResumeSet },
 		{ "/api/v1/upload", &http_servlet::routeUpload },
 	};
 	std::map<std::string, get_route_handler>::const_iterator it = routes.find(path);
@@ -71,6 +77,30 @@ bool http_servlet::routeVideoConvert(request_t& req, response_t& res) {
 	return action::VideoConvertAction::run(req, res, upload_dir_);
 }
 
+bool http_servlet::routeVideoConvertProgress(request_t& req, response_t& res) {
+	return action::VideoConvertProgressAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeVideoConvertTasks(request_t& req, response_t& res) {
+	return action::VideoConvertTasksAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeVideoConvertCancel(request_t& req, response_t& res) {
+	return action::VideoConvertCancelAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeVideoProbe(request_t& req, response_t& res) {
+	return action::VideoProbeAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeVideoResumeGet(request_t& req, response_t& res) {
+	return action::VideoResumeGetAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeVideoResumeSet(request_t& req, response_t& res) {
+	return action::VideoResumeSetAction::run(req, res, upload_dir_);
+}
+
 // ────────────────────────────────────────────────────────────────
 // doPost
 // ────────────────────────────────────────────────────────────────
@@ -81,6 +111,21 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 	}
 	if (path && strcmp(path, "/api/v1/video/convert") == 0) {
 		return action::VideoConvertAction::run(req, res, upload_dir_);
+	}
+	if (path && strcmp(path, "/api/v1/video/convert/cancel") == 0) {
+		return action::VideoConvertCancelAction::run(req, res, upload_dir_);
+	}
+	if (path && strcmp(path, "/api/v1/video/convert/progress") == 0) {
+		return action::VideoConvertProgressAction::run(req, res, upload_dir_);
+	}
+	if (path && strcmp(path, "/api/v1/video/convert/tasks") == 0) {
+		return action::VideoConvertTasksAction::run(req, res, upload_dir_);
+	}
+	if (path && strcmp(path, "/api/v1/video/probe") == 0) {
+		return action::VideoProbeAction::run(req, res, upload_dir_);
+	}
+	if (path && strcmp(path, "/api/v1/video/resume/save") == 0) {
+		return action::VideoResumeSetAction::run(req, res, upload_dir_);
 	}
 
 	acl::json json;

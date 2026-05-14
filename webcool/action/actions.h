@@ -8,6 +8,8 @@ namespace action {
 typedef ::request_t request_t;
 typedef ::response_t response_t;
 
+bool init_video_resume_db(const std::string& upload_dir, std::string& err);
+
 class IndexAction {
 public:
 	static bool run(request_t& req, response_t& res);
@@ -50,6 +52,42 @@ private:
 };
 
 class VideoConvertAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class VideoConvertProgressAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class VideoConvertTasksAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class VideoConvertCancelAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class VideoProbeAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class VideoResumeGetAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class VideoResumeSetAction {
 public:
 	static bool run(request_t& req, response_t& res,
 		const std::string& upload_dir);
