@@ -1448,12 +1448,13 @@
 
         const mediaVideo = win.querySelector('video');
         if (mediaVideo) {
-          bindVideoResume(mediaVideo, decodeURIComponent(file || ''));
+          const rawVideoFile = decodeURIComponent(String(file || ''));
+          bindVideoResume(mediaVideo, rawVideoFile);
           mediaVideo.play().catch(function () {});
 
           // Check if video has audio track
-          checkVideoAudio(String(name || '')).then(function (probeResult) {
-            if (probeResult.ok === false || !probeResult.has_audio || probeResult.browser_audio_supported === false) {
+          checkVideoAudio(rawVideoFile).then(function (probeResult) {
+            if (probeResult && probeResult.ok && (!probeResult.has_audio || probeResult.browser_audio_supported === false)) {
               // No audio or unsupported browser audio codec
               var message = '此视频文件不含音频轨道，音量按钮将不可用。';
               if (probeResult && probeResult.has_audio && probeResult.browser_audio_supported === false) {
