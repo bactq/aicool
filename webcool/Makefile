@@ -52,6 +52,10 @@ ifeq ($(findstring Linux, $(UNIXNAME)), Linux)
 	ifeq ($(findstring x86_64, $(OSTYPE)), x86_64)
 		RPATH = linux64
 	endif
+	has_io_uring=$(HAS_IO_URING)
+	ifeq ($(has_io_uring), yes)
+		SYSLIB += -luring-ffi
+	endif
 endif
 
 # FreeBSD
@@ -65,7 +69,7 @@ endif
 # ACL 根目录（相对本 Makefile 的位置）
 ACL_PATH ?= ../third-party/acl
 ACL_BUILD_TARGET ?= all_lib
-BUILD_ACL ?= 1
+#BUILD_ACL ?= 1
 
 CFLAGS += \
 	-I$(ACL_PATH)/lib_acl/include \
