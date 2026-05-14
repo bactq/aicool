@@ -1,0 +1,40 @@
+#pragma once
+#include "stdafx.h"
+#include <string>
+
+/**
+ * HTTP 文件上传处理 Servlet
+ *
+ * 支持：
+ *  - GET /                    : 返回前端页面
+ *  - GET /api/v1/files           : 返回已上传文件 JSON 列表
+ *  - GET /api/v1/download?file=  : 下载文件（二进制）
+ *  - GET /api/v1/delete?file=    : 删除文件，返回 JSON
+ *  - GET /api/v1/admin/template/reload : 清空模板缓存，返回 JSON
+ *  - POST /api/v1/upload         : multipart 上传，返回 JSON
+ */
+class http_servlet : public acl::HttpServlet {
+public:
+	http_servlet(acl::socket_stream* stream, acl::session* session,
+		const char* upload_dir);
+	~http_servlet();
+
+protected:
+	// @override
+	bool doGet(request_t& req, response_t& res);
+
+	// @override
+	bool doPost(request_t& req, response_t& res);
+
+	// @override
+	bool doError(request_t& req, response_t& res);
+
+private:
+	std::string upload_dir_;
+
+	bool routeTemplateReload(request_t& req, response_t& res);
+	bool routeDelete(request_t& req, response_t& res);
+	bool routeFiles(request_t& req, response_t& res);
+	bool routeDownload(request_t& req, response_t& res);
+	bool routeUpload(request_t& req, response_t& res);
+};

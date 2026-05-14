@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>文件管理控制台</title>
+  <style>
+    :root {
+      --bg1: #f4fbff;
+      --bg2: #fff6eb;
+      --card: rgba(255, 255, 255, 0.9);
+      --ink: #20324a;
+      --muted: #627086;
+      --line: #dbe7f3;
+      --accent: #0d8b74;
+      --accent-hover: #0a725f;
+      --link: #1e6fd9;
+      --danger: #b23a48;
+      --danger-bg: #fff3f4;
+      --ok: #0f7a35;
+      --ok-bg: #ecfff1;
+      --warn: #8a5a00;
+      --warn-bg: #fff7e8;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 18%, rgba(123, 210, 255, 0.25), transparent 36%),
+        radial-gradient(circle at 90% 10%, rgba(255, 192, 128, 0.28), transparent 32%),
+        linear-gradient(145deg, var(--bg1), var(--bg2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 22px;
+    }
+
+    .card {
+      width: min(760px, 100%);
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 18px 40px rgba(26, 49, 78, 0.12);
+      padding: 26px;
+      animation: rise 420ms ease-out both;
+    }
+
+    .section + .section {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px dashed var(--line);
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(24px, 3.4vw, 34px);
+      letter-spacing: 0.3px;
+    }
+
+    .sub {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .tool-row {
+      margin-bottom: 18px;
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .tool-row a {
+      color: var(--link);
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .tool-row a.admin-link {
+      color: #8a5a00;
+    }
+
+    .tool-row button {
+      border: 1px solid #e3c89d;
+      background: #fff7e8;
+      color: #8a5a00;
+      border-radius: 9px;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .tool-row button:hover {
+      background: #ffeecf;
+    }
+
+    .tool-row a:hover {
+      text-decoration: underline;
+    }
+
+    .upload-box {
+      border: 2px dashed #b7cae4;
+      border-radius: 14px;
+      padding: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(243,250,255,.9));
+      margin: 16px 0 18px;
+    }
+
+    .file-row {
+      display: grid;
+      grid-template-columns: 84px 1fr;
+      align-items: center;
+      gap: 10px;
+      margin: 12px 0;
+    }
+
+    .file-row label {
+      color: #2c4463;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    input[type=file] {
+      width: 100%;
+      max-width: 100%;
+      color: var(--muted);
+    }
+
+    .btn {
+      background: var(--accent);
+      color: #fff;
+      padding: 11px 20px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      transition: transform .12s ease, background .15s ease;
+    }
+
+    .btn:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    .progress-wrap {
+      margin-top: 12px;
+      display: none;
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: #e8f0fb;
+      overflow: hidden;
+      border: 1px solid #d4e2f1;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #0d8b74, #1e6fd9);
+      transition: width .12s linear;
+    }
+
+    .progress-text {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+      text-align: right;
+    }
+
+    .status {
+      margin-top: 12px;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 13px;
+      display: none;
+    }
+
+    .status.show { display: block; }
+    .status.ok { color: var(--ok); background: var(--ok-bg); border: 1px solid #b9ecc8; }
+    .status.warn { color: var(--warn); background: var(--warn-bg); border: 1px solid #efd59f; }
+    .status.err { color: var(--danger); background: #fff1f2; border: 1px solid #f2b6bd; }
+
+    .list-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .list-head h2 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .counter {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .sort-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .sort-row select {
+      border: 1px solid #d8e5f2;
+      border-radius: 8px;
+      padding: 5px 8px;
+      background: #fff;
+      color: #334963;
+      font-size: 13px;
+    }
+
+    .file-table-wrap {
+      overflow-x: auto;
+    }
+
+    table.file-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 620px;
+    }
+
+    .file-table th,
+    .file-table td {
+      border-bottom: 1px dashed #d8e5f2;
+      padding: 10px 8px;
+      text-align: left;
+      font-size: 14px;
+      vertical-align: middle;
+    }
+
+    .file-table th {
+      color: #415a77;
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.2px;
+      background: rgba(245, 250, 255, 0.7);
+    }
+
+    .sort-btn {
+      border: none;
+      background: transparent;
+      color: #415a77;
+      font-weight: 700;
+      font-size: 13px;
+      padding: 0;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .sort-btn .arrow {
+      color: #8ea3bc;
+      font-size: 12px;
+      min-width: 12px;
+      text-align: center;
+    }
+
+    .sort-btn.active {
+      color: #1e6fd9;
+    }
+
+    .sort-btn.active .arrow {
+      color: #1e6fd9;
+    }
+
+    .file-name {
+      color: var(--link);
+      text-decoration: none;
+      font-weight: 600;
+      word-break: break-all;
+    }
+
+    .file-name:hover { text-decoration: underline; }
+
+    .size {
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .time {
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .delete-btn {
+      border: 1px solid #e8b6b9;
+      background: var(--danger-bg);
+      color: var(--danger);
+      border-radius: 9px;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .delete-btn:hover { background: #ffe5e8; }
+
+    .preview-btn {
+      border: 1px solid #b9cdef;
+      background: #eef5ff;
+      color: #1e6fd9;
+      border-radius: 9px;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+
+    .preview-btn:hover { background: #e2eeff; }
+
+    .video-btn {
+      border: 1px solid #c1d8c5;
+      background: #eefaf0;
+      color: #2b7a33;
+      border-radius: 9px;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+
+    .video-btn:hover { background: #ddf3e1; }
+
+    .text-btn {
+      border: 1px solid #d9c8ef;
+      background: #f6efff;
+      color: #6a42a8;
+      border-radius: 9px;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+
+    .text-btn:hover { background: #ede1ff; }
+
+    .actions {
+      white-space: nowrap;
+    }
+
+    .preview-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      pointer-events: none;
+    }
+
+    .floating-preview {
+      width: min(980px, 96vw);
+      max-height: 90vh;
+      background: #fff;
+      border-radius: 14px;
+      border: 1px solid #dbe7f3;
+      box-shadow: 0 22px 46px rgba(25, 42, 62, 0.24);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      min-width: 360px;
+      min-height: 220px;
+      resize: both;
+      pointer-events: auto;
+    }
+
+    .preview-head {
+      padding: 12px 14px;
+      border-bottom: 1px solid #e6edf6;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      cursor: move;
+      user-select: none;
+    }
+
+    .preview-title {
+      font-size: 14px;
+      color: #3e5471;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .preview-close {
+      border: 1px solid #d7e3f2;
+      background: #f7fbff;
+      color: #415a77;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .preview-close:hover { background: #eaf3ff; }
+
+    .preview-body {
+      padding: 12px;
+      overflow: auto;
+      text-align: center;
+      background: #f8fbff;
+    }
+
+    .preview-image {
+      max-width: 100%;
+      max-height: calc(90vh - 110px);
+      object-fit: contain;
+      border-radius: 8px;
+      border: 1px solid #deebf7;
+      background: #fff;
+    }
+
+    .preview-video {
+      width: 100%;
+      max-height: calc(90vh - 110px);
+      border-radius: 8px;
+      border: 1px solid #deebf7;
+      background: #000;
+    }
+
+    .preview-text {
+      display: block;
+      margin: 0;
+      width: 100%;
+      min-height: 240px;
+      max-height: calc(90vh - 110px);
+      overflow-x: scroll;
+      overflow-y: auto;
+      white-space: pre;
+      word-break: normal;
+      overflow-wrap: normal;
+      text-align: left;
+      border-radius: 8px;
+      border: 1px solid #deebf7;
+      background: #fff;
+      color: #24364f;
+      font-size: 13px;
+      line-height: 1.45;
+      padding: 12px;
+      font-family: Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    .preview-text.code .kw {
+      color: #7a3dc8;
+      font-weight: 700;
+    }
+
+    .empty {
+      color: var(--muted);
+      margin: 10px 0 0;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 640px) {
+      .card { padding: 20px; }
+      .file-row { grid-template-columns: 1fr; gap: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <section class="section">
+      <h1>文件管理控制台</h1>
+      <p class="sub">前后端分离模式：页面通过 JS 调用 JSON API 完成上传、列表、删除与缓存刷新。</p>
+      <div class="tool-row">
+        <button id="reload-template-btn" type="button">刷新模板缓存</button>
+      </div>
+      <form id="upload-form" enctype="multipart/form-data">
+        <div class="upload-box">
+          <div class="file-row"><label>文件一</label><input type="file" name="file1"></div>
+          <div class="file-row"><label>文件二</label><input type="file" name="file2"></div>
+          <div class="file-row"><label>文件三</label><input type="file" name="file3"></div>
+        </div>
+        <input class="btn" type="submit" value="上传文件">
+      </form>
+      <div id="upload-progress" class="progress-wrap" aria-live="polite">
+        <div class="progress-track">
+          <div id="upload-progress-fill" class="progress-fill"></div>
+        </div>
+        <div id="upload-progress-text" class="progress-text">准备上传...</div>
+      </div>
+      <div id="status" class="status"></div>
+    </section>
+
+    <section class="section">
+      <div class="list-head">
+        <h2>已上传文件</h2>
+        <div class="sort-row">
+          <span class="counter" id="file-counter">0 个文件</span>
+          <label for="sort-key">排序</label>
+          <select id="sort-key">
+            <option value="name">按名称</option>
+            <option value="size">按大小</option>
+            <option value="uploaded_at">按上传时间</option>
+          </select>
+          <select id="sort-order">
+            <option value="asc">升序</option>
+            <option value="desc">降序</option>
+          </select>
+        </div>
+      </div>
+      <div class="file-table-wrap">
+        <table class="file-table" id="file-table" style="display:none;">
+          <thead>
+            <tr>
+              <th>
+                <button class="sort-btn" data-sort-key="name" type="button">
+                  文件名 <span class="arrow">-</span>
+                </button>
+              </th>
+              <th>
+                <button class="sort-btn" data-sort-key="size" type="button">
+                  文件大小 <span class="arrow">-</span>
+                </button>
+              </th>
+              <th>
+                <button class="sort-btn" data-sort-key="uploaded_at" type="button">
+                  上传时间 <span class="arrow">-</span>
+                </button>
+              </th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="file-list"></tbody>
+        </table>
+      </div>
+      <p id="file-empty" class="empty">加载中...</p>
+    </section>
+  </main>
+
+  <div id="preview-layer" class="preview-layer"></div>
+
+  <script>
+    (function () {
+      const api = {
+        files: '/api/v1/files',
+        upload: '/api/v1/upload',
+        del: '/api/v1/delete',
+        download: '/api/v1/download',
+        reloadTpl: '/api/v1/admin/template/reload'
+      };
+
+      const uploadForm = document.getElementById('upload-form');
+      const reloadBtn = document.getElementById('reload-template-btn');
+      const statusBox = document.getElementById('status');
+      const uploadProgress = document.getElementById('upload-progress');
+      const uploadProgressFill = document.getElementById('upload-progress-fill');
+      const uploadProgressText = document.getElementById('upload-progress-text');
+      const fileList = document.getElementById('file-list');
+      const fileTable = document.getElementById('file-table');
+      const fileEmpty = document.getElementById('file-empty');
+      const fileCounter = document.getElementById('file-counter');
+      const sortKey = document.getElementById('sort-key');
+      const sortOrder = document.getElementById('sort-order');
+      const sortButtons = Array.from(document.querySelectorAll('.sort-btn[data-sort-key]'));
+      const previewLayer = document.getElementById('preview-layer');
+      let allFiles = [];
+      let previewZ = 900;
+      let activeDrag = null;
+      const openedPreviewWindows = new Map();
+
+      function isImageName(name) {
+    	      return /\.(png|jpg|jpeg|gif)$/i.test(String(name || ''));
+      }
+
+      function isVideoName(name) {
+        return /\.(mp4|avi|mkv|rmvb)$/i.test(String(name || ''));
+      }
+
+      function isTextName(name) {
+        return /\.(txt|md|log|csv|json|xml|yaml|yml|ini|conf|c|h|cpp|hpp|cc|java|py|js|ts|sh|go|sql|proto)$/i.test(String(name || ''));
+      }
+
+      function detectCodeLang(name) {
+        const n = String(name || '').toLowerCase();
+        if (/\.(c|h)$/i.test(n)) return 'c';
+        if (/\.(cpp|hpp|cc)$/i.test(n)) return 'cpp';
+        if (/\.java$/i.test(n)) return 'java';
+        if (/\.(js|jsx)$/i.test(n)) return 'javascript';
+        if (/\.(ts|tsx)$/i.test(n)) return 'typescript';
+        if (/\.py$/i.test(n)) return 'python';
+        if (/\.go$/i.test(n)) return 'go';
+        if (/\.sql$/i.test(n)) return 'sql';
+        if (/\.(sh|bash)$/i.test(n)) return 'shell';
+        if (/\.proto$/i.test(n)) return 'proto';
+        return '';
+      }
+
+      function escapeRegExp(text) {
+        return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      }
+
+      function highlightCodeText(text, lang) {
+        const escaped = escapeHtml(text || '');
+        const langKeywords = {
+          c: ['if', 'else', 'switch', 'case', 'default', 'break', 'continue', 'return', 'for', 'while', 'do', 'typedef', 'struct', 'enum', 'union', 'const', 'static', 'extern', 'volatile', 'unsigned', 'signed', 'sizeof', 'void', 'char', 'short', 'int', 'long', 'float', 'double'],
+          cpp: ['if', 'else', 'switch', 'case', 'default', 'break', 'continue', 'return', 'for', 'while', 'do', 'class', 'struct', 'enum', 'namespace', 'template', 'typename', 'using', 'public', 'private', 'protected', 'virtual', 'override', 'const', 'static', 'inline', 'new', 'delete', 'try', 'catch', 'throw', 'auto', 'nullptr', 'this', 'true', 'false', 'void', 'char', 'short', 'int', 'long', 'float', 'double', 'bool'],
+          java: ['if', 'else', 'switch', 'case', 'default', 'break', 'continue', 'return', 'for', 'while', 'do', 'class', 'interface', 'enum', 'package', 'import', 'public', 'private', 'protected', 'static', 'final', 'abstract', 'extends', 'implements', 'new', 'this', 'super', 'try', 'catch', 'finally', 'throw', 'throws', 'void', 'boolean', 'byte', 'short', 'int', 'long', 'float', 'double', 'char', 'null', 'true', 'false'],
+          javascript: ['if', 'else', 'switch', 'case', 'default', 'break', 'continue', 'return', 'for', 'while', 'do', 'function', 'class', 'extends', 'const', 'let', 'var', 'new', 'this', 'try', 'catch', 'finally', 'throw', 'import', 'export', 'from', 'async', 'await', 'true', 'false', 'null', 'undefined'],
+          typescript: ['if', 'else', 'switch', 'case', 'default', 'break', 'continue', 'return', 'for', 'while', 'do', 'function', 'class', 'extends', 'implements', 'interface', 'type', 'enum', 'namespace', 'const', 'let', 'var', 'new', 'this', 'public', 'private', 'protected', 'readonly', 'import', 'export', 'from', 'async', 'await', 'true', 'false', 'null', 'undefined'],
+          python: ['if', 'elif', 'else', 'for', 'while', 'break', 'continue', 'return', 'def', 'class', 'import', 'from', 'as', 'try', 'except', 'finally', 'raise', 'with', 'lambda', 'pass', 'yield', 'global', 'nonlocal', 'True', 'False', 'None'],
+          go: ['if', 'else', 'switch', 'case', 'default', 'fallthrough', 'for', 'range', 'break', 'continue', 'return', 'func', 'type', 'struct', 'interface', 'map', 'chan', 'select', 'go', 'defer', 'package', 'import', 'const', 'var', 'nil', 'true', 'false'],
+          sql: ['select', 'from', 'where', 'insert', 'into', 'values', 'update', 'set', 'delete', 'create', 'table', 'alter', 'drop', 'join', 'left', 'right', 'inner', 'outer', 'on', 'and', 'or', 'not', 'null', 'as', 'group', 'by', 'order', 'limit', 'having', 'distinct', 'union'],
+          shell: ['if', 'then', 'else', 'fi', 'for', 'in', 'do', 'done', 'while', 'case', 'esac', 'function', 'return', 'break', 'continue', 'export', 'local'],
+          proto: ['syntax', 'package', 'import', 'option', 'message', 'enum', 'service', 'rpc', 'returns', 'repeated', 'optional', 'required', 'oneof', 'map', 'reserved']
+        };
+
+        const list = langKeywords[lang];
+        if (!list || !list.length) {
+          return escaped;
+        }
+
+        const pattern = new RegExp('\\b(' + list.map(escapeRegExp).join('|') + ')\\b', 'g');
+        return escaped.replace(pattern, '<span class="kw">$1</span>');
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function showStatus(msg, type) {
+        statusBox.className = 'status show ' + (type || 'ok');
+        statusBox.textContent = msg;
+      }
+
+      function resetStatus() {
+        statusBox.className = 'status';
+        statusBox.textContent = '';
+      }
+
+      function setUploadProgress(percent, text) {
+        const p = Math.max(0, Math.min(100, Number(percent) || 0));
+        uploadProgress.style.display = 'block';
+        uploadProgressFill.style.width = p + '%';
+        uploadProgressText.textContent = text || ('上传中 ' + p + '%');
+      }
+
+      function hideUploadProgress() {
+        uploadProgress.style.display = 'none';
+        uploadProgressFill.style.width = '0%';
+        uploadProgressText.textContent = '准备上传...';
+      }
+
+      function safeTime(file) {
+        const n = Number(file.uploaded_at || 0);
+        return Number.isFinite(n) ? n : 0;
+      }
+
+      function safeSize(file) {
+        const n = Number(file.size || 0);
+        return Number.isFinite(n) ? n : 0;
+      }
+
+      function compareFiles(a, b, key, order) {
+        let res = 0;
+        if (key === 'size') {
+          res = safeSize(a) - safeSize(b);
+        } else if (key === 'uploaded_at') {
+          res = safeTime(a) - safeTime(b);
+        } else {
+          const an = String(a.name || '');
+          const bn = String(b.name || '');
+          res = an.localeCompare(bn, 'zh-CN');
+        }
+        return order === 'desc' ? -res : res;
+      }
+
+      function renderFiles(files) {
+        fileCounter.textContent = files.length + ' 个文件';
+
+        if (!files.length) {
+          fileList.innerHTML = '';
+          fileTable.style.display = 'none';
+          fileEmpty.textContent = '当前没有可下载文件。';
+          fileEmpty.style.display = 'block';
+          return;
+        }
+
+        const key = sortKey.value || 'name';
+        const order = sortOrder.value || 'asc';
+        const sorted = files.slice().sort((a, b) => compareFiles(a, b, key, order));
+        updateSortIndicator();
+
+        fileEmpty.style.display = 'none';
+        fileTable.style.display = '';
+        fileList.innerHTML = sorted.map(file => {
+          const name = escapeHtml(file.name || '');
+          const size = safeSize(file);
+          const uploaded = escapeHtml(file.uploaded_time || '-');
+          const encoded = encodeURIComponent(file.name || '');
+          const previewBtn = isImageName(file.name)
+            ? '<button class="preview-btn" data-preview-file="' + encoded + '" data-preview-name="' + name + '">预览</button>'
+            : '';
+          const videoBtn = isVideoName(file.name)
+            ? '<button class="video-btn" data-video-file="' + encoded + '" data-video-name="' + name + '">观影</button>'
+            : '';
+          const textBtn = isTextName(file.name)
+            ? '<button class="text-btn" data-text-file="' + encoded + '" data-text-name="' + name + '">查看</button>'
+            : '';
+          return (
+            '<tr>' +
+              '<td><a class="file-name" href="' + api.download + '?file=' + encoded + '">' + name + '</a></td>' +
+              '<td><span class="size">' + size + ' 字节</span></td>' +
+              '<td><span class="time">' + uploaded + '</span></td>' +
+              '<td class="actions">' + previewBtn + videoBtn + textBtn + '<button class="delete-btn" data-file="' + encoded + '" data-name="' + name + '">删除</button></td>' +
+            '</tr>'
+          );
+        }).join('');
+      }
+
+      function openPreview(kind, file, name) {
+        const existed = openedPreviewWindows.get(file);
+        if (existed && existed.isConnected) {
+          bringToFront(existed);
+          const video = existed.querySelector('video');
+          if (video) {
+            video.play().catch(function () {});
+          }
+          return;
+        }
+
+        const url = api.download + '?preview=1&file=' + file;
+        const win = document.createElement('div');
+        win.className = 'floating-preview';
+        previewZ += 1;
+        win.style.zIndex = String(previewZ);
+
+        const titleText = kind === 'video' ? '视频播放：'
+          : (kind === 'text' ? '文本查看：' : '图片预览：');
+        const escapedTitle = escapeHtml(name || '');
+
+        let mediaHtml = '';
+        if (kind === 'video') {
+          mediaHtml = '<video class="preview-video" controls preload="metadata" src="' + url + '"></video>';
+        } else if (kind === 'text') {
+          mediaHtml = '<pre class="preview-text">加载中...</pre>';
+        } else {
+          mediaHtml = '<img class="preview-image" alt="图片预览" src="' + url + '">';
+        }
+
+        win.innerHTML =
+          '<div class="preview-head">' +
+            '<div class="preview-title">' + titleText + escapedTitle + '</div>' +
+            '<button class="preview-close" type="button">关闭</button>' +
+          '</div>' +
+          '<div class="preview-body">' + mediaHtml + '</div>';
+
+        previewLayer.appendChild(win);
+        centerPreviewWindow(win);
+        openedPreviewWindows.set(file, win);
+
+        const mediaVideo = win.querySelector('video');
+        if (mediaVideo) {
+          mediaVideo.play().catch(function () {});
+        }
+
+        const mediaText = win.querySelector('.preview-text');
+        if (mediaText) {
+          const lang = detectCodeLang(name);
+          if (lang) {
+            mediaText.classList.add('code');
+          }
+          fetch(url)
+            .then(function (res) {
+              if (!res.ok) {
+                throw new Error('http ' + res.status);
+              }
+              return res.text();
+            })
+            .then(function (text) {
+              if (lang) {
+                mediaText.innerHTML = highlightCodeText(text, lang);
+              } else {
+                mediaText.textContent = text;
+              }
+            })
+            .catch(function (err) {
+              mediaText.textContent = '文本加载失败: ' + err.message;
+            });
+        }
+
+        const closeBtn = win.querySelector('.preview-close');
+        const head = win.querySelector('.preview-head');
+
+        closeBtn.addEventListener('click', function () {
+          closePreviewWindow(win, file);
+        });
+
+        win.addEventListener('mousedown', function () {
+          bringToFront(win);
+        });
+
+        head.addEventListener('mousedown', function (e) {
+          if (e.target.closest('.preview-close')) {
+            return;
+          }
+          const rect = win.getBoundingClientRect();
+          bringToFront(win);
+          activeDrag = {
+            win: win,
+            startX: e.clientX,
+            startY: e.clientY,
+            left: rect.left,
+            top: rect.top
+          };
+          win.style.transform = 'none';
+          e.preventDefault();
+        });
+      }
+
+      function closePreviewWindow(win, key) {
+        if (!win) {
+          return;
+        }
+        const v = win.querySelector('video');
+        if (v) {
+          v.pause();
+          v.src = '';
+        }
+        if (key) {
+          openedPreviewWindows.delete(key);
+        } else {
+          openedPreviewWindows.forEach(function (value, k) {
+            if (value === win) {
+              openedPreviewWindows.delete(k);
+            }
+          });
+        }
+        if (win.parentNode) {
+          win.parentNode.removeChild(win);
+        }
+      }
+
+      function bringToFront(win) {
+        if (!win) {
+          return;
+        }
+        previewZ += 1;
+        win.style.zIndex = String(previewZ);
+      }
+
+      function centerPreviewWindow(win) {
+        if (!win) {
+          return;
+        }
+
+        win.style.transform = 'none';
+        const count = previewLayer.querySelectorAll('.floating-preview').length;
+        const w = win.offsetWidth || 760;
+        const h = win.offsetHeight || 520;
+        const offset = (count - 1) * 24;
+        const left = Math.max(8, Math.round((window.innerWidth - w) / 2));
+        const top = Math.max(8, Math.round((window.innerHeight - h) / 2));
+        win.style.left = (left + offset) + 'px';
+        win.style.top = (top + offset) + 'px';
+        clampWindowPosition(win);
+      }
+
+      function clampWindowPosition(win) {
+        if (!win) {
+          return;
+        }
+
+        const rect = win.getBoundingClientRect();
+        const maxLeft = Math.max(8, window.innerWidth - rect.width - 8);
+        const maxTop = Math.max(8, window.innerHeight - 42);
+        let left = rect.left;
+        let top = rect.top;
+
+        if (left < 8) left = 8;
+        if (left > maxLeft) left = maxLeft;
+        if (top < 8) top = 8;
+        if (top > maxTop) top = maxTop;
+
+        win.style.left = Math.round(left) + 'px';
+        win.style.top = Math.round(top) + 'px';
+      }
+
+      function updateSortIndicator() {
+        const key = sortKey.value || 'name';
+        const order = sortOrder.value || 'asc';
+        sortButtons.forEach(btn => {
+          const btnKey = btn.getAttribute('data-sort-key');
+          const arrow = btn.querySelector('.arrow');
+          if (btnKey === key) {
+            btn.classList.add('active');
+            if (arrow) {
+              arrow.textContent = order === 'desc' ? '↓' : '↑';
+            }
+          } else {
+            btn.classList.remove('active');
+            if (arrow) {
+              arrow.textContent = '-';
+            }
+          }
+        });
+      }
+
+      async function fetchJson(url, options) {
+        const res = await fetch(url, options || {});
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_) {
+          data = { ok: false, error: 'invalid json response' };
+        }
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || ('http ' + res.status));
+        }
+        return data;
+      }
+
+      async function loadFiles() {
+        try {
+          const data = await fetchJson(api.files);
+          allFiles = Array.isArray(data.files) ? data.files : [];
+          renderFiles(allFiles);
+        } catch (err) {
+          fileList.innerHTML = '';
+          fileTable.style.display = 'none';
+          fileEmpty.textContent = '加载文件列表失败：' + err.message;
+          fileEmpty.style.display = 'block';
+          showStatus('加载列表失败：' + err.message, 'err');
+        }
+      }
+
+      function uploadWithProgress(formData) {
+        return new Promise(function (resolve, reject) {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', api.upload, true);
+          xhr.responseType = 'json';
+
+          xhr.upload.onprogress = function (e) {
+            if (e.lengthComputable && e.total > 0) {
+              const percent = Math.round((e.loaded * 100) / e.total);
+              setUploadProgress(percent, '上传中 ' + percent + '%');
+            } else {
+              setUploadProgress(0, '上传中...');
+            }
+          };
+
+          xhr.onerror = function () {
+            reject(new Error('network error'));
+          };
+
+          xhr.onabort = function () {
+            reject(new Error('upload aborted'));
+          };
+
+          xhr.onload = function () {
+            let data = xhr.response;
+            if (!data || typeof data !== 'object') {
+              try {
+                data = JSON.parse(xhr.responseText || '{}');
+              } catch (_) {
+                data = { ok: false, error: 'invalid json response' };
+              }
+            }
+
+            if (xhr.status < 200 || xhr.status >= 300 || !data.ok) {
+              reject(new Error(data.error || ('http ' + xhr.status)));
+              return;
+            }
+
+            resolve(data);
+          };
+
+          xhr.send(formData);
+        });
+      }
+
+      uploadForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        resetStatus();
+        setUploadProgress(0, '开始上传...');
+
+        const formData = new FormData(uploadForm);
+        try {
+          const data = await uploadWithProgress(formData);
+          setUploadProgress(100, '上传完成 100%');
+          showStatus('上传完成：成功保存 ' + (data.count || 0) + ' 个文件', 'ok');
+          uploadForm.reset();
+          await loadFiles();
+          setTimeout(hideUploadProgress, 700);
+        } catch (err) {
+          setUploadProgress(0, '上传失败');
+          showStatus('上传失败：' + err.message, 'err');
+          setTimeout(hideUploadProgress, 900);
+        }
+      });
+
+      sortKey.addEventListener('change', function () {
+        renderFiles(allFiles);
+      });
+
+      sortOrder.addEventListener('change', function () {
+        renderFiles(allFiles);
+      });
+
+      sortButtons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const key = btn.getAttribute('data-sort-key');
+          if (!key) {
+            return;
+          }
+
+          if (sortKey.value === key) {
+            sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc';
+          } else {
+            sortKey.value = key;
+            sortOrder.value = 'asc';
+          }
+
+          renderFiles(allFiles);
+        });
+      });
+
+      reloadBtn.addEventListener('click', async function () {
+        resetStatus();
+        try {
+          await fetchJson(api.reloadTpl);
+          showStatus('模板缓存已刷新', 'warn');
+        } catch (err) {
+          showStatus('刷新模板缓存失败：' + err.message, 'err');
+        }
+      });
+
+      fileList.addEventListener('click', async function (e) {
+        const preview = e.target.closest('.preview-btn');
+        if (preview) {
+          const pfile = preview.getAttribute('data-preview-file');
+          const pname = preview.getAttribute('data-preview-name') || '';
+          if (pfile) {
+            openPreview('image', pfile, pname);
+          }
+          return;
+        }
+
+        const video = e.target.closest('.video-btn');
+        if (video) {
+          const vfile = video.getAttribute('data-video-file');
+          const vname = video.getAttribute('data-video-name') || '';
+          if (vfile) {
+            openPreview('video', vfile, vname);
+          }
+          return;
+        }
+
+        const text = e.target.closest('.text-btn');
+        if (text) {
+          const tfile = text.getAttribute('data-text-file');
+          const tname = text.getAttribute('data-text-name') || '';
+          if (tfile) {
+            openPreview('text', tfile, tname);
+          }
+          return;
+        }
+
+        const btn = e.target.closest('.delete-btn');
+        if (!btn) {
+          return;
+        }
+
+        const file = btn.getAttribute('data-file');
+        const name = btn.getAttribute('data-name') || '';
+        if (!file) {
+          return;
+        }
+
+        if (!confirm('确认删除文件：' + name + ' ？')) {
+          return;
+        }
+
+        resetStatus();
+        try {
+          await fetchJson(api.del + '?file=' + file);
+          showStatus('已删除：' + name, 'warn');
+          await loadFiles();
+        } catch (err) {
+          showStatus('删除失败：' + err.message, 'err');
+        }
+      });
+
+      document.addEventListener('mousemove', function (e) {
+        if (!activeDrag || !activeDrag.win) {
+          return;
+        }
+
+        const dx = e.clientX - activeDrag.startX;
+        const dy = e.clientY - activeDrag.startY;
+        activeDrag.win.style.left = Math.round(activeDrag.left + dx) + 'px';
+        activeDrag.win.style.top = Math.round(activeDrag.top + dy) + 'px';
+      });
+
+      document.addEventListener('mouseup', function () {
+        if (!activeDrag || !activeDrag.win) {
+          return;
+        }
+        clampWindowPosition(activeDrag.win);
+        activeDrag = null;
+      });
+
+      document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') {
+          return;
+        }
+
+        const wins = Array.from(previewLayer.querySelectorAll('.floating-preview'));
+        if (!wins.length) {
+          return;
+        }
+
+        wins.sort(function (a, b) {
+          return (parseInt(a.style.zIndex || '0', 10) || 0)
+            - (parseInt(b.style.zIndex || '0', 10) || 0);
+        });
+
+        closePreviewWindow(wins[wins.length - 1]);
+      });
+
+      window.addEventListener('resize', function () {
+        const wins = previewLayer.querySelectorAll('.floating-preview');
+        Array.prototype.forEach.call(wins, clampWindowPosition);
+      });
+
+      loadFiles();
+    })();
+  </script>
+</body>
+</html>
