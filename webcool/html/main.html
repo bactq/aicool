@@ -1401,7 +1401,7 @@
           return;
         }
 
-        const url = api.download + '?preview=1&file=' + file;
+        const url = api.download + '?preview=1&file=' + file + '&v=' + Date.now();
         const win = document.createElement('div');
         win.className = 'floating-preview';
         previewZ += 1;

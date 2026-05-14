@@ -426,6 +426,9 @@ bool DownloadAction::run(request_t& req, response_t& res,
 			.setKeepAlive(req.isKeepAlive())
 			.setContentType(ctype)
 			.setHeader("Content-Disposition", dispo.c_str())
+			.setHeader("Cache-Control", "no-store, no-cache, must-revalidate")
+			.setHeader("Pragma", "no-cache")
+			.setHeader("Expires", "0")
 			.setHeader("Accept-Ranges", "bytes")
 			.setHeader("Content-Range", content_range.c_str())
 			.setContentLength(send_size);
@@ -434,6 +437,9 @@ bool DownloadAction::run(request_t& req, response_t& res,
 			.setKeepAlive(req.isKeepAlive())
 			.setContentType(ctype)
 			.setHeader("Content-Disposition", dispo.c_str())
+			.setHeader("Cache-Control", "no-store, no-cache, must-revalidate")
+			.setHeader("Pragma", "no-cache")
+			.setHeader("Expires", "0")
 			.setHeader("Accept-Ranges", "bytes")
 			.setContentLength(fsize);
 	}
