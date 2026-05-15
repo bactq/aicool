@@ -172,6 +172,13 @@ int main(int argc, char* argv[]) {
 	}
 	printf("  续播数据库: 已初始化\n");
 
+	std::string folder_db_err;
+	if (!action::init_category_folder_db(g_upload_dir, folder_db_err)) {
+		fprintf(stderr, "初始化分类文件夹数据库失败: %s\n", folder_db_err.c_str());
+		return 1;
+	}
+	printf("  分类文件夹数据库: 已初始化\n");
+
 	acl::server_socket server;
 
 	if (!reuse_port) {

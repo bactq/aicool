@@ -43,5 +43,9 @@ private:
 	bool routeVideoProbe(request_t& req, response_t& res);
 	bool routeVideoResumeGet(request_t& req, response_t& res);
 	bool routeVideoResumeSet(request_t& req, response_t& res);
+	bool routeFolderList(request_t& req, response_t& res);
+	bool routeFolderCreate(request_t& req, response_t& res);
+	bool routeFolderRename(request_t& req, response_t& res);
+	bool routeFolderDelete(request_t& req, response_t& res);
 	bool routeUpload(request_t& req, response_t& res);
 };

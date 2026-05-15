@@ -8,6 +8,43 @@ namespace {
 
 typedef bool (http_servlet::*get_route_handler)(request_t& req, response_t& res);
 
+bool send_static_file(const char* file_path, const char* content_type,
+	request_t& req, response_t& res)
+{
+	acl::string body;
+	if (!acl::ifstream::load(file_path, &body)) {
+		return false;
+	}
+
+	res.setStatus(200);
+	res.setContentType(content_type);
+	res.setKeepAlive(req.isKeepAlive());
+	res.setContentLength((long long) body.size());
+	return res.write(body) && res.write(NULL, 0);
+}
+
+bool try_route_static_asset(const char* path, request_t& req, response_t& res) {
+	if (path == NULL || *path == '\0') {
+		return false;
+	}
+
+	if (strcmp(path, "/webcool/html/main.css") == 0
+		|| strcmp(path, "/html/main.css") == 0
+		|| strcmp(path, "/main.css") == 0)
+	{
+		return send_static_file("html/main.css", "text/css; charset=utf-8", req, res);
+	}
+
+	if (strcmp(path, "/webcool/html/main.js") == 0
+		|| strcmp(path, "/html/main.js") == 0
+		|| strcmp(path, "/main.js") == 0)
+	{
+		return send_static_file("html/main.js", "application/javascript; charset=utf-8", req, res);
+	}
+
+	return false;
+}
+
 } // namespace
 
 // ────────────────────────────────────────────────────────────────
@@ -30,6 +67,13 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 	if (path == NULL || *path == '\0') {
 		return action::IndexAction::run(req, res);
 	}
+	if (strcmp(path, "/") == 0) {
+		return action::IndexAction::run(req, res);
+	}
+
+	if (try_route_static_asset(path, req, res)) {
+		return true;
+	}
 
 	static const std::map<std::string, get_route_handler> routes = {
 		{ "/api/v1/admin/template/reload", &http_servlet::routeTemplateReload },
@@ -43,6 +87,10 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/video/probe", &http_servlet::routeVideoProbe },
 		{ "/api/v1/video/resume", &http_servlet::routeVideoResumeGet },
 		{ "/api/v1/video/resume/save", &http_servlet::routeVideoResumeSet },
+		{ "/api/v1/folders", &http_servlet::routeFolderList },
+		{ "/api/v1/folders/create", &http_servlet::routeFolderCreate },
+		{ "/api/v1/folders/rename", &http_servlet::routeFolderRename },
+		{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
 		{ "/api/v1/upload", &http_servlet::routeUpload },
 	};
 	std::map<std::string, get_route_handler>::const_iterator it = routes.find(path);
@@ -101,6 +149,22 @@ bool http_servlet::routeVideoResumeSet(request_t& req, response_t& res) {
 	return action::VideoResumeSetAction::run(req, res, upload_dir_);
 }
 
+bool http_servlet::routeFolderList(request_t& req, response_t& res) {
+	return action::FolderListAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeFolderCreate(request_t& req, response_t& res) {
+	return action::FolderCreateAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeFolderRename(request_t& req, response_t& res) {
+	return action::FolderRenameAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeFolderDelete(request_t& req, response_t& res) {
+	return action::FolderDeleteAction::run(req, res, upload_dir_);
+}
+
 // ────────────────────────────────────────────────────────────────
 // doPost
 // ────────────────────────────────────────────────────────────────
@@ -126,6 +190,15 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 	}
 	if (path && strcmp(path, "/api/v1/video/resume/save") == 0) {
 		return action::VideoResumeSetAction::run(req, res, upload_dir_);
+	}
+	if (path && strcmp(path, "/api/v1/folders/create") == 0) {
+		return action::FolderCreateAction::run(req, res, upload_dir_);
+	}
+	if (path && strcmp(path, "/api/v1/folders/rename") == 0) {
+		return action::FolderRenameAction::run(req, res, upload_dir_);
+	}
+	if (path && strcmp(path, "/api/v1/folders/delete") == 0) {
+		return action::FolderDeleteAction::run(req, res, upload_dir_);
 	}
 
 	acl::json json;

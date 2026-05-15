@@ -13,6 +13,21 @@
 
 namespace action {
 
+static bool parse_positive_i64(const char* text, long long& out) {
+	if (text == NULL || *text == '\0') {
+		return false;
+	}
+
+	errno = 0;
+	char* end = NULL;
+	long long v = strtoll(text, &end, 10);
+	if (errno != 0 || end == text || *end != '\0' || v <= 0) {
+		return false;
+	}
+	out = v;
+	return true;
+}
+
 bool UploadAction::run(request_t& req, response_t& res,
 	const std::string& upload_dir)
 {
@@ -98,8 +113,21 @@ bool UploadAction::run(request_t& req, response_t& res,
 	acl::json_node& files = json.create_array();
 	root.add_child("files", files);
 
+	long long folder_id = 0;
+	const char* folder_id_text = req.getParameter("folder_id");
+	if (folder_id_text != NULL && *folder_id_text != '\0') {
+		if (!parse_positive_i64(folder_id_text, folder_id)) {
+			::unlink(tmp_path.c_str());
+			acl::json err;
+			acl::json_node& eroot = err.create_node();
+			eroot.add_bool("ok", false);
+			eroot.add_text("error", "invalid folder_id");
+			return sendJson(res, 400, eroot, req.isKeepAlive());
+		}
+	}
+
 	int saved_count = 0;
-	bool ok = saveFiles(*mime, upload_dir, files, saved_count);
+	bool ok = saveFiles(*mime, upload_dir, files, saved_count, folder_id);
 
 	::unlink(tmp_path.c_str());
 
@@ -161,7 +189,7 @@ bool UploadAction::readBody(request_t& req, long long content_length,
 }
 
 bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir,
-	acl::json_node& files_array, int& saved_count)
+	acl::json_node& files_array, int& saved_count, long long folder_id)
 {
 	saved_count = 0;
 
@@ -247,6 +275,16 @@ bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir
 			item.add_text("name", basename);
 			item.add_number("size", fsize);
 			item.add_bool("saved", true);
+			if (folder_id > 0) {
+				std::string bind_err;
+				if (!folder_bind_file(upload_dir, basename, folder_id, bind_err)) {
+					::unlink(dest.c_str());
+					item.add_bool("saved", false);
+					item.add_text("error", bind_err.c_str());
+					continue;
+				}
+				item.add_number("folder_id", folder_id);
+			}
 			saved_count++;
 			printf("Saved: %s (%lld bytes), body_begin=%lld body_end=%lld\n", dest.c_str(), fsize, (long long) body_begin, (long long) body_end);
 		} else {

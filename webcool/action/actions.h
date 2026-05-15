@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../stdafx.h"
+#include <map>
 #include <string>
 
 namespace action {
@@ -9,6 +10,15 @@ typedef ::request_t request_t;
 typedef ::response_t response_t;
 
 bool init_video_resume_db(const std::string& upload_dir, std::string& err);
+bool init_category_folder_db(const std::string& upload_dir, std::string& err);
+bool folder_bind_file(const std::string& upload_dir, const std::string& file_name,
+	long long folder_id, std::string& err);
+bool folder_unbind_file(const std::string& upload_dir,
+	const std::string& file_name, std::string& err);
+bool folder_load_file_bindings(const std::string& upload_dir,
+	std::map<std::string, long long>& file_to_folder_id,
+	std::map<long long, std::string>& folder_id_to_name,
+	std::string& err);
 
 class IndexAction {
 public:
@@ -48,7 +58,7 @@ private:
 		acl::ofstream& fp, acl::http_mime& mime);
 
 	static bool saveFiles(acl::http_mime& mime, const std::string& upload_dir,
-		acl::json_node& files_array, int& saved_count);
+		acl::json_node& files_array, int& saved_count, long long folder_id);
 };
 
 class VideoConvertAction {
@@ -88,6 +98,30 @@ public:
 };
 
 class VideoResumeSetAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class FolderListAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class FolderCreateAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class FolderRenameAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class FolderDeleteAction {
 public:
 	static bool run(request_t& req, response_t& res,
 		const std::string& upload_dir);

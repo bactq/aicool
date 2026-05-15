@@ -5,6 +5,7 @@
 #include <strings.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <map>
 
 namespace action {
 
@@ -281,6 +282,35 @@ static bool parse_range_header(const char* range, long long size,
 bool FilesAction::run(request_t& req, response_t& res,
 	const std::string& upload_dir)
 {
+	long long filter_folder_id = 0;
+	const char* folder_id_text = req.getParameter("folder_id");
+	if (folder_id_text != NULL && *folder_id_text != '\0') {
+		errno = 0;
+		char* end = NULL;
+		long long v = strtoll(folder_id_text, &end, 10);
+		if (errno != 0 || end == folder_id_text || *end != '\0' || v <= 0) {
+			acl::json json;
+			acl::json_node& root = json.create_node();
+			root.add_bool("ok", false);
+			root.add_text("error", "invalid folder_id");
+			return sendJson(res, 400, root, req.isKeepAlive());
+		}
+		filter_folder_id = v;
+	}
+
+	std::map<std::string, long long> file_to_folder_id;
+	std::map<long long, std::string> folder_id_to_name;
+	std::string rel_err;
+	if (!folder_load_file_bindings(upload_dir, file_to_folder_id,
+		folder_id_to_name, rel_err))
+	{
+		acl::json json;
+		acl::json_node& root = json.create_node();
+		root.add_bool("ok", false);
+		root.add_text("error", rel_err.c_str());
+		return sendJson(res, 500, root, req.isKeepAlive());
+	}
+
 	if (!make_dir(upload_dir.c_str())) {
 		acl::json json;
 		acl::json_node& root = json.create_node();
@@ -310,9 +340,34 @@ bool FilesAction::run(request_t& req, response_t& res,
 		if (strcmp(name, ".video_resume.db") == 0) {
 			continue;
 		}
+		if (strcmp(name, ".folder_catalog.db") == 0) {
+			continue;
+		}
 
 		acl::string full;
 		full.format("%s/%s", upload_dir.c_str(), name);
+
+		struct stat st;
+		if (stat(full.c_str(), &st) == 0 && !S_ISREG(st.st_mode)) {
+			continue;
+		}
+
+		long long file_folder_id = 0;
+		std::string file_folder_name;
+		std::map<std::string, long long>::const_iterator fit =
+			file_to_folder_id.find(name);
+		if (fit != file_to_folder_id.end()) {
+			file_folder_id = fit->second;
+			std::map<long long, std::string>::const_iterator nit =
+				folder_id_to_name.find(file_folder_id);
+			if (nit != folder_id_to_name.end()) {
+				file_folder_name = nit->second;
+			}
+		}
+
+		if (filter_folder_id > 0 && file_folder_id != filter_folder_id) {
+			continue;
+		}
 
 		acl::ifstream in;
 		long long fsize = -1;
@@ -321,7 +376,6 @@ bool FilesAction::run(request_t& req, response_t& res,
 			in.close();
 		}
 
-		struct stat st;
 		time_t uploaded_at = 0;
 		char uploaded_time[32];
 		uploaded_time[0] = '\0';
@@ -335,9 +389,14 @@ bool FilesAction::run(request_t& req, response_t& res,
 		item.add_number("size", fsize);
 		item.add_number("uploaded_at", (long long) uploaded_at);
 		item.add_text("uploaded_time", uploaded_time);
+		item.add_number("folder_id", file_folder_id);
+		item.add_text("folder_name", file_folder_name.c_str());
 		count++;
 	}
 
+	if (filter_folder_id > 0) {
+		root.add_number("folder_id", filter_folder_id);
+	}
 	root.add_number("count", count);
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
@@ -372,6 +431,15 @@ bool DeleteAction::run(request_t& req, response_t& res,
 		root.add_bool("ok", false);
 		root.add_text("error", "file not found or delete failed");
 		return sendJson(res, 404, root, req.isKeepAlive());
+	}
+
+	std::string rel_err;
+	if (!folder_unbind_file(upload_dir, basename, rel_err)) {
+		acl::json json;
+		acl::json_node& root = json.create_node();
+		root.add_bool("ok", false);
+		root.add_text("error", rel_err.c_str());
+		return sendJson(res, 500, root, req.isKeepAlive());
 	}
 
 	acl::json json;
