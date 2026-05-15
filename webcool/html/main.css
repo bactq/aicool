@@ -922,7 +922,7 @@
     table.file-table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 620px;
+      min-width: 720px;
     }
 
     .file-table th,
@@ -940,6 +940,45 @@
       font-size: 13px;
       letter-spacing: 0.2px;
       background: rgba(245, 250, 255, 0.7);
+    }
+
+    .file-actions-head {
+      width: 1%;
+      white-space: nowrap;
+    }
+
+    .file-bulk-head {
+      width: 1%;
+      white-space: nowrap;
+      text-align: right !important;
+    }
+
+    .file-actions-head-label {
+      display: inline-flex;
+      align-items: center;
+      line-height: 1;
+    }
+
+    .file-bulk-action-btn {
+      border: 1px solid #e8b6b9;
+      background: var(--danger-bg);
+      color: var(--danger);
+      border-radius: 9px;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .file-bulk-action-btn:hover {
+      background: #ffe5e8;
+    }
+
+    .file-bulk-action-btn[disabled] {
+      opacity: .55;
+      cursor: not-allowed;
+      background: #f7f0f1;
     }
 
     .file-select-col {
@@ -1100,7 +1139,28 @@
 
     .text-btn:hover { background: #ede1ff; }
 
+    .file-table td.actions-cell {
+      width: 1%;
+      white-space: nowrap;
+    }
+
     .actions {
+      white-space: nowrap;
+      display: flex;
+      justify-content: flex-start;
+      align-items: center;
+    }
+
+    .file-table td.row-danger-action {
+      text-align: right;
+      white-space: nowrap;
+      width: 1%;
+    }
+
+    .danger-actions {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
       white-space: nowrap;
     }
 

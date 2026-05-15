@@ -31,6 +31,7 @@
       const fileEmpty = document.getElementById('file-empty');
       const fileCounter = document.getElementById('file-counter');
       const fileSelectAll = document.getElementById('file-select-all');
+      const fileBulkAction = document.getElementById('file-bulk-action');
       const fileViewContext = document.getElementById('file-view-context');
       const sortKey = document.getElementById('sort-key');
       const sortOrder = document.getElementById('sort-order');
@@ -1587,6 +1588,21 @@
         fileSelectAll.indeterminate = selectedCount > 0 && selectedCount < visibleCount;
       }
 
+      function updateFileBulkActionButton() {
+        if (!fileBulkAction) {
+          return;
+        }
+
+        const selectedCount = getSelectedVisibleFileNames().length;
+        const isTagFilterMode = !!activeFilterTagId;
+        const label = isTagFilterMode ? '移除' : '删除';
+        const title = isTagFilterMode ? '批量从当前标签移除' : '批量删除文件';
+        fileBulkAction.textContent = label;
+        fileBulkAction.title = title;
+        fileBulkAction.setAttribute('aria-label', title);
+        fileBulkAction.disabled = selectedCount === 0;
+      }
+
       async function bindFilesToTag(tagId, fileNames) {
         const names = Array.isArray(fileNames) ? fileNames : [];
         let boundCount = 0;
@@ -1613,6 +1629,7 @@
         syncSelectedFilesByCurrentView();
         updateFileViewContext();
         updateFileSelectAllState();
+        updateFileBulkActionButton();
         fileCounter.textContent = files.length + ' 个文件';
 
         if (!files.length) {
@@ -1659,11 +1676,13 @@
               '<td><a class="file-name" draggable="false" href="' + api.download + '?file=' + encoded + '">' + name + '</a></td>' +
               '<td><span class="size">' + formatNumber(size) + ' 字节</span></td>' +
               '<td><span class="time">' + uploaded + '</span></td>' +
-              '<td class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + rowActionBtn + '</td>' +
+              '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + '</div></td>' +
+              '<td class="row-danger-action"><div class="danger-actions">' + rowActionBtn + '</div></td>' +
             '</tr>'
           );
         }).join('');
         updateFileSelectAllState();
+        updateFileBulkActionButton();
       }
 
       function openPreview(kind, file, name) {
@@ -2300,6 +2319,7 @@
           selectedFileNames.delete(fileName);
         }
         updateFileSelectAllState();
+        updateFileBulkActionButton();
       });
 
       fileList.addEventListener('dragstart', function (e) {
@@ -2338,6 +2358,65 @@
             }
           });
           renderFiles(currentFiles);
+        });
+      }
+
+      if (fileBulkAction) {
+        fileBulkAction.addEventListener('click', async function () {
+          const fileNames = getSelectedVisibleFileNames();
+          if (!fileNames.length) {
+            updateFileBulkActionButton();
+            return;
+          }
+
+          const activeTagId = activeFilterTagId;
+          const actionLabel = activeTagId ? '移除' : '删除';
+          const confirmText = activeTagId
+            ? ('确认将选中的 ' + fileNames.length + ' 个文件从当前标签中移除？此操作只解除标签引用，不会删除文件。')
+            : ('确认删除选中的 ' + fileNames.length + ' 个文件？');
+          if (!confirm(confirmText)) {
+            return;
+          }
+
+          resetStatus();
+          let completedCount = 0;
+          try {
+            if (activeTagId) {
+              for (let i = 0; i < fileNames.length; i += 1) {
+                const ok = await unbindFileFromTag(activeTagId, fileNames[i]);
+                if (!ok) {
+                  throw new Error('关联不存在');
+                }
+                completedCount += 1;
+              }
+              fileNames.forEach(function (name) {
+                selectedFileNames.delete(name);
+              });
+              await showFilesForTag(activeTagId);
+            } else {
+              for (let i = 0; i < fileNames.length; i += 1) {
+                await fetchJson(api.del + '?file=' + encodeURIComponent(fileNames[i]));
+                completedCount += 1;
+              }
+              fileNames.forEach(function (name) {
+                selectedFileNames.delete(name);
+              });
+              await loadFiles();
+            }
+
+            showStatus('已批量' + actionLabel + ' ' + completedCount + ' 个文件', activeTagId ? 'warn' : 'warn');
+          } catch (err) {
+            if (completedCount > 0) {
+              if (activeTagId) {
+                await showFilesForTag(activeTagId);
+              } else {
+                await loadFiles();
+              }
+              showStatus('批量' + actionLabel + '在处理 ' + completedCount + ' 个文件后失败：' + err.message, 'err');
+              return;
+            }
+            showStatus('批量' + actionLabel + '失败：' + err.message, 'err');
+          }
         });
       }
 
