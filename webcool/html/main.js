@@ -46,6 +46,11 @@
       const panels = Array.from(document.querySelectorAll('.panel'));
       const TAG_TREE_STORAGE_KEY = 'webcool:file-tags:v1';
       const TAG_MAX_LEVEL = 3;
+      const AUDIO_PLAY_MODE_LABELS = {
+        random: '随机播放',
+        sequential: '顺序播放',
+        loop: '循环播放'
+      };
       let allFiles = [];
       let tagTree = [];
       let activeFilterTagId = '';
@@ -55,6 +60,7 @@
       let previewZ = 900;
       let activeDrag = null;
       let activeTagDialogResolver = null;
+      let activeAudioTagContextMenu = null;
       const openedPreviewWindows = new Map();
       const transcodeProgressTimers = new Map();
       const videoResumeSaveTimers = new Map();
@@ -236,6 +242,250 @@
           .replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;')
           .replace(/'/g, '&#39;');
+      }
+
+      function closeAudioTagContextMenu() {
+        if (!activeAudioTagContextMenu) {
+          return;
+        }
+        if (activeAudioTagContextMenu.parentNode) {
+          activeAudioTagContextMenu.parentNode.removeChild(activeAudioTagContextMenu);
+        }
+        activeAudioTagContextMenu = null;
+      }
+
+      function clampFloatingMenuPosition(menuEl, clientX, clientY) {
+        if (!menuEl) {
+          return;
+        }
+        const rect = menuEl.getBoundingClientRect();
+        const left = Math.max(8, Math.min(clientX, window.innerWidth - rect.width - 8));
+        const top = Math.max(8, Math.min(clientY, window.innerHeight - rect.height - 8));
+        menuEl.style.left = Math.round(left) + 'px';
+        menuEl.style.top = Math.round(top) + 'px';
+      }
+
+      function shuffleList(items) {
+        const list = Array.isArray(items) ? items.slice() : [];
+        for (let i = list.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          const temp = list[i];
+          list[i] = list[j];
+          list[j] = temp;
+        }
+        return list;
+      }
+
+      function sortAudioFilesForPlaylist(files) {
+        return (Array.isArray(files) ? files : []).slice().sort(function (a, b) {
+          return String((a && a.name) || '').localeCompare(String((b && b.name) || ''), 'zh-CN');
+        });
+      }
+
+      function getAudioPlaylistFilesByMode(files, mode) {
+        const sorted = sortAudioFilesForPlaylist(files);
+        if (mode === 'random') {
+          return shuffleList(sorted);
+        }
+        return sorted;
+      }
+
+      async function loadAudioFilesForTag(tagId) {
+        const data = await fetchJson(api.tagFiles + '?tag_id=' + encodeURIComponent(tagId));
+        return (Array.isArray(data.files) ? data.files : []).filter(function (file) {
+          return isAudioName(file && file.name);
+        });
+      }
+
+      function openAudioTagContextMenu(tagId, tagName, clientX, clientY) {
+        closeAudioTagContextMenu();
+
+        const menu = document.createElement('div');
+        menu.className = 'tag-context-menu';
+        menu.innerHTML =
+          '<button type="button" class="tag-context-item" data-audio-tag-action="random" data-tag-id="' + escapeHtml(tagId) + '">' + AUDIO_PLAY_MODE_LABELS.random + '</button>' +
+          '<button type="button" class="tag-context-item" data-audio-tag-action="sequential" data-tag-id="' + escapeHtml(tagId) + '">' + AUDIO_PLAY_MODE_LABELS.sequential + '</button>' +
+          '<button type="button" class="tag-context-item" data-audio-tag-action="loop" data-tag-id="' + escapeHtml(tagId) + '">' + AUDIO_PLAY_MODE_LABELS.loop + '</button>';
+        menu.setAttribute('data-tag-id', tagId);
+        menu.setAttribute('data-tag-name', tagName || '');
+        menu.style.left = Math.round(clientX) + 'px';
+        menu.style.top = Math.round(clientY) + 'px';
+        document.body.appendChild(menu);
+        clampFloatingMenuPosition(menu, clientX, clientY);
+        activeAudioTagContextMenu = menu;
+      }
+
+      function renderAudioPlaylistItems(container, files, activeIndex) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = files.map(function (file, index) {
+          const name = String((file && file.name) || '');
+          const itemClass = index === activeIndex ? 'audio-playlist-item active' : 'audio-playlist-item';
+          return '<button type="button" class="' + itemClass + '" data-playlist-index="' + index + '">' +
+            '<span class="audio-playlist-item-index">' + String(index + 1) + '</span>' +
+            '<span class="audio-playlist-item-name">' + escapeHtml(name) + '</span>' +
+          '</button>';
+        }).join('');
+      }
+
+      function openAudioPlaylistWindow(tagId, tagName, mode, files) {
+        const playlistKey = 'audio-playlist:' + String(tagId || '');
+        const existed = openedPreviewWindows.get(playlistKey);
+        if (existed && existed.isConnected) {
+          closePreviewWindow(existed, playlistKey);
+        }
+
+        let playlistFiles = getAudioPlaylistFilesByMode(files, mode);
+        if (!playlistFiles.length) {
+          throw new Error('该标签下没有可播放的音频文件');
+        }
+
+        const win = document.createElement('div');
+        win.className = 'floating-preview audio-playlist-preview';
+        previewZ += 1;
+        win.style.zIndex = String(previewZ);
+
+        win.innerHTML =
+          '<div class="preview-head">' +
+            '<div class="preview-title">' + escapeHtml((AUDIO_PLAY_MODE_LABELS[mode] || '音频播放') + '：' + (tagName || '音频标签')) + '</div>' +
+            '<button class="preview-close" type="button">关闭</button>' +
+          '</div>' +
+          '<div class="preview-body audio-playlist-body">' +
+            '<div class="audio-playlist-meta">' +
+              '<div class="audio-playlist-mode">' + escapeHtml(AUDIO_PLAY_MODE_LABELS[mode] || '音频播放') + '</div>' +
+              '<div class="audio-playlist-current-name"></div>' +
+            '</div>' +
+            '<audio class="preview-audio audio-playlist-player" controls preload="metadata"></audio>' +
+            '<div class="audio-playlist-panel">' +
+              '<div class="audio-playlist-summary">共 <span class="audio-playlist-count"></span> 个音频文件</div>' +
+              '<div class="audio-playlist-items"></div>' +
+            '</div>' +
+          '</div>';
+
+        previewLayer.appendChild(win);
+        centerPreviewWindow(win);
+        openedPreviewWindows.set(playlistKey, win);
+
+        const audioEl = win.querySelector('.audio-playlist-player');
+        const currentNameEl = win.querySelector('.audio-playlist-current-name');
+        const countEl = win.querySelector('.audio-playlist-count');
+        const itemsEl = win.querySelector('.audio-playlist-items');
+        const closeBtn = win.querySelector('.preview-close');
+        const head = win.querySelector('.preview-head');
+        let currentIndex = -1;
+
+        if (countEl) {
+          countEl.textContent = String(playlistFiles.length);
+        }
+
+        function updateCurrentTrack(index) {
+          currentIndex = index;
+          const current = playlistFiles[index] || null;
+          if (currentNameEl) {
+            currentNameEl.textContent = current ? String(current.name || '') : '';
+          }
+          renderAudioPlaylistItems(itemsEl, playlistFiles, currentIndex);
+          const activeBtn = itemsEl ? itemsEl.querySelector('.audio-playlist-item.active') : null;
+          if (activeBtn) {
+            activeBtn.scrollIntoView({ block: 'nearest' });
+          }
+        }
+
+        function playIndex(index, autoplay) {
+          const current = playlistFiles[index];
+          if (!current || !audioEl) {
+            return;
+          }
+          updateCurrentTrack(index);
+          audioEl.src = api.download + '?preview=1&file=' + encodeURIComponent(String(current.name || '')) + '&v=' + Date.now();
+          audioEl.load();
+          if (autoplay !== false) {
+            audioEl.play().catch(function () {});
+          }
+        }
+
+        function moveNextTrack() {
+          if (!playlistFiles.length) {
+            return;
+          }
+          if (mode === 'loop') {
+            playIndex((currentIndex + 1) % playlistFiles.length, true);
+            return;
+          }
+          if (mode === 'random') {
+            if (playlistFiles.length === 1) {
+              playIndex(0, true);
+              return;
+            }
+            if (currentIndex >= playlistFiles.length - 1) {
+              const currentFileName = String(((playlistFiles[currentIndex] || {}).name) || '');
+              playlistFiles = shuffleList(playlistFiles);
+              if (String(((playlistFiles[0] || {}).name) || '') === currentFileName) {
+                playlistFiles.push(playlistFiles.shift());
+              }
+            }
+            playIndex((currentIndex + 1) % playlistFiles.length, true);
+            return;
+          }
+          if (currentIndex + 1 < playlistFiles.length) {
+            playIndex(currentIndex + 1, true);
+          }
+        }
+
+        if (itemsEl) {
+          itemsEl.addEventListener('click', function (e) {
+            const itemBtn = e.target.closest('.audio-playlist-item[data-playlist-index]');
+            if (!itemBtn) {
+              return;
+            }
+            const nextIndex = Number(itemBtn.getAttribute('data-playlist-index') || '-1');
+            if (nextIndex >= 0) {
+              playIndex(nextIndex, true);
+            }
+          });
+        }
+
+        if (audioEl) {
+          audioEl.addEventListener('ended', function () {
+            moveNextTrack();
+          });
+        }
+
+        closeBtn.addEventListener('click', function () {
+          closePreviewWindow(win, playlistKey);
+        });
+
+        win.addEventListener('mousedown', function () {
+          bringToFront(win);
+        });
+
+        head.addEventListener('mousedown', function (e) {
+          if (e.target.closest('.preview-close')) {
+            return;
+          }
+          const rect = win.getBoundingClientRect();
+          bringToFront(win);
+          activeDrag = {
+            win: win,
+            startX: e.clientX,
+            startY: e.clientY,
+            left: rect.left,
+            top: rect.top
+          };
+          win.style.transform = 'none';
+          e.preventDefault();
+        });
+
+        playIndex(0, true);
+      }
+
+      async function startAudioPlaylistFromTag(tagId, tagName, mode) {
+        const files = await loadAudioFilesForTag(tagId);
+        if (!files.length) {
+          throw new Error('该标签下没有音频文件');
+        }
+        openAudioPlaylistWindow(tagId, tagName, mode, files);
       }
 
       function showStatus(msg, type) {
@@ -1882,6 +2132,22 @@
           }
         });
 
+        tagManager.addEventListener('contextmenu', function (e) {
+          const tagNameEl = e.target.closest('.tag-node-name[data-tag-id]');
+          if (!tagNameEl) {
+            closeAudioTagContextMenu();
+            return;
+          }
+          const tagId = tagNameEl.getAttribute('data-tag-id') || '';
+          if (!tagId || getTagFileTypeConstraint(tagId) !== 'audio') {
+            closeAudioTagContextMenu();
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          openAudioTagContextMenu(tagId, String(tagNameEl.textContent || '').trim(), e.clientX, e.clientY);
+        });
+
         tagManager.addEventListener('dragover', function (e) {
           const nodeEl = e.target.closest('.tag-node[data-tag-id]');
           if (!nodeEl) {
@@ -1942,6 +2208,10 @@
       }
 
       document.addEventListener('click', function (e) {
+        if (activeAudioTagContextMenu && !e.target.closest('.tag-context-menu')) {
+          closeAudioTagContextMenu();
+        }
+
         if (tagDialog && !tagDialog.hidden) {
           const closeTarget = e.target.closest('[data-tag-dialog-close="1"]');
           if (closeTarget) {
@@ -1965,9 +2235,40 @@
       }
 
       document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && activeAudioTagContextMenu) {
+          e.preventDefault();
+          closeAudioTagContextMenu();
+          return;
+        }
         if (e.key === 'Escape' && tagDialog && !tagDialog.hidden) {
           e.preventDefault();
           closeTagDialog(null);
+        }
+      });
+
+      document.addEventListener('scroll', function () {
+        closeAudioTagContextMenu();
+      }, true);
+
+      document.body.addEventListener('click', async function (e) {
+        const actionBtn = e.target.closest('.tag-context-item[data-audio-tag-action][data-tag-id]');
+        if (!actionBtn) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        const tagId = actionBtn.getAttribute('data-tag-id') || '';
+        const mode = actionBtn.getAttribute('data-audio-tag-action') || '';
+        const menuEl = actionBtn.closest('.tag-context-menu');
+        const tagName = menuEl ? (menuEl.getAttribute('data-tag-name') || '') : '';
+        closeAudioTagContextMenu();
+        if (!tagId || !AUDIO_PLAY_MODE_LABELS[mode]) {
+          return;
+        }
+        try {
+          await startAudioPlaylistFromTag(tagId, tagName, mode);
+        } catch (err) {
+          showStatus('打开音频播放列表失败：' + err.message, 'err');
         }
       });
 
