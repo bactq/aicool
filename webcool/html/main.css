@@ -942,6 +942,22 @@
       background: rgba(245, 250, 255, 0.7);
     }
 
+    .file-select-col {
+      width: 42px;
+      min-width: 42px;
+      text-align: center !important;
+    }
+
+    .file-select-cell {
+      text-align: center !important;
+    }
+
+    .file-select-input {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
     .sort-btn {
       border: none;
       background: transparent;

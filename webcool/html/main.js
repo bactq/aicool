@@ -30,6 +30,7 @@
       const fileTable = document.getElementById('file-table');
       const fileEmpty = document.getElementById('file-empty');
       const fileCounter = document.getElementById('file-counter');
+      const fileSelectAll = document.getElementById('file-select-all');
       const fileViewContext = document.getElementById('file-view-context');
       const sortKey = document.getElementById('sort-key');
       const sortOrder = document.getElementById('sort-order');
@@ -59,6 +60,7 @@
       };
       let allFiles = [];
       let currentFiles = [];
+      const selectedFileNames = new Set();
       let tagTree = [];
       let activeFilterTagId = '';
       const expandedTagNodeIds = new Set();
@@ -1551,9 +1553,66 @@
         return order === 'desc' ? -res : res;
       }
 
+      function syncSelectedFilesByCurrentView() {
+        const visibleNames = new Set((Array.isArray(currentFiles) ? currentFiles : []).map(function (file) {
+          return String((file && file.name) || '');
+        }).filter(Boolean));
+
+        Array.from(selectedFileNames).forEach(function (name) {
+          if (!visibleNames.has(name)) {
+            selectedFileNames.delete(name);
+          }
+        });
+      }
+
+      function getSelectedVisibleFileNames() {
+        const names = [];
+        (Array.isArray(currentFiles) ? currentFiles : []).forEach(function (file) {
+          const name = String((file && file.name) || '');
+          if (name && selectedFileNames.has(name)) {
+            names.push(name);
+          }
+        });
+        return names;
+      }
+
+      function updateFileSelectAllState() {
+        if (!fileSelectAll) {
+          return;
+        }
+
+        const visibleCount = (Array.isArray(currentFiles) ? currentFiles : []).length;
+        const selectedCount = getSelectedVisibleFileNames().length;
+        fileSelectAll.checked = visibleCount > 0 && selectedCount === visibleCount;
+        fileSelectAll.indeterminate = selectedCount > 0 && selectedCount < visibleCount;
+      }
+
+      async function bindFilesToTag(tagId, fileNames) {
+        const names = Array.isArray(fileNames) ? fileNames : [];
+        let boundCount = 0;
+        for (let i = 0; i < names.length; i += 1) {
+          const fileName = String(names[i] || '');
+          if (!fileName) {
+            continue;
+          }
+          const result = await bindFileToTag(tagId, fileName);
+          if (!result.ok) {
+            return {
+              ok: false,
+              message: result.message,
+              boundCount: boundCount
+            };
+          }
+          boundCount += 1;
+        }
+        return { ok: true, boundCount: boundCount };
+      }
+
       function renderFiles(files) {
         currentFiles = Array.isArray(files) ? files.slice() : [];
+        syncSelectedFilesByCurrentView();
         updateFileViewContext();
+        updateFileSelectAllState();
         fileCounter.textContent = files.length + ' 个文件';
 
         if (!files.length) {
@@ -1574,9 +1633,11 @@
         fileTable.style.display = 'table';
         fileList.innerHTML = sorted.map(file => {
           const name = escapeHtml(file.name || '');
+          const rawName = String(file.name || '');
           const size = safeSize(file);
           const uploaded = escapeHtml(file.uploaded_time || '-');
-          const encoded = encodeURIComponent(file.name || '');
+          const encoded = encodeURIComponent(rawName);
+          const checked = selectedFileNames.has(rawName) ? ' checked' : '';
           const previewBtn = isImageName(file.name)
             ? '<button class="preview-btn" data-preview-file="' + encoded + '" data-preview-name="' + name + '">预览</button>'
             : '';
@@ -1594,6 +1655,7 @@
             : '<button class="delete-btn" data-file="' + encoded + '" data-name="' + name + '">删除</button>';
           return (
             '<tr class="draggable-file-row" draggable="true" data-drag-file="' + encoded + '">' +
+              '<td class="file-select-cell"><input class="file-select-input" type="checkbox" data-select-file="' + encoded + '" aria-label="选择文件 ' + name + '"' + checked + '></td>' +
               '<td><a class="file-name" draggable="false" href="' + api.download + '?file=' + encoded + '">' + name + '</a></td>' +
               '<td><span class="size">' + formatNumber(size) + ' 字节</span></td>' +
               '<td><span class="time">' + uploaded + '</span></td>' +
@@ -1601,6 +1663,7 @@
             '</tr>'
           );
         }).join('');
+        updateFileSelectAllState();
       }
 
       function openPreview(kind, file, name) {
@@ -2131,6 +2194,10 @@
       });
 
       fileList.addEventListener('click', async function (e) {
+        if (e.target.closest('.file-select-input')) {
+          return;
+        }
+
         const preview = e.target.closest('.preview-btn');
         if (preview) {
           const pfile = preview.getAttribute('data-preview-file');
@@ -2218,6 +2285,23 @@
         }
       });
 
+      fileList.addEventListener('change', function (e) {
+        const checkbox = e.target.closest('.file-select-input[data-select-file]');
+        if (!checkbox) {
+          return;
+        }
+        const fileName = decodeURIComponent(checkbox.getAttribute('data-select-file') || '');
+        if (!fileName) {
+          return;
+        }
+        if (checkbox.checked) {
+          selectedFileNames.add(fileName);
+        } else {
+          selectedFileNames.delete(fileName);
+        }
+        updateFileSelectAllState();
+      });
+
       fileList.addEventListener('dragstart', function (e) {
         const row = e.target.closest('tr[data-drag-file]');
         if (!row || !e.dataTransfer) {
@@ -2228,13 +2312,34 @@
         if (!fileName) {
           return;
         }
+        const selectedNames = selectedFileNames.has(fileName)
+          ? getSelectedVisibleFileNames()
+          : [fileName];
         e.dataTransfer.effectAllowed = 'copy';
         e.dataTransfer.setData('text/plain', fileName);
+        e.dataTransfer.setData('application/webcool-file-list', JSON.stringify(selectedNames));
       });
 
       fileList.addEventListener('dragend', function () {
         clearDropHighlight();
       });
+
+      if (fileSelectAll) {
+        fileSelectAll.addEventListener('change', function () {
+          (Array.isArray(currentFiles) ? currentFiles : []).forEach(function (file) {
+            const fileName = String((file && file.name) || '');
+            if (!fileName) {
+              return;
+            }
+            if (fileSelectAll.checked) {
+              selectedFileNames.add(fileName);
+            } else {
+              selectedFileNames.delete(fileName);
+            }
+          });
+          renderFiles(currentFiles);
+        });
+      }
 
       if (filesTagToggleBtn) {
         filesTagToggleBtn.addEventListener('click', async function () {
@@ -2396,9 +2501,24 @@
             return;
           }
           const tagId = nodeEl.getAttribute('data-tag-id') || '';
-          const fileName = e.dataTransfer ? String(e.dataTransfer.getData('text/plain') || '') : '';
-          const check = canBindFileToTagOnClient(tagId, fileName);
-          if (!check.ok) {
+          let fileNames = [];
+          if (e.dataTransfer) {
+            try {
+              fileNames = JSON.parse(e.dataTransfer.getData('application/webcool-file-list') || '[]');
+            } catch (_) {
+              fileNames = [];
+            }
+            if (!fileNames.length) {
+              const fallbackName = String(e.dataTransfer.getData('text/plain') || '');
+              if (fallbackName) {
+                fileNames = [fallbackName];
+              }
+            }
+          }
+          const invalidFile = fileNames.find(function (fileName) {
+            return !canBindFileToTagOnClient(tagId, fileName).ok;
+          }) || '';
+          if (invalidFile) {
             clearDropHighlight();
             if (e.dataTransfer) {
               e.dataTransfer.dropEffect = 'none';
@@ -2420,31 +2540,53 @@
 
         tagManager.addEventListener('drop', async function (e) {
           const nodeEl = e.target.closest('.tag-node[data-tag-id]');
-          const fileName = e.dataTransfer ? String(e.dataTransfer.getData('text/plain') || '') : '';
+          let fileNames = [];
+          if (e.dataTransfer) {
+            try {
+              fileNames = JSON.parse(e.dataTransfer.getData('application/webcool-file-list') || '[]');
+            } catch (_) {
+              fileNames = [];
+            }
+            if (!fileNames.length) {
+              const fallbackName = String(e.dataTransfer.getData('text/plain') || '');
+              if (fallbackName) {
+                fileNames = [fallbackName];
+              }
+            }
+          }
           clearDropHighlight();
-          if (!nodeEl || !fileName) {
+          if (!nodeEl || !fileNames.length) {
             return;
           }
           e.preventDefault();
 
           const tagId = nodeEl.getAttribute('data-tag-id') || '';
-          const check = canBindFileToTagOnClient(tagId, fileName);
-          if (!check.ok) {
-            showStatus('拖拽引用失败：' + check.message, 'err');
+          const invalidFile = fileNames.find(function (fileName) {
+            return !canBindFileToTagOnClient(tagId, fileName).ok;
+          }) || '';
+          if (invalidFile) {
+            showStatus('拖拽引用失败：' + canBindFileToTagOnClient(tagId, invalidFile).message, 'err');
             return;
           }
-          const result = await bindFileToTag(tagId, fileName);
+          const result = await bindFilesToTag(tagId, fileNames);
           if (!result.ok) {
             showStatus('拖拽引用失败：' + result.message, 'err');
             return;
           }
 
+          fileNames.forEach(function (name) {
+            selectedFileNames.delete(name);
+          });
           await loadTagTreeState();
           renderTagTree();
           if (activeFilterTagId === tagId) {
             await showFilesForTag(tagId);
+          } else {
+            renderFiles(currentFiles);
           }
-          showStatus('已通过拖拽引用文件', 'ok');
+          showStatus(fileNames.length > 1
+            ? ('已批量移动 ' + fileNames.length + ' 个文件到标签')
+            : '已通过拖拽移动文件到标签', 'ok');
         });
       }
 
