@@ -51,6 +51,11 @@
         sequential: '顺序播放',
         loop: '循环播放'
       };
+      const AUDIO_PLAY_MODE_ICONS = {
+        random: '⤮',
+        sequential: '⇥',
+        loop: '↻'
+      };
       let allFiles = [];
       let tagTree = [];
       let activeFilterTagId = '';
@@ -329,6 +334,17 @@
         }).join('');
       }
 
+      function renderAudioPlayModeButtons(activeMode) {
+        return ['random', 'sequential', 'loop'].map(function (modeKey) {
+          const activeClass = modeKey === activeMode ? 'audio-mode-btn active' : 'audio-mode-btn';
+          const label = AUDIO_PLAY_MODE_LABELS[modeKey] || '播放方式';
+          const icon = AUDIO_PLAY_MODE_ICONS[modeKey] || '?';
+          return '<button type="button" class="' + activeClass + '" data-audio-mode="' + modeKey + '" title="' + escapeHtml(label) + '" aria-label="' + escapeHtml(label) + '">' +
+            '<span class="audio-mode-btn-icon">' + icon + '</span>' +
+          '</button>';
+        }).join('');
+      }
+
       function openAudioPlaylistWindow(tagId, tagName, mode, files) {
         const playlistKey = 'audio-playlist:' + String(tagId || '');
         const existed = openedPreviewWindows.get(playlistKey);
@@ -349,16 +365,23 @@
         win.innerHTML =
           '<div class="preview-head">' +
             '<div class="preview-title">' + escapeHtml((AUDIO_PLAY_MODE_LABELS[mode] || '音频播放') + '：' + (tagName || '音频标签')) + '</div>' +
-            '<button class="preview-close" type="button">关闭</button>' +
+            '<div class="preview-head-actions">' +
+              '<button class="preview-window-btn" type="button" data-window-action="minimize" title="最小化" aria-label="最小化">−</button>' +
+              '<button class="preview-window-btn" type="button" data-window-action="maximize" title="最大化" aria-label="最大化">□</button>' +
+              '<button class="preview-close" type="button" title="关闭" aria-label="关闭">×</button>' +
+            '</div>' +
           '</div>' +
           '<div class="preview-body audio-playlist-body">' +
             '<div class="audio-playlist-meta">' +
-              '<div class="audio-playlist-mode">' + escapeHtml(AUDIO_PLAY_MODE_LABELS[mode] || '音频播放') + '</div>' +
+              '<div class="audio-playlist-mode-group">' + renderAudioPlayModeButtons(mode) + '</div>' +
               '<div class="audio-playlist-current-name"></div>' +
             '</div>' +
             '<audio class="preview-audio audio-playlist-player" controls preload="metadata"></audio>' +
             '<div class="audio-playlist-panel">' +
-              '<div class="audio-playlist-summary">共 <span class="audio-playlist-count"></span> 个音频文件</div>' +
+              '<div class="audio-playlist-panel-head">' +
+                '<div class="audio-playlist-summary">共 <span class="audio-playlist-count"></span> 个音频文件</div>' +
+                '<button type="button" class="audio-playlist-toggle-btn" title="收起文件列表" aria-label="收起文件列表">▾</button>' +
+              '</div>' +
               '<div class="audio-playlist-items"></div>' +
             '</div>' +
           '</div>';
@@ -373,9 +396,16 @@
         const itemsEl = win.querySelector('.audio-playlist-items');
         const closeBtn = win.querySelector('.preview-close');
         const head = win.querySelector('.preview-head');
+        const minimizeBtn = win.querySelector('[data-window-action="minimize"]');
+        const maximizeBtn = win.querySelector('[data-window-action="maximize"]');
+        const modeGroupEl = win.querySelector('.audio-playlist-mode-group');
+        const playlistPanelEl = win.querySelector('.audio-playlist-panel');
+        const playlistToggleBtn = win.querySelector('.audio-playlist-toggle-btn');
         let currentIndex = -1;
         let currentFileName = '';
+        let currentMode = mode;
         let randomQueue = [];
+        let isPlaylistCollapsed = false;
 
         if (countEl) {
           countEl.textContent = String(displayFiles.length);
@@ -389,6 +419,117 @@
           if (!randomQueue.length && displayFiles.length === 1) {
             randomQueue = displayFiles.slice();
           }
+        }
+
+        function snapshotWindowRect() {
+          if (win.classList.contains('is-maximized')) {
+            return;
+          }
+          const rect = win.getBoundingClientRect();
+          win.dataset.restoreLeft = Math.round(rect.left) + 'px';
+          win.dataset.restoreTop = Math.round(rect.top) + 'px';
+          win.dataset.restoreWidth = Math.round(rect.width) + 'px';
+          win.dataset.restoreHeight = Math.round(rect.height) + 'px';
+        }
+
+        function restoreAudioWindowGeometry() {
+          win.classList.remove('is-minimized', 'is-maximized');
+          win.style.transform = 'none';
+          win.style.resize = 'both';
+          win.style.maxHeight = '90vh';
+          win.style.width = win.dataset.restoreWidth || '';
+          win.style.height = win.dataset.restoreHeight || '';
+          win.style.left = win.dataset.restoreLeft || '';
+          win.style.top = win.dataset.restoreTop || '';
+          if (!win.dataset.restoreLeft || !win.dataset.restoreTop) {
+            centerPreviewWindow(win);
+          } else {
+            clampWindowPosition(win);
+          }
+        }
+
+        function syncAudioWindowButtons() {
+          if (maximizeBtn) {
+            const restoreMode = win.classList.contains('is-minimized') || win.classList.contains('is-maximized');
+            maximizeBtn.textContent = restoreMode ? '❐' : '□';
+            maximizeBtn.title = restoreMode ? '恢复窗口' : '最大化';
+            maximizeBtn.setAttribute('aria-label', restoreMode ? '恢复窗口' : '最大化');
+          }
+        }
+
+        function syncAudioModeUI() {
+          if (modeGroupEl) {
+            modeGroupEl.innerHTML = renderAudioPlayModeButtons(currentMode);
+          }
+        }
+
+        function syncAudioWindowTitle() {
+          const titleEl = win.querySelector('.preview-title');
+          if (titleEl) {
+            titleEl.textContent = (AUDIO_PLAY_MODE_LABELS[currentMode] || '音频播放') + '：' + (tagName || '音频标签');
+          }
+        }
+
+        function syncPlaylistPanelUI() {
+          if (playlistPanelEl) {
+            playlistPanelEl.classList.toggle('is-collapsed', isPlaylistCollapsed);
+          }
+          if (playlistToggleBtn) {
+            playlistToggleBtn.textContent = isPlaylistCollapsed ? '▸' : '▾';
+            playlistToggleBtn.title = isPlaylistCollapsed ? '展开文件列表' : '收起文件列表';
+            playlistToggleBtn.setAttribute('aria-label', isPlaylistCollapsed ? '展开文件列表' : '收起文件列表');
+          }
+        }
+
+        function togglePlaylistPanel() {
+          isPlaylistCollapsed = !isPlaylistCollapsed;
+          syncPlaylistPanelUI();
+        }
+
+        function setAudioPlayMode(nextMode) {
+          if (!AUDIO_PLAY_MODE_LABELS[nextMode] || currentMode === nextMode) {
+            return;
+          }
+          currentMode = nextMode;
+          if (currentMode === 'random') {
+            refillRandomQueue(currentFileName);
+          }
+          syncAudioModeUI();
+          syncAudioWindowTitle();
+        }
+
+        function minimizeAudioWindow() {
+          if (win.classList.contains('is-minimized')) {
+            return;
+          }
+          snapshotWindowRect();
+          win.classList.remove('is-maximized');
+          win.classList.add('is-minimized');
+          win.style.transform = 'none';
+          win.style.resize = 'none';
+          win.style.height = '';
+          win.style.maxHeight = '';
+          clampWindowPosition(win);
+          syncAudioWindowButtons();
+        }
+
+        function maximizeAudioWindow() {
+          if (win.classList.contains('is-minimized') || win.classList.contains('is-maximized')) {
+            restoreAudioWindowGeometry();
+            syncAudioWindowButtons();
+            return;
+          }
+          snapshotWindowRect();
+          win.classList.add('is-maximized');
+          win.classList.remove('is-minimized');
+          win.style.transform = 'none';
+          win.style.resize = 'none';
+          win.style.left = '22px';
+          win.style.top = '22px';
+          win.style.width = 'calc(100vw - 44px)';
+          win.style.height = 'calc(100vh - 44px)';
+          win.style.maxHeight = 'calc(100vh - 44px)';
+          syncAudioWindowButtons();
         }
 
         function updateCurrentTrack(index, fileName) {
@@ -446,11 +587,11 @@
           if (!displayFiles.length) {
             return;
           }
-          if (mode === 'loop') {
+          if (currentMode === 'loop') {
             playIndex((currentIndex + 1) % displayFiles.length, true);
             return;
           }
-          if (mode === 'random') {
+          if (currentMode === 'random') {
             if (displayFiles.length === 1) {
               playIndex(0, true);
               return;
@@ -472,16 +613,45 @@
             const nextIndex = Number(itemBtn.getAttribute('data-playlist-index') || '-1');
             if (nextIndex >= 0) {
               playIndex(nextIndex, true);
-              if (mode === 'random') {
+              if (currentMode === 'random') {
                 refillRandomQueue(String(((displayFiles[nextIndex] || {}).name) || ''));
               }
             }
           });
         }
 
+        if (modeGroupEl) {
+          modeGroupEl.addEventListener('click', function (e) {
+            const modeBtn = e.target.closest('.audio-mode-btn[data-audio-mode]');
+            if (!modeBtn) {
+              return;
+            }
+            const nextMode = modeBtn.getAttribute('data-audio-mode') || '';
+            setAudioPlayMode(nextMode);
+          });
+        }
+
+        if (playlistToggleBtn) {
+          playlistToggleBtn.addEventListener('click', function () {
+            togglePlaylistPanel();
+          });
+        }
+
         if (audioEl) {
           audioEl.addEventListener('ended', function () {
             moveNextTrack();
+          });
+        }
+
+        if (minimizeBtn) {
+          minimizeBtn.addEventListener('click', function () {
+            minimizeAudioWindow();
+          });
+        }
+
+        if (maximizeBtn) {
+          maximizeBtn.addEventListener('click', function () {
+            maximizeAudioWindow();
           });
         }
 
@@ -494,9 +664,10 @@
         });
 
         head.addEventListener('mousedown', function (e) {
-          if (e.target.closest('.preview-close')) {
+          if (e.target.closest('.preview-close') || e.target.closest('.preview-window-btn') || win.classList.contains('is-maximized')) {
             return;
           }
+          snapshotWindowRect();
           const rect = win.getBoundingClientRect();
           bringToFront(win);
           activeDrag = {
@@ -510,7 +681,13 @@
           e.preventDefault();
         });
 
-        if (mode === 'random') {
+        syncAudioWindowButtons();
+
+        syncAudioModeUI();
+        syncAudioWindowTitle();
+        syncPlaylistPanelUI();
+
+        if (currentMode === 'random') {
           refillRandomQueue('');
           playNextRandomTrack();
         } else {
