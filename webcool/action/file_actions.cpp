@@ -61,6 +61,24 @@ static bool is_video_file(const char* filename) {
 		|| strcasecmp(dot, ".rmvb") == 0;
 }
 
+static bool is_audio_file(const char* filename) {
+	if (filename == NULL) {
+		return false;
+	}
+
+	const char* dot = strrchr(filename, '.');
+	if (dot == NULL || *(dot + 1) == '\0') {
+		return false;
+	}
+
+	return strcasecmp(dot, ".mp3") == 0
+		|| strcasecmp(dot, ".m4a") == 0
+		|| strcasecmp(dot, ".aac") == 0
+		|| strcasecmp(dot, ".wav") == 0
+		|| strcasecmp(dot, ".ogg") == 0
+		|| strcasecmp(dot, ".flac") == 0;
+}
+
 static bool is_text_file(const char* filename) {
 	if (filename == NULL) {
 		return false;
@@ -132,6 +150,34 @@ static const char* video_content_type(const char* filename) {
 	}
 	if (strcasecmp(dot, ".rmvb") == 0) {
 		return "application/vnd.rn-realmedia-vbr";
+	}
+
+	return "application/octet-stream";
+}
+
+static const char* audio_content_type(const char* filename) {
+	const char* dot = filename ? strrchr(filename, '.') : NULL;
+	if (dot == NULL) {
+		return "application/octet-stream";
+	}
+
+	if (strcasecmp(dot, ".mp3") == 0) {
+		return "audio/mpeg";
+	}
+	if (strcasecmp(dot, ".m4a") == 0) {
+		return "audio/mp4";
+	}
+	if (strcasecmp(dot, ".aac") == 0) {
+		return "audio/aac";
+	}
+	if (strcasecmp(dot, ".wav") == 0) {
+		return "audio/wav";
+	}
+	if (strcasecmp(dot, ".ogg") == 0) {
+		return "audio/ogg";
+	}
+	if (strcasecmp(dot, ".flac") == 0) {
+		return "audio/flac";
 	}
 
 	return "application/octet-stream";
@@ -369,9 +415,10 @@ bool DownloadAction::run(request_t& req, response_t& res,
 
 	const bool is_image = is_image_file(basename);
 	const bool is_video = is_video_file(basename);
+	const bool is_audio = is_audio_file(basename);
 	const bool is_text = is_text_file(basename);
 	const char* preview = req.getParameter("preview");
-	const bool inline_preview = (is_image || is_video || is_text)
+	const bool inline_preview = (is_image || is_video || is_audio || is_text)
 		&& preview != NULL && strcmp(preview, "1") == 0;
 	const char* range = req.getHeader("Range");
 	long long range_begin = 0;
@@ -403,6 +450,8 @@ bool DownloadAction::run(request_t& req, response_t& res,
 		ctype = image_content_type(basename);
 	} else if (is_video) {
 		ctype = video_content_type(basename);
+	} else if (is_audio) {
+		ctype = audio_content_type(basename);
 	} else if (is_text) {
 		ctype = text_content_type(basename);
 	}

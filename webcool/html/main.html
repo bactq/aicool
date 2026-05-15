@@ -538,6 +538,20 @@
 
     .video-btn:hover { background: #ddf3e1; }
 
+    .audio-btn {
+      border: 1px solid #d5d1be;
+      background: #fbf8ec;
+      color: #7a6a28;
+      border-radius: 9px;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+
+    .audio-btn:hover { background: #f3ecd6; }
+
     .text-btn {
       border: 1px solid #d9c8ef;
       background: #f6efff;
@@ -638,6 +652,14 @@
       border-radius: 8px;
       border: 1px solid #deebf7;
       background: #000;
+    }
+
+    .preview-audio {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid #deebf7;
+      background: #fff;
+      padding: 10px;
     }
 
     .preview-text {
@@ -858,6 +880,10 @@
 
       function isVideoName(name) {
         return /\.(mp4|avi|mkv|rmvb)$/i.test(String(name || ''));
+      }
+
+      function isAudioName(name) {
+        return /\.(mp3|m4a|aac|wav|ogg|flac)$/i.test(String(name || ''));
       }
 
       function toVttSidecarName(name) {
@@ -1386,6 +1412,9 @@
           const videoBtn = isVideoName(file.name)
             ? '<button class="video-btn" data-video-file="' + encoded + '" data-video-name="' + name + '">观影</button>'
             : '';
+          const audioBtn = isAudioName(file.name)
+            ? '<button class="audio-btn" data-audio-file="' + encoded + '" data-audio-name="' + name + '">听音</button>'
+            : '';
           const textBtn = isTextName(file.name)
             ? '<button class="text-btn" data-text-file="' + encoded + '" data-text-name="' + name + '">查看</button>'
             : '';
@@ -1394,7 +1423,7 @@
               '<td><a class="file-name" href="' + api.download + '?file=' + encoded + '">' + name + '</a></td>' +
               '<td><span class="size">' + formatNumber(size) + ' 字节</span></td>' +
               '<td><span class="time">' + uploaded + '</span></td>' +
-              '<td class="actions">' + previewBtn + videoBtn + textBtn + '<button class="delete-btn" data-file="' + encoded + '" data-name="' + name + '">删除</button></td>' +
+              '<td class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + '<button class="delete-btn" data-file="' + encoded + '" data-name="' + name + '">删除</button></td>' +
             '</tr>'
           );
         }).join('');
@@ -1418,7 +1447,8 @@
         win.style.zIndex = String(previewZ);
 
         const titleText = kind === 'video' ? '视频播放：'
-          : (kind === 'text' ? '文本查看：' : '图片预览：');
+          : (kind === 'audio' ? '音频播放：'
+            : (kind === 'text' ? '文本查看：' : '图片预览：'));
         const escapedTitle = escapeHtml(name || '');
 
         let mediaHtml = '';
@@ -1429,6 +1459,8 @@
           mediaHtml = '<video class="preview-video" controls preload="metadata" src="' + url + '">' +
             '<track kind="subtitles" srclang="zh-CN" label="中文字幕" default src="' + subtitleUrl + '">' +
             '</video>';
+        } else if (kind === 'audio') {
+          mediaHtml = '<audio class="preview-audio" controls preload="metadata" src="' + url + '"></audio>';
         } else if (kind === 'text') {
           mediaHtml = '<pre class="preview-text">加载中...</pre>';
         } else {
@@ -1469,6 +1501,13 @@
               }
             }
           });
+        }
+
+        const mediaAudio = win.querySelector('audio');
+        if (mediaAudio) {
+          const rawAudioFile = decodeURIComponent(String(file || ''));
+          bindVideoResume(mediaAudio, rawAudioFile);
+          mediaAudio.play().catch(function () {});
         }
 
         const mediaText = win.querySelector('.preview-text');
@@ -1529,17 +1568,17 @@
         if (!win) {
           return;
         }
-        const v = win.querySelector('video');
-        if (v) {
-          const resumeFile = v.getAttribute('data-resume-file') || '';
+        const media = win.querySelector('video, audio');
+        if (media) {
+          const resumeFile = media.getAttribute('data-resume-file') || '';
           if (resumeFile) {
             clearScheduledVideoResumeSave(resumeFile);
-            const ms = Math.max(0, Math.round((Number(v.currentTime) || 0) * 1000));
+            const ms = Math.max(0, Math.round((Number(media.currentTime) || 0) * 1000));
             saveVideoResumePosition(resumeFile, ms).catch(function () {});
           }
-          v.setAttribute('data-resume-closing', '1');
-          v.pause();
-          v.src = '';
+          media.setAttribute('data-resume-closing', '1');
+          media.pause();
+          media.src = '';
         }
         if (key) {
           openedPreviewWindows.delete(key);
@@ -1922,6 +1961,16 @@
           const vname = video.getAttribute('data-video-name') || '';
           if (vfile) {
             openPreview('video', vfile, vname);
+          }
+          return;
+        }
+
+        const audio = e.target.closest('.audio-btn');
+        if (audio) {
+          const afile = audio.getAttribute('data-audio-file');
+          const aname = audio.getAttribute('data-audio-name') || '';
+          if (afile) {
+            openPreview('audio', afile, aname);
           }
           return;
         }
