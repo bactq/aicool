@@ -2,9 +2,28 @@
 
 #include "actions.h"
 
+#include <string>
+
 namespace action {
 
 bool make_dir(const char* path);
+bool make_dir_recursive(const char* path);
+
+bool normalize_relative_path(const char* input, std::string& normalized,
+	std::string& err, bool allow_empty = false);
+
+std::string join_upload_path(const std::string& upload_dir,
+	const std::string& relative_path);
+
+std::string parent_relative_path(const std::string& relative_path);
+
+std::string base_name_from_relative_path(const std::string& relative_path);
+
+bool upload_regular_file_exists(const std::string& upload_dir,
+	const std::string& relative_path);
+
+bool upload_directory_exists(const std::string& upload_dir,
+	const std::string& relative_path);
 
 bool sendHtml(response_t& res, const acl::string& html,
 	bool keep_alive = true);

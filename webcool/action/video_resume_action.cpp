@@ -148,6 +148,38 @@ bool init_video_resume_db(const std::string& upload_dir, std::string& err) {
 	return true;
 }
 
+bool video_resume_rename_file(const std::string& upload_dir,
+	const std::string& old_file_name, const std::string& new_file_name,
+	std::string& err)
+{
+	err.clear();
+	if (old_file_name.empty() || new_file_name.empty() || old_file_name == new_file_name) {
+		return true;
+	}
+	if (!ensure_video_resume_db_for_request(upload_dir, err)) {
+		return false;
+	}
+
+	std::lock_guard<std::mutex> guard(g_resume_mutex);
+	acl::db_sqlite db(g_resume_db_file.c_str(), "utf-8");
+	if (!db.open()) {
+		err = db.get_error();
+		return false;
+	}
+	db.set_busy_timeout(3000);
+
+	acl::query query;
+	query.create("UPDATE video_resume SET file_name=:new_file, updated_at=strftime('%s','now')"
+		" WHERE file_name=:old_file")
+		.set_parameter("new_file", new_file_name.c_str())
+		.set_parameter("old_file", old_file_name.c_str());
+	if (!db.exec_update(query)) {
+		err = db.get_error();
+		return false;
+	}
+	return true;
+}
+
 bool VideoResumeGetAction::run(request_t& req, response_t& res,
 	const std::string& upload_dir)
 {
@@ -163,9 +195,9 @@ bool VideoResumeGetAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
-	const char* basename = acl_safe_basename(file);
-	if (basename == NULL || *basename == '\0' || strcmp(basename, file) != 0) {
-		json_error(res, 400, "invalid file name", req.isKeepAlive());
+	std::string file_path;
+	if (!normalize_relative_path(file, file_path, db_err, false)) {
+		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
 		return true;
 	}
 
@@ -185,7 +217,7 @@ bool VideoResumeGetAction::run(request_t& req, response_t& res,
 
 		acl::query query;
 		query.create("SELECT position_ms FROM video_resume WHERE file_name=:file")
-			.set_parameter("file", basename);
+			.set_parameter("file", file_path.c_str());
 
 		if (!db.exec_select(query)) {
 			json_error(res, 500, db.get_error(), req.isKeepAlive());
@@ -212,7 +244,7 @@ bool VideoResumeGetAction::run(request_t& req, response_t& res,
 		acl::json json;
 		acl::json_node& root = json.create_node();
 		root.add_bool("ok", true);
-		root.add_text("file", basename);
+		root.add_text("file", file_path.c_str());
 		root.add_bool("found", found);
 		root.add_number("position_ms", position_ms);
 		return sendJson(res, 200, root, req.isKeepAlive());
@@ -234,9 +266,9 @@ bool VideoResumeSetAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
-	const char* basename = acl_safe_basename(file);
-	if (basename == NULL || *basename == '\0' || strcmp(basename, file) != 0) {
-		json_error(res, 400, "invalid file name", req.isKeepAlive());
+	std::string file_path;
+	if (!normalize_relative_path(file, file_path, db_err, false)) {
+		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
 		return true;
 	}
 
@@ -267,7 +299,7 @@ bool VideoResumeSetAction::run(request_t& req, response_t& res,
 			"VALUES(:file, :position_ms, strftime('%s','now')) "
 			"ON CONFLICT(file_name) DO UPDATE SET "
 			"position_ms=excluded.position_ms, updated_at=excluded.updated_at")
-			.set_parameter("file", basename)
+			.set_parameter("file", file_path.c_str())
 			.set_parameter("position_ms", position_ms);
 
 		if (!db.exec_update(query)) {
@@ -279,7 +311,7 @@ bool VideoResumeSetAction::run(request_t& req, response_t& res,
 	acl::json json;
 	acl::json_node& root = json.create_node();
 	root.add_bool("ok", true);
-	root.add_text("file", basename);
+	root.add_text("file", file_path.c_str());
 	root.add_number("position_ms", position_ms);
 	root.add_text("message", "resume position saved");
 	return sendJson(res, 200, root, req.isKeepAlive());

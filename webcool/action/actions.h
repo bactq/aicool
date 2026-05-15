@@ -18,6 +18,12 @@ bool folder_unbind_file(const std::string& upload_dir,
 	const std::string& file_name, std::string& err);
 bool tag_unbind_file(const std::string& upload_dir,
 	const std::string& file_name, std::string& err);
+bool tag_rename_file(const std::string& upload_dir,
+	const std::string& old_file_name, const std::string& new_file_name,
+	std::string& err);
+bool video_resume_rename_file(const std::string& upload_dir,
+	const std::string& old_file_name, const std::string& new_file_name,
+	std::string& err);
 bool folder_load_file_bindings(const std::string& upload_dir,
 	std::map<std::string, long long>& file_to_folder_id,
 	std::map<long long, std::string>& folder_id_to_name,
@@ -45,6 +51,12 @@ public:
 		const std::string& upload_dir);
 };
 
+class MoveFileAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
 class DownloadAction {
 public:
 	static bool run(request_t& req, response_t& res,
@@ -61,7 +73,8 @@ private:
 		acl::ofstream& fp, acl::http_mime& mime);
 
 	static bool saveFiles(acl::http_mime& mime, const std::string& upload_dir,
-		acl::json_node& files_array, int& saved_count, long long folder_id);
+		acl::json_node& files_array, int& saved_count,
+		const std::string& folder_path);
 };
 
 class VideoConvertAction {

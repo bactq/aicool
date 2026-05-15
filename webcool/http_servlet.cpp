@@ -3,10 +3,29 @@
 #include "action/actions.h"
 #include "action/action_util.h"
 #include <map>
+#include <unistd.h>
 
 namespace {
 
 typedef bool (http_servlet::*route_handler)(request_t& req, response_t& res);
+
+const char* resolve_static_file_path(const char* local_path,
+	const char* workspace_path)
+{
+	static thread_local acl::string resolved;
+	if (local_path != NULL && access(local_path, R_OK) == 0) {
+		resolved.clear();
+		resolved = local_path;
+		return resolved.c_str();
+	}
+	if (workspace_path != NULL && access(workspace_path, R_OK) == 0) {
+		resolved.clear();
+		resolved = workspace_path;
+		return resolved.c_str();
+	}
+	resolved.clear();
+	return NULL;
+}
 
 bool send_static_file(const char* file_path, const char* content_type,
 	request_t& req, response_t& res)
@@ -32,14 +51,22 @@ bool try_route_static_asset(const char* path, request_t& req, response_t& res) {
 		|| strcmp(path, "/html/main.css") == 0
 		|| strcmp(path, "/main.css") == 0)
 	{
-		return send_static_file("html/main.css", "text/css; charset=utf-8", req, res);
+		const char* file_path = resolve_static_file_path("html/main.css",
+			"webcool/html/main.css");
+		return file_path != NULL
+			? send_static_file(file_path, "text/css; charset=utf-8", req, res)
+			: false;
 	}
 
 	if (strcmp(path, "/webcool/html/main.js") == 0
 		|| strcmp(path, "/html/main.js") == 0
 		|| strcmp(path, "/main.js") == 0)
 	{
-		return send_static_file("html/main.js", "application/javascript; charset=utf-8", req, res);
+		const char* file_path = resolve_static_file_path("html/main.js",
+			"webcool/html/main.js");
+		return file_path != NULL
+			? send_static_file(file_path, "application/javascript; charset=utf-8", req, res)
+			: false;
 	}
 
 	return false;
@@ -78,6 +105,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 	static const std::map<std::string, route_handler> routes = {
 		{ "/api/v1/admin/template/reload", &http_servlet::routeTemplateReload },
 		{ "/api/v1/delete", &http_servlet::routeDelete },
+		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
 		{ "/api/v1/files", &http_servlet::routeFiles },
 		{ "/api/v1/download", &http_servlet::routeDownload },
 		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },
@@ -109,6 +137,10 @@ bool http_servlet::routeTemplateReload(request_t& req, response_t& res) {
 
 bool http_servlet::routeDelete(request_t& req, response_t& res) {
 	return action::DeleteAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeMoveFile(request_t& req, response_t& res) {
+	return action::MoveFileAction::run(req, res, upload_dir_);
 }
 
 bool http_servlet::routeFiles(request_t& req, response_t& res) {
@@ -198,6 +230,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 	const char* path = req.getPathInfo();
 	static const std::map<std::string, route_handler> routes = {
 		{ "/api/v1/upload", &http_servlet::routeUpload },
+		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
 		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },
 		{ "/api/v1/video/convert/cancel", &http_servlet::routeVideoConvertCancel },
 		{ "/api/v1/video/convert/progress", &http_servlet::routeVideoConvertProgress },

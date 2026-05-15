@@ -7,26 +7,13 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include <string>
+
 #ifndef _WIN32
 #include <unistd.h>
 #endif
 
 namespace action {
-
-static bool parse_positive_i64(const char* text, long long& out) {
-	if (text == NULL || *text == '\0') {
-		return false;
-	}
-
-	errno = 0;
-	char* end = NULL;
-	long long v = strtoll(text, &end, 10);
-	if (errno != 0 || end == text || *end != '\0' || v <= 0) {
-		return false;
-	}
-	out = v;
-	return true;
-}
 
 bool UploadAction::run(request_t& req, response_t& res,
 	const std::string& upload_dir)
@@ -57,7 +44,7 @@ bool UploadAction::run(request_t& req, response_t& res,
 		return sendJson(res, 400, root, req.isKeepAlive());
 	}
 
-	if (!make_dir(upload_dir.c_str())) {
+	if (!make_dir_recursive(upload_dir.c_str())) {
 		fprintf(stderr, "Cannot create upload dir: %s\n", upload_dir.c_str());
 		acl::json json;
 		acl::json_node& root = json.create_node();
@@ -113,21 +100,27 @@ bool UploadAction::run(request_t& req, response_t& res,
 	acl::json_node& files = json.create_array();
 	root.add_child("files", files);
 
-	long long folder_id = 0;
-	const char* folder_id_text = req.getParameter("folder_id");
-	if (folder_id_text != NULL && *folder_id_text != '\0') {
-		if (!parse_positive_i64(folder_id_text, folder_id)) {
+	std::string folder_path;
+	std::string path_err;
+	if (!normalize_relative_path(req.getParameter("folder"), folder_path, path_err, true)) {
 			::unlink(tmp_path.c_str());
 			acl::json err;
 			acl::json_node& eroot = err.create_node();
 			eroot.add_bool("ok", false);
-			eroot.add_text("error", "invalid folder_id");
+			eroot.add_text("error", path_err.c_str());
 			return sendJson(res, 400, eroot, req.isKeepAlive());
 		}
+	if (!folder_path.empty() && !upload_directory_exists(upload_dir, folder_path)) {
+		::unlink(tmp_path.c_str());
+		acl::json err;
+		acl::json_node& eroot = err.create_node();
+		eroot.add_bool("ok", false);
+		eroot.add_text("error", "target folder not found");
+		return sendJson(res, 404, eroot, req.isKeepAlive());
 	}
 
 	int saved_count = 0;
-	bool ok = saveFiles(*mime, upload_dir, files, saved_count, folder_id);
+	bool ok = saveFiles(*mime, upload_dir, files, saved_count, folder_path);
 
 	::unlink(tmp_path.c_str());
 
@@ -189,7 +182,7 @@ bool UploadAction::readBody(request_t& req, long long content_length,
 }
 
 bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir,
-	acl::json_node& files_array, int& saved_count, long long folder_id)
+	acl::json_node& files_array, int& saved_count, const std::string& folder_path)
 {
 	saved_count = 0;
 
@@ -219,8 +212,10 @@ bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir
 			continue;
 		}
 
-		acl::string dest;
-		dest.format("%s/%s", upload_dir.c_str(), basename);
+		const std::string relative_path = folder_path.empty()
+			? std::string(basename)
+			: (folder_path + "/" + basename);
+		const std::string dest = join_upload_path(upload_dir, relative_path);
 		acl::json_node& item = files_array.add_child(false, true);
 
 		off_t body_begin = node->get_bodyBegin();
@@ -273,18 +268,10 @@ bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir
 			}
 
 			item.add_text("name", basename);
+			item.add_text("path", relative_path.c_str());
+			item.add_text("folder_path", folder_path.c_str());
 			item.add_number("size", fsize);
 			item.add_bool("saved", true);
-			if (folder_id > 0) {
-				std::string bind_err;
-				if (!folder_bind_file(upload_dir, basename, folder_id, bind_err)) {
-					::unlink(dest.c_str());
-					item.add_bool("saved", false);
-					item.add_text("error", bind_err.c_str());
-					continue;
-				}
-				item.add_number("folder_id", folder_id);
-			}
 			saved_count++;
 			printf("Saved: %s (%lld bytes), body_begin=%lld body_end=%lld\n", dest.c_str(), fsize, (long long) body_begin, (long long) body_end);
 		} else {

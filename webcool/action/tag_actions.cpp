@@ -525,15 +525,14 @@ static std::string make_tag_id_locked() {
 }
 
 static bool file_exists_in_upload_dir(const std::string& upload_dir,
-	const char* basename)
+	const char* relative_path)
 {
-	acl::string path;
-	path.format("%s/%s", upload_dir.c_str(), basename ? basename : "");
-	struct stat st;
-	if (stat(path.c_str(), &st) != 0) {
+	std::string normalized;
+	std::string err;
+	if (!normalize_relative_path(relative_path, normalized, err, false)) {
 		return false;
 	}
-	return S_ISREG(st.st_mode);
+	return upload_regular_file_exists(upload_dir, normalized);
 }
 
 static void append_tag_json(acl::json& json, acl::json_node& arr,
@@ -708,6 +707,36 @@ bool tag_unbind_file(const std::string& upload_dir,
 	acl::query query;
 	query.create("DELETE FROM file_tag_rel WHERE file_name=:file")
 		.set_parameter("file", file_name.c_str());
+	if (!db.exec_update(query)) {
+		err = db.get_error();
+		return false;
+	}
+	return true;
+}
+
+bool tag_rename_file(const std::string& upload_dir,
+	const std::string& old_file_name, const std::string& new_file_name,
+	std::string& err)
+{
+	err.clear();
+	if (old_file_name.empty() || new_file_name.empty() || old_file_name == new_file_name) {
+		return true;
+	}
+	if (!ensure_tag_db_for_request(upload_dir, err)) {
+		return false;
+	}
+
+	std::lock_guard<std::mutex> guard(g_tag_mutex);
+	acl::db_sqlite db(g_tag_db_file.c_str(), "utf-8");
+	if (!open_tag_db_locked(db, err)) {
+		return false;
+	}
+
+	acl::query query;
+	query.create("UPDATE file_tag_rel SET file_name=:new_file, updated_at=strftime('%s','now')"
+		" WHERE file_name=:old_file")
+		.set_parameter("new_file", new_file_name.c_str())
+		.set_parameter("old_file", old_file_name.c_str());
 	if (!db.exec_update(query)) {
 		err = db.get_error();
 		return false;
@@ -980,13 +1009,13 @@ bool TagBindAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
-	const char* basename = acl_safe_basename(file);
-	if (basename == NULL || *basename == '\0' || strcmp(basename, file) != 0) {
-		json_error(res, 400, "invalid file name", req.isKeepAlive());
+	std::string file_path;
+	if (!normalize_relative_path(file, file_path, db_err, false)) {
+		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
 		return true;
 	}
 
-	if (!file_exists_in_upload_dir(upload_dir, basename)) {
+	if (!file_exists_in_upload_dir(upload_dir, file_path.c_str())) {
 		json_error(res, 404, "file not found", req.isKeepAlive());
 		return true;
 	}
@@ -1013,7 +1042,7 @@ bool TagBindAction::run(request_t& req, response_t& res,
 			return true;
 		}
 		if (root_row.name == g_default_video_tag_name
-			&& !is_video_file_name(std::string(basename)))
+			&& !is_video_file_name(file_path))
 		{
 			json_error(res, 400,
 				"video tag can only bind video files",
@@ -1021,7 +1050,7 @@ bool TagBindAction::run(request_t& req, response_t& res,
 			return true;
 		}
 		if (root_row.name == g_default_audio_tag_name
-			&& !is_audio_file_name(std::string(basename)))
+			&& !is_audio_file_name(file_path))
 		{
 			json_error(res, 400,
 				"audio tag can only bind audio files",
@@ -1029,7 +1058,7 @@ bool TagBindAction::run(request_t& req, response_t& res,
 			return true;
 		}
 		if (root_row.name == g_default_image_tag_name
-			&& !is_image_file_name(std::string(basename)))
+			&& !is_image_file_name(file_path))
 		{
 			json_error(res, 400,
 				"image tag can only bind image files",
@@ -1043,7 +1072,7 @@ bool TagBindAction::run(request_t& req, response_t& res,
 			" ON CONFLICT(tag_id, file_name) DO UPDATE SET"
 			" updated_at=excluded.updated_at")
 			.set_parameter("tag_id", tag_id.c_str())
-			.set_parameter("file_name", basename);
+			.set_parameter("file_name", file_path.c_str());
 		if (!db.exec_update(query)) {
 			json_error(res, 500, db.get_error(), req.isKeepAlive());
 			return true;
@@ -1054,7 +1083,7 @@ bool TagBindAction::run(request_t& req, response_t& res,
 	acl::json_node& root = json.create_node();
 	root.add_bool("ok", true);
 	root.add_text("tag_id", tag_id.c_str());
-	root.add_text("file", basename);
+	root.add_text("file", file_path.c_str());
 	root.add_text("message", "file bound to tag");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
@@ -1080,9 +1109,9 @@ bool TagUnbindAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
-	const char* basename = acl_safe_basename(file);
-	if (basename == NULL || *basename == '\0' || strcmp(basename, file) != 0) {
-		json_error(res, 400, "invalid file name", req.isKeepAlive());
+	std::string file_path;
+	if (!normalize_relative_path(file, file_path, db_err, false)) {
+		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
 		return true;
 	}
 
@@ -1097,7 +1126,7 @@ bool TagUnbindAction::run(request_t& req, response_t& res,
 		acl::query query;
 		query.create("DELETE FROM file_tag_rel WHERE tag_id=:tag_id AND file_name=:file_name")
 			.set_parameter("tag_id", tag_id.c_str())
-			.set_parameter("file_name", basename);
+			.set_parameter("file_name", file_path.c_str());
 		if (!db.exec_update(query)) {
 			json_error(res, 500, db.get_error(), req.isKeepAlive());
 			return true;
@@ -1108,7 +1137,7 @@ bool TagUnbindAction::run(request_t& req, response_t& res,
 	acl::json_node& root = json.create_node();
 	root.add_bool("ok", true);
 	root.add_text("tag_id", tag_id.c_str());
-	root.add_text("file", basename);
+	root.add_text("file", file_path.c_str());
 	root.add_text("message", "file unbound from tag");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
@@ -1178,13 +1207,12 @@ bool TagFilesAction::run(request_t& req, response_t& res,
 	long long count = 0;
 
 	for (size_t i = 0; i < file_names.size(); ++i) {
-		const char* basename = acl_safe_basename(file_names[i].c_str());
-		if (basename == NULL || *basename == '\0') {
+		std::string file_path;
+		if (!normalize_relative_path(file_names[i].c_str(), file_path, db_err, false)) {
 			continue;
 		}
 
-		acl::string full;
-		full.format("%s/%s", upload_dir.c_str(), basename);
+		const std::string full = join_upload_path(upload_dir, file_path);
 		struct stat st;
 		if (stat(full.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
 			continue;
@@ -1202,7 +1230,9 @@ bool TagFilesAction::run(request_t& req, response_t& res,
 		format_upload_time(st.st_mtime, uploaded_time, sizeof(uploaded_time));
 
 		acl::json_node& item = files.add_child(false, true);
-		item.add_text("name", basename);
+		item.add_text("name", base_name_from_relative_path(file_path).c_str());
+		item.add_text("path", file_path.c_str());
+		item.add_text("folder_path", parent_relative_path(file_path).c_str());
 		item.add_number("size", fsize);
 		item.add_number("uploaded_at", (long long) st.st_mtime);
 		item.add_text("uploaded_time", uploaded_time);

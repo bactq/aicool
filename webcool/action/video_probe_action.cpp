@@ -203,19 +203,20 @@ bool VideoProbeAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
-	const char* basename = acl_safe_basename(file);
-	if (basename == NULL || *basename == '\0' || strcmp(basename, file) != 0) {
-		json_error(res, 400, "invalid file name", req.isKeepAlive());
+	std::string file_path;
+	std::string err;
+	if (!normalize_relative_path(file, file_path, err, false)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
 		return true;
 	}
 
-	if (!is_video_name(basename)) {
+	const std::string base_name = base_name_from_relative_path(file_path);
+	if (!is_video_name(base_name.c_str())) {
 		json_error(res, 400, "file is not a supported video", req.isKeepAlive());
 		return true;
 	}
 
-	acl::string in_path;
-	in_path.format("%s/%s", upload_dir.c_str(), basename);
+	const std::string in_path = join_upload_path(upload_dir, file_path);
 	if (file_size_of(in_path.c_str()) <= 0) {
 		json_error(res, 404, "source video not found", req.isKeepAlive());
 		return true;
@@ -237,7 +238,8 @@ bool VideoProbeAction::run(request_t& req, response_t& res,
 	if (!probe.audio_codec.empty()) {
 		root.add_text("audio_codec", probe.audio_codec.c_str());
 	}
-	root.add_text("name", basename);
+	root.add_text("name", base_name.c_str());
+	root.add_text("file", file_path.c_str());
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 

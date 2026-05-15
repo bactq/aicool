@@ -1,6 +1,10 @@
 (function () {
       const api = {
         files: '/api/v1/files',
+        folders: '/api/v1/folders',
+        folderCreate: '/api/v1/folders/create',
+        folderDelete: '/api/v1/folders/delete',
+        fileMove: '/api/v1/files/move',
         tags: '/api/v1/tags',
         tagCreate: '/api/v1/tags/create',
         tagDelete: '/api/v1/tags/delete',
@@ -26,6 +30,7 @@
       const uploadProgress = document.getElementById('upload-progress');
       const uploadProgressFill = document.getElementById('upload-progress-fill');
       const uploadProgressText = document.getElementById('upload-progress-text');
+      const uploadFolderPathInput = document.getElementById('upload-folder-path');
       const fileList = document.getElementById('file-list');
       const fileTable = document.getElementById('file-table');
       const fileEmpty = document.getElementById('file-empty');
@@ -33,9 +38,18 @@
       const fileSelectAll = document.getElementById('file-select-all');
       const fileBulkAction = document.getElementById('file-bulk-action');
       const fileViewContext = document.getElementById('file-view-context');
+      const explorerShell = document.querySelector('.explorer-shell');
+      const folderBrowser = document.querySelector('.folder-browser');
+      const folderTree = document.getElementById('folder-tree');
+      const folderTreeEmpty = document.getElementById('folder-tree-empty');
+      const folderCurrentPath = document.getElementById('folder-current-path');
+      const folderCreateBtn = document.getElementById('folder-create-btn');
+      const folderDeleteBtn = document.getElementById('folder-delete-btn');
+      const folderRootBtn = document.getElementById('folder-root-btn');
       const sortKey = document.getElementById('sort-key');
       const sortOrder = document.getElementById('sort-order');
       const sortButtons = Array.from(document.querySelectorAll('.sort-btn[data-sort-key]'));
+      const leftTagTreeSection = document.querySelector('.left-tag-tree-section');
       const filesTagToggleBtn = document.getElementById('files-tag-toggle');
       const tagManager = document.getElementById('tag-manager');
       const tagDialog = document.getElementById('tag-dialog');
@@ -60,8 +74,13 @@
         loop: '↻'
       };
       let allFiles = [];
+      let activeSourceFiles = [];
       let currentFiles = [];
+      let folderTreeData = [];
+      let activeFolderPath = '';
+      let activeDropFolderPath = null;
       const selectedFileNames = new Set();
+      const expandedFolderPaths = new Set(['']);
       let tagTree = [];
       let activeFilterTagId = '';
       const expandedTagNodeIds = new Set();
@@ -75,6 +94,38 @@
       const transcodeProgressTimers = new Map();
       const videoResumeSaveTimers = new Map();
 
+      function normalizeFileRecord(file) {
+        const source = file && typeof file === 'object' ? file : {};
+        const path = String(source.path || source.name || '');
+        const slash = path.lastIndexOf('/');
+        const derivedFolder = slash >= 0 ? path.slice(0, slash) : '';
+        const derivedName = slash >= 0 ? path.slice(slash + 1) : path;
+        return Object.assign({}, source, {
+          path: path,
+          folder_path: String(source.folder_path || derivedFolder || ''),
+          name: String(source.name || derivedName || ''),
+          display_path: path
+        });
+      }
+
+      function getFilePath(file) {
+        return String((file && file.path) || (file && file.name) || '');
+      }
+
+      function getFileLabel(file) {
+        return String((file && file.display_path) || getFilePath(file) || '');
+      }
+
+      function getFolderLabel(path) {
+        return path ? path : '根目录';
+      }
+
+      function setUploadTargetFolder(path) {
+        if (uploadFolderPathInput) {
+          uploadFolderPathInput.value = String(path || '');
+        }
+      }
+
       function setActivePanel(panelId) {
         panels.forEach(function (panel) {
           panel.classList.toggle('active', panel.id === panelId);
@@ -82,6 +133,9 @@
         menuButtons.forEach(function (btn) {
           btn.classList.toggle('active', btn.getAttribute('data-panel') === panelId);
         });
+        if (leftTagTreeSection) {
+          leftTagTreeSection.hidden = panelId !== 'panel-files';
+        }
       }
 
       function activatePanel(panelId, options) {
@@ -161,7 +215,7 @@
             return it && it.saved === true && isVideoName(it.name || '');
           })
           .map(function (it) {
-            return String(it.name || '');
+            return String(it.path || it.name || '');
           });
 
         if (!videoNames.length) {
@@ -292,7 +346,7 @@
 
       function sortAudioFilesForPlaylist(files) {
         return (Array.isArray(files) ? files : []).slice().sort(function (a, b) {
-          return String((a && a.name) || '').localeCompare(String((b && b.name) || ''), 'zh-CN');
+          return getFilePath(a).localeCompare(getFilePath(b), 'zh-CN');
         });
       }
 
@@ -334,8 +388,8 @@
           return;
         }
         container.innerHTML = files.map(function (file, index) {
-          const name = String((file && file.name) || '');
-          const itemClass = name === activeFileName ? 'audio-playlist-item active' : 'audio-playlist-item';
+          const name = String((file && file.name) || getFilePath(file) || '');
+          const itemClass = getFilePath(file) === activeFileName ? 'audio-playlist-item active' : 'audio-playlist-item';
           return '<button type="button" class="' + itemClass + '" data-playlist-index="' + index + '">' +
             '<span class="audio-playlist-item-index">' + String(index + 1) + '</span>' +
             '<span class="audio-playlist-item-name">' + escapeHtml(name) + '</span>' +
@@ -423,7 +477,7 @@
         function refillRandomQueue(excludeName) {
           const excluded = String(excludeName || '');
           randomQueue = shuffleList(displayFiles.filter(function (file) {
-            return String((file && file.name) || '') !== excluded;
+            return getFilePath(file) !== excluded;
           }));
           if (!randomQueue.length && displayFiles.length === 1) {
             randomQueue = displayFiles.slice();
@@ -559,7 +613,7 @@
           if (!current || !audioEl) {
             return;
           }
-          const fileName = String(current.name || '');
+          const fileName = getFilePath(current);
           updateCurrentTrack(index, fileName);
           audioEl.src = api.download + '?preview=1&file=' + encodeURIComponent(fileName) + '&v=' + Date.now();
           audioEl.load();
@@ -571,7 +625,7 @@
         function playFileByName(fileName, autoplay) {
           const targetName = String(fileName || '');
           const nextIndex = displayFiles.findIndex(function (file) {
-            return String((file && file.name) || '') === targetName;
+            return getFilePath(file) === targetName;
           });
           if (nextIndex >= 0) {
             playIndex(nextIndex, autoplay);
@@ -589,7 +643,7 @@
           if (!nextFile) {
             return;
           }
-          playFileByName(String(nextFile.name || ''), true);
+          playFileByName(getFilePath(nextFile), true);
         }
 
         function moveNextTrack() {
@@ -623,7 +677,7 @@
             if (nextIndex >= 0) {
               playIndex(nextIndex, true);
               if (currentMode === 'random') {
-                refillRandomQueue(String(((displayFiles[nextIndex] || {}).name) || ''));
+                refillRandomQueue(getFilePath(displayFiles[nextIndex] || {}));
               }
             }
           });
@@ -1509,11 +1563,168 @@
         return String(Number(num) || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
       }
 
+      function normalizeFolderNode(node) {
+        const item = node && typeof node === 'object' ? node : {};
+        const children = Array.isArray(item.children) ? item.children.map(normalizeFolderNode) : [];
+        return {
+          name: String(item.name || ''),
+          path: String(item.path || ''),
+          parent_path: String(item.parent_path || ''),
+          file_count: Number(item.file_count || 0),
+          children: children
+        };
+      }
+
+      function ensureFolderPathExpanded(path) {
+        const text = String(path || '');
+        expandedFolderPaths.add('');
+        if (!text) {
+          return;
+        }
+        const parts = text.split('/');
+        let current = '';
+        parts.forEach(function (part) {
+          current = current ? (current + '/' + part) : part;
+          expandedFolderPaths.add(current);
+        });
+      }
+
+      function syncFolderActionButtons() {
+        if (folderDeleteBtn) {
+          folderDeleteBtn.disabled = !activeFolderPath;
+        }
+        if (folderCurrentPath) {
+          folderCurrentPath.textContent = getFolderLabel(activeFolderPath);
+        }
+        setUploadTargetFolder(activeFolderPath);
+      }
+
+      function syncFolderDropHighlight() {
+        if (!folderTree) {
+          return;
+        }
+        const nodes = folderTree.querySelectorAll('.folder-tree-node[data-folder-path]');
+        nodes.forEach(function (node) {
+          const path = node.getAttribute('data-folder-path');
+          node.classList.toggle('drop-target', path === activeDropFolderPath);
+        });
+      }
+
+      function buildFolderTreeHtml(nodes, level) {
+        const list = Array.isArray(nodes) ? nodes : [];
+        return list.map(function (node) {
+          const path = String(node.path || '');
+          const expanded = expandedFolderPaths.has(path);
+          const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+          const isActive = activeFolderPath === path;
+          const padding = 10 + (Math.max(0, Number(level) || 0) * 18);
+          const childHtml = hasChildren && expanded
+            ? '<div class="folder-tree-children">' + buildFolderTreeHtml(node.children, (level || 0) + 1) + '</div>'
+            : '';
+          return (
+            '<div class="folder-tree-node' + (isActive ? ' active' : '') + (activeDropFolderPath === path ? ' drop-target' : '') + '" data-folder-path="' + escapeHtml(path) + '">' +
+              '<div class="folder-tree-line" style="padding-left:' + padding + 'px;">' +
+                (hasChildren
+                  ? '<button type="button" class="folder-tree-toggle" data-folder-toggle="' + escapeHtml(path) + '">' + (expanded ? '▾' : '▸') + '</button>'
+                  : '<span class="folder-tree-toggle placeholder">•</span>') +
+                '<div class="folder-tree-entry" data-folder-select="' + escapeHtml(path) + '">' +
+                  '<span class="folder-tree-name">' + escapeHtml(node.name || '') + '</span>' +
+                  '<span class="folder-tree-count">' + String(Number(node.file_count || 0)) + '</span>' +
+                '</div>' +
+              '</div>' +
+              childHtml +
+            '</div>'
+          );
+        }).join('');
+      }
+
+      function renderFolderTree() {
+        if (!folderTree || !folderTreeEmpty) {
+          return;
+        }
+        syncFolderActionButtons();
+        if (!folderTreeData.length) {
+          folderTree.innerHTML = '';
+          folderTreeEmpty.textContent = '当前没有文件夹。';
+          folderTreeEmpty.style.display = 'block';
+          return;
+        }
+        folderTreeEmpty.style.display = 'none';
+        folderTree.innerHTML =
+          '<div class="folder-tree-node' + (activeFolderPath ? '' : ' active') + (activeDropFolderPath === '' ? ' drop-target' : '') + '" data-folder-path="">' +
+            '<div class="folder-tree-line" style="padding-left:10px;">' +
+              '<span class="folder-tree-toggle placeholder">•</span>' +
+              '<div class="folder-tree-entry" data-folder-select="">' +
+                '<span class="folder-tree-name">根目录</span>' +
+                '<span class="folder-tree-count"></span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          buildFolderTreeHtml(folderTreeData, 0);
+        syncFolderDropHighlight();
+      }
+
+      async function loadFolderTreeState() {
+        const data = await fetchJson(api.folders);
+        folderTreeData = Array.isArray(data.folders) ? data.folders.map(normalizeFolderNode) : [];
+        ensureFolderPathExpanded(activeFolderPath);
+        renderFolderTree();
+      }
+
+      async function createFolderAtCurrentPath() {
+        const name = window.prompt('请输入新建文件夹名称');
+        if (name === null) {
+          return;
+        }
+        const cleanName = String(name || '').trim();
+        if (!cleanName) {
+          showStatus('文件夹名称不能为空', 'err');
+          return;
+        }
+        await fetchJson(
+          api.folderCreate + '?parent=' + encodeURIComponent(activeFolderPath || '') + '&name=' + encodeURIComponent(cleanName),
+          { method: 'POST' }
+        );
+        ensureFolderPathExpanded(activeFolderPath);
+        await loadFolderTreeState();
+        showStatus('已创建文件夹：' + cleanName, 'ok');
+      }
+
+      async function deleteCurrentFolder() {
+        if (!activeFolderPath) {
+          return;
+        }
+        if (!confirm('确认删除文件夹『' + activeFolderPath + '』？仅允许删除空文件夹。')) {
+          return;
+        }
+        await fetchJson(api.folderDelete + '?path=' + encodeURIComponent(activeFolderPath), { method: 'POST' });
+        activeFolderPath = '';
+        renderFolderTree();
+        renderFiles(activeSourceFiles);
+        showStatus('文件夹已删除', 'warn');
+      }
+
+      async function moveFilesToFolder(filePaths, folderPath) {
+        const list = Array.isArray(filePaths) ? filePaths.filter(Boolean) : [];
+        if (!list.length) {
+          return;
+        }
+        for (let i = 0; i < list.length; i += 1) {
+          await fetchJson(
+            api.fileMove + '?file=' + encodeURIComponent(list[i]) + '&folder=' + encodeURIComponent(folderPath || ''),
+            { method: 'POST' }
+          );
+          selectedFileNames.delete(list[i]);
+        }
+        await loadFiles();
+        showStatus(list.length > 1 ? ('已移动 ' + list.length + ' 个文件') : '文件已移动', 'ok');
+      }
+
       async function showFilesForTag(tagId) {
         activeFilterTagId = tagId;
         setActivePanel('panel-files');
         const data = await fetchJson(api.tagFiles + '?tag_id=' + encodeURIComponent(tagId));
-        renderFiles(Array.isArray(data.files) ? data.files : []);
+        renderFiles(Array.isArray(data.files) ? data.files.map(normalizeFileRecord) : []);
         renderTagTree();
       }
 
@@ -1528,16 +1739,25 @@
           return;
         }
 
-        if (!activeFilterTagId) {
-          fileViewContext.textContent = '当前视图：全部文件';
-          return;
+        if (activeFilterTagId) {
+          const meta = findTagMetaById(activeFilterTagId);
+          const tagName = meta && meta.node && meta.node.name
+            ? String(meta.node.name)
+            : '当前标签';
+          fileViewContext.textContent = '当前视图：标签：' + tagName + ' / 范围：标签内全部文件';
+        } else {
+          fileViewContext.textContent = '当前视图：目录：' + getFolderLabel(activeFolderPath) + ' / 范围：全部文件';
         }
+      }
 
-        const meta = findTagMetaById(activeFilterTagId);
-        const tagName = meta && meta.node && meta.node.name
-          ? String(meta.node.name)
-          : '当前标签';
-        fileViewContext.textContent = '当前视图：标签筛选 / ' + tagName;
+      function updateExplorerLayout() {
+        const isTagFilterMode = !!activeFilterTagId;
+        if (explorerShell) {
+          explorerShell.classList.toggle('tag-filter-mode', isTagFilterMode);
+        }
+        if (folderBrowser) {
+          folderBrowser.hidden = isTagFilterMode;
+        }
       }
 
       function compareFiles(a, b, key, order) {
@@ -1556,7 +1776,7 @@
 
       function syncSelectedFilesByCurrentView() {
         const visibleNames = new Set((Array.isArray(currentFiles) ? currentFiles : []).map(function (file) {
-          return String((file && file.name) || '');
+          return getFilePath(file);
         }).filter(Boolean));
 
         Array.from(selectedFileNames).forEach(function (name) {
@@ -1569,7 +1789,7 @@
       function getSelectedVisibleFileNames() {
         const names = [];
         (Array.isArray(currentFiles) ? currentFiles : []).forEach(function (file) {
-          const name = String((file && file.name) || '');
+          const name = getFilePath(file);
           if (name && selectedFileNames.has(name)) {
             names.push(name);
           }
@@ -1625,17 +1845,25 @@
       }
 
       function renderFiles(files) {
-        currentFiles = Array.isArray(files) ? files.slice() : [];
+        activeSourceFiles = (Array.isArray(files) ? files : []).map(normalizeFileRecord);
+        if (activeFilterTagId) {
+          currentFiles = activeSourceFiles.slice();
+        } else {
+          currentFiles = activeSourceFiles.filter(function (file) {
+            return String(file.folder_path || '') === String(activeFolderPath || '');
+          });
+        }
         syncSelectedFilesByCurrentView();
+        updateExplorerLayout();
         updateFileViewContext();
         updateFileSelectAllState();
         updateFileBulkActionButton();
-        fileCounter.textContent = files.length + ' 个文件';
+        fileCounter.textContent = currentFiles.length + ' 个文件';
 
-        if (!files.length) {
+        if (!currentFiles.length) {
           fileList.innerHTML = '';
           fileTable.style.display = 'none';
-          fileEmpty.textContent = '当前没有可下载文件。';
+          fileEmpty.textContent = activeFilterTagId ? '当前标签下没有文件。' : '当前目录没有文件。';
           fileEmpty.style.display = 'block';
           return;
         }
@@ -1643,39 +1871,42 @@
         const key = sortKey.value || 'name';
         const order = sortOrder.value || 'asc';
         const isTagFilterMode = !!activeFilterTagId;
-        const sorted = files.slice().sort((a, b) => compareFiles(a, b, key, order));
+        const sorted = currentFiles.slice().sort((a, b) => compareFiles(a, b, key, order));
         updateSortIndicator();
 
         fileEmpty.style.display = 'none';
         fileTable.style.display = 'table';
         fileList.innerHTML = sorted.map(file => {
           const name = escapeHtml(file.name || '');
-          const rawName = String(file.name || '');
+          const rawName = getFilePath(file);
+          const encodedPath = encodeURIComponent(rawName);
+          const pathMeta = file.folder_path
+            ? '<div class="file-path-meta">' + escapeHtml(file.folder_path) + '</div>'
+            : '';
           const size = safeSize(file);
           const uploaded = escapeHtml(file.uploaded_time || '-');
-          const encoded = encodeURIComponent(rawName);
           const checked = selectedFileNames.has(rawName) ? ' checked' : '';
           const previewBtn = isImageName(file.name)
-            ? '<button class="preview-btn" data-preview-file="' + encoded + '" data-preview-name="' + name + '">预览</button>'
+            ? '<button class="preview-btn" data-preview-file="' + encodedPath + '" data-preview-name="' + escapeHtml(rawName) + '">预览</button>'
             : '';
           const videoBtn = isVideoName(file.name)
-            ? '<button class="video-btn" data-video-file="' + encoded + '" data-video-name="' + name + '">观影</button>'
+            ? '<button class="video-btn" data-video-file="' + encodedPath + '" data-video-name="' + escapeHtml(rawName) + '">观影</button>'
             : '';
           const audioBtn = isAudioName(file.name)
-            ? '<button class="audio-btn" data-audio-file="' + encoded + '" data-audio-name="' + name + '">听音</button>'
+            ? '<button class="audio-btn" data-audio-file="' + encodedPath + '" data-audio-name="' + escapeHtml(rawName) + '">听音</button>'
             : '';
           const textBtn = isTextName(file.name)
-            ? '<button class="text-btn" data-text-file="' + encoded + '" data-text-name="' + name + '">查看</button>'
+            ? '<button class="text-btn" data-text-file="' + encodedPath + '" data-text-name="' + escapeHtml(rawName) + '">查看</button>'
             : '';
           const rowActionBtn = isTagFilterMode
-            ? '<button class="delete-btn" data-file="' + encoded + '" data-name="' + name + '">移除</button>'
-            : '<button class="delete-btn" data-file="' + encoded + '" data-name="' + name + '">删除</button>';
+            ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">移除</button>'
+            : '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">删除</button>';
           return (
-            '<tr class="draggable-file-row" draggable="true" data-drag-file="' + encoded + '">' +
-              '<td class="file-select-cell"><input class="file-select-input" type="checkbox" data-select-file="' + encoded + '" aria-label="选择文件 ' + name + '"' + checked + '></td>' +
-              '<td><a class="file-name" draggable="false" href="' + api.download + '?file=' + encoded + '">' + name + '</a></td>' +
-              '<td><span class="size">' + formatNumber(size) + ' 字节</span></td>' +
-              '<td><span class="time">' + uploaded + '</span></td>' +
+            '<tr class="draggable-file-row" draggable="true" data-drag-file="' + encodedPath + '">' +
+              '<td class="file-select-cell"><input class="file-select-input" type="checkbox" data-select-file="' + encodedPath + '" aria-label="选择文件 ' + escapeHtml(rawName) + '"' + checked + '></td>' +
+              '<td><a class="file-name" draggable="false" href="' + api.download + '?file=' + encodedPath + '">' + name + '</a>' + pathMeta + '</td>' +
+              '<td>' + formatNumber(size) + ' 字节</td>' +
+              '<td>' + uploaded + '</td>' +
               '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + '</div></td>' +
               '<td class="row-danger-action"><div class="danger-actions">' + rowActionBtn + '</div></td>' +
             '</tr>'
@@ -2061,9 +2292,15 @@
 
       async function loadFiles() {
         try {
-          const data = await fetchJson(api.files);
-          allFiles = Array.isArray(data.files) ? data.files : [];
+          const results = await Promise.all([
+            fetchJson(api.files),
+            fetchJson(api.folders)
+          ]);
+          allFiles = Array.isArray(results[0].files) ? results[0].files.map(normalizeFileRecord) : [];
+          folderTreeData = Array.isArray(results[1].folders) ? results[1].folders.map(normalizeFolderNode) : [];
+          ensureFolderPathExpanded(activeFolderPath);
           await loadTagTreeState();
+          renderFolderTree();
           renderTagTree();
           if (activeFilterTagId) {
             try {
@@ -2077,10 +2314,12 @@
           await recoverRunningTranscodeTasks();
         } catch (err) {
           allFiles = [];
+          folderTreeData = [];
           fileList.innerHTML = '';
           fileTable.style.display = 'none';
           fileEmpty.textContent = '加载文件列表失败：' + err.message;
           fileEmpty.style.display = 'block';
+          renderFolderTree();
           renderTagTree();
           showStatus('加载列表失败：' + err.message, 'err');
         }
@@ -2158,11 +2397,11 @@
       });
 
       sortKey.addEventListener('change', function () {
-        renderFiles(currentFiles);
+        renderFiles(activeSourceFiles);
       });
 
       sortOrder.addEventListener('change', function () {
-        renderFiles(currentFiles);
+        renderFiles(activeSourceFiles);
       });
 
       sortButtons.forEach(function (btn) {
@@ -2179,7 +2418,7 @@
             sortOrder.value = 'asc';
           }
 
-          renderFiles(currentFiles);
+          renderFiles(activeSourceFiles);
         });
       });
 
@@ -2335,7 +2574,7 @@
         const selectedNames = selectedFileNames.has(fileName)
           ? getSelectedVisibleFileNames()
           : [fileName];
-        e.dataTransfer.effectAllowed = 'copy';
+        e.dataTransfer.effectAllowed = 'copyMove';
         e.dataTransfer.setData('text/plain', fileName);
         e.dataTransfer.setData('application/webcool-file-list', JSON.stringify(selectedNames));
       });
@@ -2347,7 +2586,7 @@
       if (fileSelectAll) {
         fileSelectAll.addEventListener('change', function () {
           (Array.isArray(currentFiles) ? currentFiles : []).forEach(function (file) {
-            const fileName = String((file && file.name) || '');
+            const fileName = getFilePath(file);
             if (!fileName) {
               return;
             }
@@ -2357,7 +2596,7 @@
               selectedFileNames.delete(fileName);
             }
           });
-          renderFiles(currentFiles);
+          renderFiles(activeSourceFiles);
         });
       }
 
@@ -2416,6 +2655,111 @@
               return;
             }
             showStatus('批量' + actionLabel + '失败：' + err.message, 'err');
+          }
+        });
+      }
+
+      if (folderRootBtn) {
+        folderRootBtn.addEventListener('click', function () {
+          activeFolderPath = '';
+          renderFolderTree();
+          renderFiles(activeSourceFiles);
+        });
+      }
+
+      if (folderCreateBtn) {
+        folderCreateBtn.addEventListener('click', async function () {
+          try {
+            await createFolderAtCurrentPath();
+            await loadFiles();
+          } catch (err) {
+            showStatus('创建文件夹失败：' + err.message, 'err');
+          }
+        });
+      }
+
+      if (folderDeleteBtn) {
+        folderDeleteBtn.addEventListener('click', async function () {
+          try {
+            await deleteCurrentFolder();
+            await loadFiles();
+          } catch (err) {
+            showStatus('删除文件夹失败：' + err.message, 'err');
+          }
+        });
+      }
+
+      if (folderTree) {
+        folderTree.addEventListener('click', function (e) {
+          const toggle = e.target.closest('.folder-tree-toggle[data-folder-toggle]');
+          if (toggle) {
+            const path = toggle.getAttribute('data-folder-toggle') || '';
+            if (expandedFolderPaths.has(path)) {
+              expandedFolderPaths.delete(path);
+            } else {
+              expandedFolderPaths.add(path);
+            }
+            renderFolderTree();
+            return;
+          }
+
+          const entry = e.target.closest('.folder-tree-entry[data-folder-select]');
+          if (!entry) {
+            return;
+          }
+          activeFolderPath = entry.getAttribute('data-folder-select') || '';
+          ensureFolderPathExpanded(activeFolderPath);
+          renderFolderTree();
+          renderFiles(activeSourceFiles);
+        });
+
+        folderTree.addEventListener('dragover', function (e) {
+          const node = e.target.closest('.folder-tree-node[data-folder-path]');
+          if (!node || !e.dataTransfer) {
+            return;
+          }
+          e.preventDefault();
+          const nextDropPath = node.getAttribute('data-folder-path') || '';
+          if (activeDropFolderPath !== nextDropPath) {
+            activeDropFolderPath = nextDropPath;
+            syncFolderDropHighlight();
+          }
+          e.dataTransfer.dropEffect = 'move';
+        });
+
+        folderTree.addEventListener('dragleave', function (e) {
+          if (!folderTree.contains(e.relatedTarget)) {
+            activeDropFolderPath = null;
+            syncFolderDropHighlight();
+          }
+        });
+
+        folderTree.addEventListener('drop', async function (e) {
+          const node = e.target.closest('.folder-tree-node[data-folder-path]');
+          let fileNames = [];
+          if (e.dataTransfer) {
+            try {
+              fileNames = JSON.parse(e.dataTransfer.getData('application/webcool-file-list') || '[]');
+            } catch (_) {
+              fileNames = [];
+            }
+            if (!fileNames.length) {
+              const fallbackName = String(e.dataTransfer.getData('text/plain') || '');
+              if (fallbackName) {
+                fileNames = [fallbackName];
+              }
+            }
+          }
+          activeDropFolderPath = null;
+          syncFolderDropHighlight();
+          if (!node || !fileNames.length) {
+            return;
+          }
+          e.preventDefault();
+          try {
+            await moveFilesToFolder(fileNames, node.getAttribute('data-folder-path') || '');
+          } catch (err) {
+            showStatus('移动文件失败：' + err.message, 'err');
           }
         });
       }
@@ -2661,7 +3005,7 @@
           if (activeFilterTagId === tagId) {
             await showFilesForTag(tagId);
           } else {
-            renderFiles(currentFiles);
+            renderFiles(activeSourceFiles);
           }
           showStatus(fileNames.length > 1
             ? ('已批量移动 ' + fileNames.length + ' 个文件到标签')

@@ -29,6 +29,7 @@
         <h1>上传文件</h1>
         <p class="sub">支持最多三个文件同时上传，并展示实时上传进度。</p>
         <form id="upload-form" enctype="multipart/form-data">
+          <input type="hidden" id="upload-folder-path" name="folder" value="">
           <div class="upload-box">
             <div class="file-row"><label>文件一</label><input type="file" name="file1"></div>
             <div class="file-row"><label>文件二</label><input type="file" name="file2"></div>
@@ -46,56 +47,74 @@
 
       <section class="panel section active" id="panel-files">
         <h1>文件列表</h1>
-        <p class="sub">查看、排序、预览、下载和删除已上传文件。</p>
+        <p class="sub">像资源管理器一样浏览多级文件夹，支持建删目录、预览、下载、删除和拖拽移动文件。</p>
         <div id="file-view-context" class="file-view-context">当前视图：全部文件</div>
-        <div class="list-head">
-          <h2>已上传文件</h2>
-          <div class="sort-row">
-            <span class="counter" id="file-counter">0 个文件</span>
-            <label for="sort-key">排序</label>
-            <select id="sort-key">
-              <option value="name">按名称</option>
-              <option value="size">按大小</option>
-              <option value="uploaded_at">按上传时间</option>
-            </select>
-            <select id="sort-order">
-              <option value="asc">升序</option>
-              <option value="desc">降序</option>
-            </select>
+        <div class="explorer-shell">
+          <aside class="folder-browser">
+            <div class="folder-browser-head">
+              <h2>文件夹</h2>
+              <div class="folder-browser-actions">
+                <button id="folder-root-btn" class="folder-action-btn" type="button">根目录</button>
+                <button id="folder-create-btn" class="folder-action-btn" type="button">新建</button>
+                <button id="folder-delete-btn" class="folder-action-btn danger" type="button" disabled>删除</button>
+              </div>
+            </div>
+            <div id="folder-current-path" class="folder-current-path">根目录</div>
+            <div id="folder-tree-empty" class="folder-tree-empty">加载中...</div>
+            <div id="folder-tree" class="folder-tree"></div>
+          </aside>
+
+          <div class="file-browser">
+            <div class="list-head">
+              <h2>当前目录文件</h2>
+              <div class="sort-row">
+                <span class="counter" id="file-counter">0 个文件</span>
+                <label for="sort-key">排序</label>
+                <select id="sort-key">
+                  <option value="name">按名称</option>
+                  <option value="size">按大小</option>
+                  <option value="uploaded_at">按上传时间</option>
+                </select>
+                <select id="sort-order">
+                  <option value="asc">升序</option>
+                  <option value="desc">降序</option>
+                </select>
+              </div>
+            </div>
+            <div class="file-table-wrap">
+              <table class="file-table" id="file-table">
+                <thead>
+                  <tr>
+                    <th class="file-select-col">
+                      <input id="file-select-all" type="checkbox" aria-label="全选当前列表文件">
+                    </th>
+                    <th>
+                      <button class="sort-btn" data-sort-key="name" type="button">
+                        文件名 <span class="arrow">-</span>
+                      </button>
+                    </th>
+                    <th>
+                      <button class="sort-btn" data-sort-key="size" type="button">
+                        文件大小 <span class="arrow">-</span>
+                      </button>
+                    </th>
+                    <th>
+                      <button class="sort-btn" data-sort-key="uploaded_at" type="button">
+                        上传时间 <span class="arrow">-</span>
+                      </button>
+                    </th>
+                    <th class="file-actions-head">
+                      <span class="file-actions-head-label">操作</span>
+                    </th>
+                    <th class="file-bulk-head">
+                      <button id="file-bulk-action" class="file-bulk-action-btn" type="button" disabled>删除</button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody id="file-list"></tbody>
+              </table>
+            </div>
           </div>
-        </div>
-        <div class="file-table-wrap">
-          <table class="file-table" id="file-table">
-            <thead>
-              <tr>
-                <th class="file-select-col">
-                  <input id="file-select-all" type="checkbox" aria-label="全选当前列表文件">
-                </th>
-                <th>
-                  <button class="sort-btn" data-sort-key="name" type="button">
-                    文件名 <span class="arrow">-</span>
-                  </button>
-                </th>
-                <th>
-                  <button class="sort-btn" data-sort-key="size" type="button">
-                    文件大小 <span class="arrow">-</span>
-                  </button>
-                </th>
-                <th>
-                  <button class="sort-btn" data-sort-key="uploaded_at" type="button">
-                    上传时间 <span class="arrow">-</span>
-                  </button>
-                </th>
-                <th class="file-actions-head">
-                  <span class="file-actions-head-label">操作</span>
-                </th>
-                <th class="file-bulk-head">
-                  <button id="file-bulk-action" class="file-bulk-action-btn" type="button" disabled>删除</button>
-                </th>
-              </tr>
-            </thead>
-            <tbody id="file-list"></tbody>
-          </table>
         </div>
         <p id="file-empty" class="empty">加载中...</p>
       </section>
