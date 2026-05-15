@@ -278,6 +278,20 @@
       font-size: 14px;
     }
 
+    .file-view-context {
+      margin: -4px 0 14px;
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      border: 1px solid #d8e5f2;
+      border-radius: 999px;
+      padding: 0 12px;
+      background: #f7fbff;
+      color: #43617f;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
     .tool-row {
       margin-bottom: 18px;
       display: flex;

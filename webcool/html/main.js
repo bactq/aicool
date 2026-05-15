@@ -30,6 +30,7 @@
       const fileTable = document.getElementById('file-table');
       const fileEmpty = document.getElementById('file-empty');
       const fileCounter = document.getElementById('file-counter');
+      const fileViewContext = document.getElementById('file-view-context');
       const sortKey = document.getElementById('sort-key');
       const sortOrder = document.getElementById('sort-order');
       const sortButtons = Array.from(document.querySelectorAll('.sort-btn[data-sort-key]'));
@@ -57,6 +58,7 @@
         loop: '↻'
       };
       let allFiles = [];
+      let currentFiles = [];
       let tagTree = [];
       let activeFilterTagId = '';
       const expandedTagNodeIds = new Set();
@@ -70,15 +72,19 @@
       const transcodeProgressTimers = new Map();
       const videoResumeSaveTimers = new Map();
 
-      function activatePanel(panelId) {
+      function setActivePanel(panelId) {
         panels.forEach(function (panel) {
           panel.classList.toggle('active', panel.id === panelId);
         });
         menuButtons.forEach(function (btn) {
           btn.classList.toggle('active', btn.getAttribute('data-panel') === panelId);
         });
+      }
 
-        if (panelId === 'panel-files') {
+      function activatePanel(panelId, options) {
+        setActivePanel(panelId);
+
+        if (panelId === 'panel-files' && !(options && options.skipLoadFiles)) {
           loadFiles();
         }
       }
@@ -1501,8 +1507,9 @@
       }
 
       async function showFilesForTag(tagId) {
-        const data = await fetchJson(api.tagFiles + '?tag_id=' + encodeURIComponent(tagId));
         activeFilterTagId = tagId;
+        setActivePanel('panel-files');
+        const data = await fetchJson(api.tagFiles + '?tag_id=' + encodeURIComponent(tagId));
         renderFiles(Array.isArray(data.files) ? data.files : []);
         renderTagTree();
       }
@@ -1511,6 +1518,23 @@
         activeFilterTagId = '';
         renderFiles(allFiles);
         renderTagTree();
+      }
+
+      function updateFileViewContext() {
+        if (!fileViewContext) {
+          return;
+        }
+
+        if (!activeFilterTagId) {
+          fileViewContext.textContent = '当前视图：全部文件';
+          return;
+        }
+
+        const meta = findTagMetaById(activeFilterTagId);
+        const tagName = meta && meta.node && meta.node.name
+          ? String(meta.node.name)
+          : '当前标签';
+        fileViewContext.textContent = '当前视图：标签筛选 / ' + tagName;
       }
 
       function compareFiles(a, b, key, order) {
@@ -1528,6 +1552,8 @@
       }
 
       function renderFiles(files) {
+        currentFiles = Array.isArray(files) ? files.slice() : [];
+        updateFileViewContext();
         fileCounter.textContent = files.length + ' 个文件';
 
         if (!files.length) {
@@ -2050,11 +2076,11 @@
       });
 
       sortKey.addEventListener('change', function () {
-        renderFiles(allFiles);
+        renderFiles(currentFiles);
       });
 
       sortOrder.addEventListener('change', function () {
-        renderFiles(allFiles);
+        renderFiles(currentFiles);
       });
 
       sortButtons.forEach(function (btn) {
@@ -2071,7 +2097,7 @@
             sortOrder.value = 'asc';
           }
 
-          renderFiles(allFiles);
+          renderFiles(currentFiles);
         });
       });
 

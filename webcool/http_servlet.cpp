@@ -6,7 +6,7 @@
 
 namespace {
 
-typedef bool (http_servlet::*get_route_handler)(request_t& req, response_t& res);
+typedef bool (http_servlet::*route_handler)(request_t& req, response_t& res);
 
 bool send_static_file(const char* file_path, const char* content_type,
 	request_t& req, response_t& res)
@@ -75,7 +75,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		return true;
 	}
 
-	static const std::map<std::string, get_route_handler> routes = {
+	static const std::map<std::string, route_handler> routes = {
 		{ "/api/v1/admin/template/reload", &http_servlet::routeTemplateReload },
 		{ "/api/v1/delete", &http_servlet::routeDelete },
 		{ "/api/v1/files", &http_servlet::routeFiles },
@@ -95,7 +95,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/tag-files", &http_servlet::routeTagFiles },
 		{ "/api/v1/upload", &http_servlet::routeUpload },
 	};
-	std::map<std::string, get_route_handler>::const_iterator it = routes.find(path);
+	std::map<std::string, route_handler>::const_iterator it = routes.find(path);
 	if (it == routes.end()) {
 		return action::IndexAction::run(req, res);
 	}
@@ -196,47 +196,27 @@ bool http_servlet::routeTagFiles(request_t& req, response_t& res) {
 // ────────────────────────────────────────────────────────────────
 bool http_servlet::doPost(request_t& req, response_t& res) {
 	const char* path = req.getPathInfo();
-	if (path && strcmp(path, "/api/v1/upload") == 0) {
-		return action::UploadAction::run(req, res, upload_dir_);
-	}
-	if (path && strcmp(path, "/api/v1/video/convert") == 0) {
-		return action::VideoConvertAction::run(req, res, upload_dir_);
-	}
-	if (path && strcmp(path, "/api/v1/video/convert/cancel") == 0) {
-		return action::VideoConvertCancelAction::run(req, res, upload_dir_);
-	}
-	if (path && strcmp(path, "/api/v1/video/convert/progress") == 0) {
-		return action::VideoConvertProgressAction::run(req, res, upload_dir_);
-	}
-	if (path && strcmp(path, "/api/v1/video/convert/tasks") == 0) {
-		return action::VideoConvertTasksAction::run(req, res, upload_dir_);
-	}
-	if (path && strcmp(path, "/api/v1/video/probe") == 0) {
-		return action::VideoProbeAction::run(req, res, upload_dir_);
-	}
-	if (path && strcmp(path, "/api/v1/video/resume/save") == 0) {
-		return action::VideoResumeSetAction::run(req, res, upload_dir_);
-	}
-	if (path && strcmp(path, "/api/v1/folders/create") == 0) {
-		return action::FolderCreateAction::run(req, res, upload_dir_);
-	}
-	if (path && strcmp(path, "/api/v1/folders/rename") == 0) {
-		return action::FolderRenameAction::run(req, res, upload_dir_);
-	}
-	if (path && strcmp(path, "/api/v1/folders/delete") == 0) {
-		return action::FolderDeleteAction::run(req, res, upload_dir_);
-	}
-	if (path && strcmp(path, "/api/v1/tags/create") == 0) {
-		return action::TagCreateAction::run(req, res, upload_dir_);
-	}
-	if (path && strcmp(path, "/api/v1/tags/delete") == 0) {
-		return action::TagDeleteAction::run(req, res, upload_dir_);
-	}
-	if (path && strcmp(path, "/api/v1/tags/bind") == 0) {
-		return action::TagBindAction::run(req, res, upload_dir_);
-	}
-	if (path && strcmp(path, "/api/v1/tags/unbind") == 0) {
-		return action::TagUnbindAction::run(req, res, upload_dir_);
+	static const std::map<std::string, route_handler> routes = {
+		{ "/api/v1/upload", &http_servlet::routeUpload },
+		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },
+		{ "/api/v1/video/convert/cancel", &http_servlet::routeVideoConvertCancel },
+		{ "/api/v1/video/convert/progress", &http_servlet::routeVideoConvertProgress },
+		{ "/api/v1/video/convert/tasks", &http_servlet::routeVideoConvertTasks },
+		{ "/api/v1/video/probe", &http_servlet::routeVideoProbe },
+		{ "/api/v1/video/resume/save", &http_servlet::routeVideoResumeSet },
+		{ "/api/v1/folders/create", &http_servlet::routeFolderCreate },
+		{ "/api/v1/folders/rename", &http_servlet::routeFolderRename },
+		{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
+		{ "/api/v1/tags/create", &http_servlet::routeTagCreate },
+		{ "/api/v1/tags/delete", &http_servlet::routeTagDelete },
+		{ "/api/v1/tags/bind", &http_servlet::routeTagBind },
+		{ "/api/v1/tags/unbind", &http_servlet::routeTagUnbind },
+	};
+	if (path != NULL) {
+		std::map<std::string, route_handler>::const_iterator it = routes.find(path);
+		if (it != routes.end()) {
+			return (this->*(it->second))(req, res);
+		}
 	}
 
 	acl::json json;
