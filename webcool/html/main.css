@@ -720,3 +720,5 @@
     @media (max-width: 640px) {
       .file-row { grid-template-columns: 1fr; gap: 6px; }
     }
+
+    #file-table { display: none; }

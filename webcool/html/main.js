@@ -576,7 +576,7 @@
         updateSortIndicator();
 
         fileEmpty.style.display = 'none';
-        fileTable.style.display = '';
+        fileTable.style.display = 'table';
         fileList.innerHTML = sorted.map(file => {
           const name = escapeHtml(file.name || '');
           const size = safeSize(file);
