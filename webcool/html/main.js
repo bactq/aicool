@@ -315,13 +315,13 @@
         activeAudioTagContextMenu = menu;
       }
 
-      function renderAudioPlaylistItems(container, files, activeIndex) {
+      function renderAudioPlaylistItems(container, files, activeFileName) {
         if (!container) {
           return;
         }
         container.innerHTML = files.map(function (file, index) {
           const name = String((file && file.name) || '');
-          const itemClass = index === activeIndex ? 'audio-playlist-item active' : 'audio-playlist-item';
+          const itemClass = name === activeFileName ? 'audio-playlist-item active' : 'audio-playlist-item';
           return '<button type="button" class="' + itemClass + '" data-playlist-index="' + index + '">' +
             '<span class="audio-playlist-item-index">' + String(index + 1) + '</span>' +
             '<span class="audio-playlist-item-name">' + escapeHtml(name) + '</span>' +
@@ -336,8 +336,8 @@
           closePreviewWindow(existed, playlistKey);
         }
 
-        let playlistFiles = getAudioPlaylistFilesByMode(files, mode);
-        if (!playlistFiles.length) {
+        const displayFiles = sortAudioFilesForPlaylist(files);
+        if (!displayFiles.length) {
           throw new Error('该标签下没有可播放的音频文件');
         }
 
@@ -374,18 +374,30 @@
         const closeBtn = win.querySelector('.preview-close');
         const head = win.querySelector('.preview-head');
         let currentIndex = -1;
+        let currentFileName = '';
+        let randomQueue = [];
 
         if (countEl) {
-          countEl.textContent = String(playlistFiles.length);
+          countEl.textContent = String(displayFiles.length);
         }
 
-        function updateCurrentTrack(index) {
-          currentIndex = index;
-          const current = playlistFiles[index] || null;
-          if (currentNameEl) {
-            currentNameEl.textContent = current ? String(current.name || '') : '';
+        function refillRandomQueue(excludeName) {
+          const excluded = String(excludeName || '');
+          randomQueue = shuffleList(displayFiles.filter(function (file) {
+            return String((file && file.name) || '') !== excluded;
+          }));
+          if (!randomQueue.length && displayFiles.length === 1) {
+            randomQueue = displayFiles.slice();
           }
-          renderAudioPlaylistItems(itemsEl, playlistFiles, currentIndex);
+        }
+
+        function updateCurrentTrack(index, fileName) {
+          currentIndex = index;
+          currentFileName = String(fileName || '');
+          if (currentNameEl) {
+            currentNameEl.textContent = currentFileName;
+          }
+          renderAudioPlaylistItems(itemsEl, displayFiles, currentFileName);
           const activeBtn = itemsEl ? itemsEl.querySelector('.audio-playlist-item.active') : null;
           if (activeBtn) {
             activeBtn.scrollIntoView({ block: 'nearest' });
@@ -393,42 +405,60 @@
         }
 
         function playIndex(index, autoplay) {
-          const current = playlistFiles[index];
+          const current = displayFiles[index];
           if (!current || !audioEl) {
             return;
           }
-          updateCurrentTrack(index);
-          audioEl.src = api.download + '?preview=1&file=' + encodeURIComponent(String(current.name || '')) + '&v=' + Date.now();
+          const fileName = String(current.name || '');
+          updateCurrentTrack(index, fileName);
+          audioEl.src = api.download + '?preview=1&file=' + encodeURIComponent(fileName) + '&v=' + Date.now();
           audioEl.load();
           if (autoplay !== false) {
             audioEl.play().catch(function () {});
           }
         }
 
+        function playFileByName(fileName, autoplay) {
+          const targetName = String(fileName || '');
+          const nextIndex = displayFiles.findIndex(function (file) {
+            return String((file && file.name) || '') === targetName;
+          });
+          if (nextIndex >= 0) {
+            playIndex(nextIndex, autoplay);
+          }
+        }
+
+        function playNextRandomTrack() {
+          if (!displayFiles.length) {
+            return;
+          }
+          if (!randomQueue.length) {
+            refillRandomQueue(currentFileName);
+          }
+          const nextFile = randomQueue.shift();
+          if (!nextFile) {
+            return;
+          }
+          playFileByName(String(nextFile.name || ''), true);
+        }
+
         function moveNextTrack() {
-          if (!playlistFiles.length) {
+          if (!displayFiles.length) {
             return;
           }
           if (mode === 'loop') {
-            playIndex((currentIndex + 1) % playlistFiles.length, true);
+            playIndex((currentIndex + 1) % displayFiles.length, true);
             return;
           }
           if (mode === 'random') {
-            if (playlistFiles.length === 1) {
+            if (displayFiles.length === 1) {
               playIndex(0, true);
               return;
             }
-            if (currentIndex >= playlistFiles.length - 1) {
-              const currentFileName = String(((playlistFiles[currentIndex] || {}).name) || '');
-              playlistFiles = shuffleList(playlistFiles);
-              if (String(((playlistFiles[0] || {}).name) || '') === currentFileName) {
-                playlistFiles.push(playlistFiles.shift());
-              }
-            }
-            playIndex((currentIndex + 1) % playlistFiles.length, true);
+            playNextRandomTrack();
             return;
           }
-          if (currentIndex + 1 < playlistFiles.length) {
+          if (currentIndex + 1 < displayFiles.length) {
             playIndex(currentIndex + 1, true);
           }
         }
@@ -442,6 +472,9 @@
             const nextIndex = Number(itemBtn.getAttribute('data-playlist-index') || '-1');
             if (nextIndex >= 0) {
               playIndex(nextIndex, true);
+              if (mode === 'random') {
+                refillRandomQueue(String(((displayFiles[nextIndex] || {}).name) || ''));
+              }
             }
           });
         }
@@ -477,7 +510,12 @@
           e.preventDefault();
         });
 
-        playIndex(0, true);
+        if (mode === 'random') {
+          refillRandomQueue('');
+          playNextRandomTrack();
+        } else {
+          playIndex(0, true);
+        }
       }
 
       async function startAudioPlaylistFromTag(tagId, tagName, mode) {
