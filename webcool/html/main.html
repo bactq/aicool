@@ -15,6 +15,13 @@
         <button type="button" class="menu-btn active" data-panel="panel-files">文件列表</button>
         <button type="button" class="menu-btn" data-panel="panel-admin">系统管理</button>
       </nav>
+      <section class="left-tag-tree-section" aria-label="文件标签树">
+        <div class="left-tag-tree-head">
+          <span>标签树</span>
+          <button type="button" id="files-tag-toggle" class="tree-switch-btn" aria-label="展开或创建文件标签树">+</button>
+        </div>
+        <div id="tag-manager" class="left-tag-manager"></div>
+      </section>
     </aside>
 
     <section class="right-pane">
@@ -97,6 +104,23 @@
   </main>
 
   <div id="preview-layer" class="preview-layer"></div>
+  <div id="tag-dialog" class="tag-dialog" hidden>
+    <div class="tag-dialog-backdrop" data-tag-dialog-close="1"></div>
+    <div class="tag-dialog-card" role="dialog" aria-modal="true" aria-labelledby="tag-dialog-title">
+      <form id="tag-dialog-form" class="tag-dialog-form">
+        <div class="tag-dialog-head">
+          <h2 id="tag-dialog-title">新建标签</h2>
+          <p id="tag-dialog-desc">请输入标签名称。</p>
+        </div>
+        <label class="tag-dialog-label" for="tag-dialog-input">标签名称</label>
+        <input id="tag-dialog-input" class="tag-dialog-input" type="text" maxlength="60" autocomplete="off">
+        <div class="tag-dialog-actions">
+          <button type="button" id="tag-dialog-cancel" class="tag-dialog-btn secondary">取消</button>
+          <button type="submit" class="tag-dialog-btn">确认</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <script src="/webcool/html/main.js"></script>
 </body>

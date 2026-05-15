@@ -91,6 +91,8 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/folders/create", &http_servlet::routeFolderCreate },
 		{ "/api/v1/folders/rename", &http_servlet::routeFolderRename },
 		{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
+		{ "/api/v1/tags", &http_servlet::routeTagList },
+		{ "/api/v1/tag-files", &http_servlet::routeTagFiles },
 		{ "/api/v1/upload", &http_servlet::routeUpload },
 	};
 	std::map<std::string, get_route_handler>::const_iterator it = routes.find(path);
@@ -165,6 +167,30 @@ bool http_servlet::routeFolderDelete(request_t& req, response_t& res) {
 	return action::FolderDeleteAction::run(req, res, upload_dir_);
 }
 
+bool http_servlet::routeTagList(request_t& req, response_t& res) {
+	return action::TagListAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeTagCreate(request_t& req, response_t& res) {
+	return action::TagCreateAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeTagDelete(request_t& req, response_t& res) {
+	return action::TagDeleteAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeTagBind(request_t& req, response_t& res) {
+	return action::TagBindAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeTagUnbind(request_t& req, response_t& res) {
+	return action::TagUnbindAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeTagFiles(request_t& req, response_t& res) {
+	return action::TagFilesAction::run(req, res, upload_dir_);
+}
+
 // ────────────────────────────────────────────────────────────────
 // doPost
 // ────────────────────────────────────────────────────────────────
@@ -199,6 +225,18 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 	}
 	if (path && strcmp(path, "/api/v1/folders/delete") == 0) {
 		return action::FolderDeleteAction::run(req, res, upload_dir_);
+	}
+	if (path && strcmp(path, "/api/v1/tags/create") == 0) {
+		return action::TagCreateAction::run(req, res, upload_dir_);
+	}
+	if (path && strcmp(path, "/api/v1/tags/delete") == 0) {
+		return action::TagDeleteAction::run(req, res, upload_dir_);
+	}
+	if (path && strcmp(path, "/api/v1/tags/bind") == 0) {
+		return action::TagBindAction::run(req, res, upload_dir_);
+	}
+	if (path && strcmp(path, "/api/v1/tags/unbind") == 0) {
+		return action::TagUnbindAction::run(req, res, upload_dir_);
 	}
 
 	acl::json json;

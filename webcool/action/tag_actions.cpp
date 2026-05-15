@@ -1,0 +1,932 @@
+#include "actions.h"
+#include "action_util.h"
+
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
+
+#include <map>
+#include <mutex>
+#include <string>
+#include <vector>
+
+namespace action {
+
+namespace {
+
+struct TagRow {
+	std::string id;
+	std::string parent_id;
+	std::string name;
+	long long sort_order;
+};
+
+static std::mutex g_tag_mutex;
+static std::string g_tag_db_file;
+static bool g_tag_db_ready = false;
+static unsigned long g_tag_id_seq = 0;
+
+static const char* g_tag_table_create_sql =
+	"CREATE TABLE IF NOT EXISTS tag_catalog ("
+	"id TEXT PRIMARY KEY,"
+	"parent_id TEXT NOT NULL DEFAULT '',"
+	"tag_name TEXT NOT NULL,"
+	"sort_order INTEGER NOT NULL DEFAULT 0,"
+	"created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),"
+	"updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))"
+	")";
+
+static const char* g_tag_table_index_sql =
+	"CREATE INDEX IF NOT EXISTS idx_tag_catalog_parent"
+	" ON tag_catalog(parent_id, sort_order, created_at)";
+
+static const char* g_tag_file_rel_table_create_sql =
+	"CREATE TABLE IF NOT EXISTS file_tag_rel ("
+	"tag_id TEXT NOT NULL,"
+	"file_name TEXT NOT NULL,"
+	"updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),"
+	"PRIMARY KEY(tag_id, file_name),"
+	"FOREIGN KEY(tag_id) REFERENCES tag_catalog(id) ON DELETE CASCADE"
+	")";
+
+static const char* g_tag_file_rel_index_sql =
+	"CREATE INDEX IF NOT EXISTS idx_file_tag_rel_tag"
+	" ON file_tag_rel(tag_id, updated_at)";
+
+static void json_error(response_t& res, int status, const char* msg,
+	bool keep_alive)
+{
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", false);
+	root.add_text("error", msg ? msg : "unknown error");
+	sendJson(res, status, root, keep_alive);
+}
+
+static bool file_exists_readable(const char* path) {
+	if (path == NULL || *path == '\0') {
+		return false;
+	}
+	return access(path, R_OK) == 0;
+}
+
+static std::string choose_sqlite_lib_path() {
+	const char* env_path = getenv("AICOOL_SQLITE_LIB");
+	if (env_path && *env_path && file_exists_readable(env_path)) {
+		return std::string(env_path);
+	}
+
+	const std::vector<std::string> candidates = {
+		"../third-party/sqlite/lib/sqlite3.so",
+		"third-party/sqlite/lib/sqlite3.so",
+	};
+
+	for (size_t i = 0; i < candidates.size(); ++i) {
+		if (file_exists_readable(candidates[i].c_str())) {
+			return candidates[i];
+		}
+	}
+
+	return std::string();
+}
+
+static std::string trim_copy(const char* text) {
+	const char* s = text ? text : "";
+	while (*s && (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n')) {
+		++s;
+	}
+
+	const char* e = s + strlen(s);
+	while (e > s && (*(e - 1) == ' ' || *(e - 1) == '\t'
+		|| *(e - 1) == '\r' || *(e - 1) == '\n'))
+	{
+		--e;
+	}
+
+	return std::string(s, (size_t) (e - s));
+}
+
+static void format_upload_time(time_t ts, char* buf, size_t size) {
+	if (buf == NULL || size == 0) {
+		return;
+	}
+
+	if (ts <= 0) {
+		buf[0] = '\0';
+		return;
+	}
+
+	struct tm tmv;
+	if (localtime_r(&ts, &tmv) == NULL) {
+		buf[0] = '\0';
+		return;
+	}
+
+	if (strftime(buf, size, "%Y-%m-%d %H:%M:%S", &tmv) == 0) {
+		buf[0] = '\0';
+	}
+}
+
+static bool validate_tag_name(const std::string& name, std::string& err) {
+	err.clear();
+	if (name.empty()) {
+		err = "tag name is empty";
+		return false;
+	}
+	if (name.size() > 60) {
+		err = "tag name is too long";
+		return false;
+	}
+	for (size_t i = 0; i < name.size(); ++i) {
+		unsigned char c = (unsigned char) name[i];
+		if (c < 32 || c == 127) {
+			err = "tag name contains control character";
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool validate_tag_id(const std::string& tag_id, std::string& err) {
+	err.clear();
+	if (tag_id.empty()) {
+		err = "tag id is empty";
+		return false;
+	}
+	if (tag_id.size() > 120) {
+		err = "tag id is too long";
+		return false;
+	}
+	for (size_t i = 0; i < tag_id.size(); ++i) {
+		unsigned char c = (unsigned char) tag_id[i];
+		if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+			|| (c >= '0' && c <= '9') || c == '_' || c == '-')
+		{
+			continue;
+		}
+		err = "tag id contains invalid character";
+		return false;
+	}
+	return true;
+}
+
+static bool ensure_tag_dir(const std::string& upload_dir, std::string& err) {
+	err.clear();
+	if (!make_dir(upload_dir.c_str())) {
+		err = "cannot access upload dir";
+		return false;
+	}
+	return true;
+}
+
+static bool ensure_tag_tables_locked(std::string& err) {
+	err.clear();
+	if (g_tag_db_file.empty()) {
+		err = "tag database file is empty";
+		return false;
+	}
+
+	acl::db_sqlite db(g_tag_db_file.c_str(), "utf-8");
+	if (!db.open()) {
+		err = db.get_error();
+		return false;
+	}
+	db.set_busy_timeout(3000);
+
+	acl::query qfk;
+	qfk.create("PRAGMA foreign_keys=ON");
+	if (!db.exec_update(qfk)) {
+		err = db.get_error();
+		return false;
+	}
+
+	acl::query q1;
+	q1.create(g_tag_table_create_sql);
+	if (!db.exec_update(q1)) {
+		err = db.get_error();
+		return false;
+	}
+
+	acl::query q2;
+	q2.create(g_tag_table_index_sql);
+	if (!db.exec_update(q2)) {
+		err = db.get_error();
+		return false;
+	}
+
+	acl::query q3;
+	q3.create(g_tag_file_rel_table_create_sql);
+	if (!db.exec_update(q3)) {
+		err = db.get_error();
+		return false;
+	}
+
+	acl::query q4;
+	q4.create(g_tag_file_rel_index_sql);
+	if (!db.exec_update(q4)) {
+		err = db.get_error();
+		return false;
+	}
+
+	return true;
+}
+
+static bool ensure_tag_db_for_request(const std::string& upload_dir,
+	std::string& err)
+{
+	err.clear();
+	if (!g_tag_db_ready || g_tag_db_file.empty()) {
+		if (!init_tag_db(upload_dir, err)) {
+			return false;
+		}
+	}
+
+	std::lock_guard<std::mutex> guard(g_tag_mutex);
+	if (!ensure_tag_dir(upload_dir, err)) {
+		g_tag_db_ready = false;
+		return false;
+	}
+	if (!ensure_tag_tables_locked(err)) {
+		g_tag_db_ready = false;
+		return false;
+	}
+	g_tag_db_ready = true;
+	return true;
+}
+
+static bool open_tag_db_locked(acl::db_sqlite& db, std::string& err) {
+	err.clear();
+	if (!db.open()) {
+		err = db.get_error();
+		return false;
+	}
+	db.set_busy_timeout(3000);
+
+	acl::query qfk;
+	qfk.create("PRAGMA foreign_keys=ON");
+	if (!db.exec_update(qfk)) {
+		err = db.get_error();
+		return false;
+	}
+	return true;
+}
+
+static bool fetch_tag_locked(acl::db_sqlite& db, const std::string& tag_id,
+	TagRow* out, std::string& err)
+{
+	err.clear();
+	acl::query query;
+	query.create("SELECT id, parent_id, tag_name, sort_order"
+		" FROM tag_catalog WHERE id=:id")
+		.set_parameter("id", tag_id.c_str());
+	if (!db.exec_select(query)) {
+		err = db.get_error();
+		return false;
+	}
+	if (db.empty()) {
+		db.free_result();
+		return false;
+	}
+
+	const acl::db_row* row = db.get_first_row();
+	if (row != NULL && out != NULL) {
+		const char* id = (*row)["id"];
+		const char* parent_id = (*row)["parent_id"];
+		const char* tag_name = (*row)["tag_name"];
+		const char* sort_order = (*row)["sort_order"];
+		out->id = id ? id : "";
+		out->parent_id = parent_id ? parent_id : "";
+		out->name = tag_name ? tag_name : "";
+		out->sort_order = sort_order ? atoll(sort_order) : 0;
+	}
+	db.free_result();
+	return true;
+}
+
+static int get_tag_level_locked(acl::db_sqlite& db, const std::string& tag_id,
+	std::string& err)
+{
+	int level = 0;
+	std::string current = tag_id;
+	while (!current.empty()) {
+		TagRow row;
+		if (!fetch_tag_locked(db, current, &row, err)) {
+			if (err.empty()) {
+				err = "tag not found";
+			}
+			return -1;
+		}
+		level++;
+		current = row.parent_id;
+		if (level > 32) {
+			err = "tag level overflow";
+			return -1;
+		}
+	}
+	return level;
+}
+
+static long long next_sort_order_locked(acl::db_sqlite& db,
+	const std::string& parent_id, std::string& err)
+{
+	err.clear();
+	acl::query query;
+	if (parent_id.empty()) {
+		query.create("SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_sort"
+			" FROM tag_catalog WHERE parent_id='' ");
+	} else {
+		query.create("SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_sort"
+			" FROM tag_catalog WHERE parent_id=:parent_id")
+			.set_parameter("parent_id", parent_id.c_str());
+	}
+	if (!db.exec_select(query)) {
+		err = db.get_error();
+		return -1;
+	}
+
+	long long next_sort = 1;
+	const acl::db_row* row = db.get_first_row();
+	if (row != NULL) {
+		const char* text = (*row)["next_sort"];
+		if (text != NULL && *text != '\0') {
+			next_sort = atoll(text);
+			if (next_sort <= 0) {
+				next_sort = 1;
+			}
+		}
+	}
+	db.free_result();
+	return next_sort;
+}
+
+static std::string make_tag_id_locked() {
+	++g_tag_id_seq;
+	acl::string buf;
+	buf.format("tag_%lld_%lu", (long long) time(NULL), g_tag_id_seq);
+	return std::string(buf.c_str());
+}
+
+static bool file_exists_in_upload_dir(const std::string& upload_dir,
+	const char* basename)
+{
+	acl::string path;
+	path.format("%s/%s", upload_dir.c_str(), basename ? basename : "");
+	struct stat st;
+	if (stat(path.c_str(), &st) != 0) {
+		return false;
+	}
+	return S_ISREG(st.st_mode);
+}
+
+static void append_tag_json(acl::json& json, acl::json_node& arr,
+	const TagRow& row,
+	const std::map<std::string, std::vector<std::string> >& children_by_parent,
+	const std::map<std::string, TagRow>& rows_by_id)
+{
+	acl::json_node& item = arr.add_child(false, true);
+	item.add_text("id", row.id.c_str());
+	item.add_text("name", row.name.c_str());
+	acl::json_node& files = json.create_array();
+	item.add_child("files", files);
+	acl::json_node& children = json.create_array();
+	item.add_child("children", children);
+
+	std::map<std::string, std::vector<std::string> >::const_iterator it =
+		children_by_parent.find(row.id);
+	if (it == children_by_parent.end()) {
+		return;
+	}
+
+	for (size_t i = 0; i < it->second.size(); ++i) {
+		std::map<std::string, TagRow>::const_iterator rit =
+			rows_by_id.find(it->second[i]);
+		if (rit == rows_by_id.end()) {
+			continue;
+		}
+		append_tag_json(json, children, rit->second, children_by_parent, rows_by_id);
+	}
+}
+
+static bool collect_subtree_ids_locked(acl::db_sqlite& db,
+	const std::string& root_id, std::vector<std::string>& ids, std::string& err)
+{
+	err.clear();
+	ids.clear();
+	ids.push_back(root_id);
+	for (size_t index = 0; index < ids.size(); ++index) {
+		acl::query query;
+		query.create("SELECT id FROM tag_catalog WHERE parent_id=:parent_id"
+			" ORDER BY sort_order ASC, created_at ASC")
+			.set_parameter("parent_id", ids[index].c_str());
+		if (!db.exec_select(query)) {
+			err = db.get_error();
+			return false;
+		}
+		for (size_t i = 0; i < db.length(); ++i) {
+			const acl::db_row* row = db[i];
+			if (row == NULL) {
+				continue;
+			}
+			const char* child_id = (*row)["id"];
+			if (child_id != NULL && *child_id != '\0') {
+				ids.push_back(child_id);
+			}
+		}
+		db.free_result();
+	}
+	return true;
+}
+
+} // namespace
+
+bool init_tag_db(const std::string& upload_dir, std::string& err) {
+	err.clear();
+	std::lock_guard<std::mutex> guard(g_tag_mutex);
+	if (g_tag_db_ready) {
+		return true;
+	}
+
+	std::string sqlite_lib_path = choose_sqlite_lib_path();
+	if (sqlite_lib_path.empty()) {
+		err = "sqlite dynamic library not found";
+		return false;
+	}
+	acl::db_handle::set_loadpath(sqlite_lib_path.c_str());
+
+	if (!ensure_tag_dir(upload_dir, err)) {
+		return false;
+	}
+
+	acl::string db_file;
+	db_file.format("%s/.tag_catalog.db", upload_dir.c_str());
+	g_tag_db_file = db_file.c_str();
+
+	if (!ensure_tag_tables_locked(err)) {
+		return false;
+	}
+
+	g_tag_db_ready = true;
+	return true;
+}
+
+bool tag_unbind_file(const std::string& upload_dir,
+	const std::string& file_name, std::string& err)
+{
+	err.clear();
+	if (file_name.empty()) {
+		return true;
+	}
+	if (!ensure_tag_db_for_request(upload_dir, err)) {
+		return false;
+	}
+
+	std::lock_guard<std::mutex> guard(g_tag_mutex);
+	acl::db_sqlite db(g_tag_db_file.c_str(), "utf-8");
+	if (!open_tag_db_locked(db, err)) {
+		return false;
+	}
+
+	acl::query query;
+	query.create("DELETE FROM file_tag_rel WHERE file_name=:file")
+		.set_parameter("file", file_name.c_str());
+	if (!db.exec_update(query)) {
+		err = db.get_error();
+		return false;
+	}
+	return true;
+}
+
+bool TagListAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string db_err;
+	if (!ensure_tag_db_for_request(upload_dir, db_err)) {
+		json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	std::lock_guard<std::mutex> guard(g_tag_mutex);
+	acl::db_sqlite db(g_tag_db_file.c_str(), "utf-8");
+	if (!open_tag_db_locked(db, db_err)) {
+		json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	acl::query query;
+	query.create("SELECT id, parent_id, tag_name, sort_order"
+		" FROM tag_catalog ORDER BY parent_id ASC, sort_order ASC, created_at ASC");
+	if (!db.exec_select(query)) {
+		json_error(res, 500, db.get_error(), req.isKeepAlive());
+		return true;
+	}
+
+	std::map<std::string, TagRow> rows_by_id;
+	std::map<std::string, std::vector<std::string> > children_by_parent;
+	std::vector<std::string> roots;
+	for (size_t i = 0; i < db.length(); ++i) {
+		const acl::db_row* row = db[i];
+		if (row == NULL) {
+			continue;
+		}
+		TagRow item;
+		const char* id = (*row)["id"];
+		const char* parent_id = (*row)["parent_id"];
+		const char* tag_name = (*row)["tag_name"];
+		const char* sort_order = (*row)["sort_order"];
+		item.id = id ? id : "";
+		item.parent_id = parent_id ? parent_id : "";
+		item.name = tag_name ? tag_name : "";
+		item.sort_order = sort_order ? atoll(sort_order) : 0;
+		if (item.id.empty()) {
+			continue;
+		}
+		rows_by_id[item.id] = item;
+		if (item.parent_id.empty()) {
+			roots.push_back(item.id);
+		} else {
+			children_by_parent[item.parent_id].push_back(item.id);
+		}
+	}
+	db.free_result();
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	acl::json_node& arr = json.create_array();
+	root.add_child("tags", arr);
+	for (size_t i = 0; i < roots.size(); ++i) {
+		std::map<std::string, TagRow>::const_iterator it = rows_by_id.find(roots[i]);
+		if (it == rows_by_id.end()) {
+			continue;
+		}
+		append_tag_json(json, arr, it->second, children_by_parent, rows_by_id);
+	}
+	root.add_number("count", (long long) rows_by_id.size());
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool TagCreateAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string db_err;
+	if (!ensure_tag_db_for_request(upload_dir, db_err)) {
+		json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	std::string name = trim_copy(req.getParameter("name"));
+	if (!validate_tag_name(name, db_err)) {
+		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	std::string parent_id = trim_copy(req.getParameter("parent_id"));
+	if (!parent_id.empty() && !validate_tag_id(parent_id, db_err)) {
+		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	std::string new_id;
+	{
+		std::lock_guard<std::mutex> guard(g_tag_mutex);
+		acl::db_sqlite db(g_tag_db_file.c_str(), "utf-8");
+		if (!open_tag_db_locked(db, db_err)) {
+			json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+
+		if (!parent_id.empty()) {
+			TagRow parent_row;
+			if (!fetch_tag_locked(db, parent_id, &parent_row, db_err)) {
+				json_error(res, 404,
+					db_err.empty() ? "parent tag not found" : db_err.c_str(),
+					req.isKeepAlive());
+				return true;
+			}
+
+			int parent_level = get_tag_level_locked(db, parent_id, db_err);
+			if (parent_level < 0) {
+				json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+				return true;
+			}
+			if (parent_level >= 3) {
+				json_error(res, 400, "tag level exceeds max depth", req.isKeepAlive());
+				return true;
+			}
+		}
+
+		long long sort_order = next_sort_order_locked(db, parent_id, db_err);
+		if (sort_order <= 0) {
+			json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+
+		new_id = make_tag_id_locked();
+		acl::query query;
+		query.create("INSERT INTO tag_catalog(id, parent_id, tag_name, sort_order, updated_at)"
+			" VALUES(:id, :parent_id, :tag_name, :sort_order, strftime('%s','now'))")
+			.set_parameter("id", new_id.c_str())
+			.set_parameter("parent_id", parent_id.c_str())
+			.set_parameter("tag_name", name.c_str())
+			.set_parameter("sort_order", sort_order);
+		if (!db.exec_update(query)) {
+			json_error(res, 500, db.get_error(), req.isKeepAlive());
+			return true;
+		}
+	}
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("id", new_id.c_str());
+	root.add_text("name", name.c_str());
+	root.add_text("parent_id", parent_id.c_str());
+	root.add_text("message", "tag created");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool TagDeleteAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string db_err;
+	if (!ensure_tag_db_for_request(upload_dir, db_err)) {
+		json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	std::string tag_id = trim_copy(req.getParameter("id"));
+	if (!validate_tag_id(tag_id, db_err)) {
+		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	std::vector<std::string> ids;
+	{
+		std::lock_guard<std::mutex> guard(g_tag_mutex);
+		acl::db_sqlite db(g_tag_db_file.c_str(), "utf-8");
+		if (!open_tag_db_locked(db, db_err)) {
+			json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+
+		TagRow row;
+		if (!fetch_tag_locked(db, tag_id, &row, db_err)) {
+			json_error(res, 404,
+				db_err.empty() ? "tag not found" : db_err.c_str(),
+				req.isKeepAlive());
+			return true;
+		}
+
+		if (!collect_subtree_ids_locked(db, tag_id, ids, db_err)) {
+			json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+
+		for (size_t i = ids.size(); i > 0; --i) {
+			acl::query query;
+			query.create("DELETE FROM tag_catalog WHERE id=:id")
+				.set_parameter("id", ids[i - 1].c_str());
+			if (!db.exec_update(query)) {
+				json_error(res, 500, db.get_error(), req.isKeepAlive());
+				return true;
+			}
+		}
+	}
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("id", tag_id.c_str());
+	root.add_number("removed", (long long) ids.size());
+	root.add_text("message", "tag deleted");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool TagBindAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string db_err;
+	if (!ensure_tag_db_for_request(upload_dir, db_err)) {
+		json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	std::string tag_id = trim_copy(req.getParameter("tag_id"));
+	if (!validate_tag_id(tag_id, db_err)) {
+		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	const char* file = req.getParameter("file");
+	if (file == NULL || *file == '\0') {
+		json_error(res, 400, "missing query parameter: file", req.isKeepAlive());
+		return true;
+	}
+
+	const char* basename = acl_safe_basename(file);
+	if (basename == NULL || *basename == '\0' || strcmp(basename, file) != 0) {
+		json_error(res, 400, "invalid file name", req.isKeepAlive());
+		return true;
+	}
+
+	if (!file_exists_in_upload_dir(upload_dir, basename)) {
+		json_error(res, 404, "file not found", req.isKeepAlive());
+		return true;
+	}
+
+	{
+		std::lock_guard<std::mutex> guard(g_tag_mutex);
+		acl::db_sqlite db(g_tag_db_file.c_str(), "utf-8");
+		if (!open_tag_db_locked(db, db_err)) {
+			json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+
+		TagRow row;
+		if (!fetch_tag_locked(db, tag_id, &row, db_err)) {
+			json_error(res, 404,
+				db_err.empty() ? "tag not found" : db_err.c_str(),
+				req.isKeepAlive());
+			return true;
+		}
+
+		acl::query query;
+		query.create("INSERT INTO file_tag_rel(tag_id, file_name, updated_at)"
+			" VALUES(:tag_id, :file_name, strftime('%s','now'))"
+			" ON CONFLICT(tag_id, file_name) DO UPDATE SET"
+			" updated_at=excluded.updated_at")
+			.set_parameter("tag_id", tag_id.c_str())
+			.set_parameter("file_name", basename);
+		if (!db.exec_update(query)) {
+			json_error(res, 500, db.get_error(), req.isKeepAlive());
+			return true;
+		}
+	}
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("tag_id", tag_id.c_str());
+	root.add_text("file", basename);
+	root.add_text("message", "file bound to tag");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool TagUnbindAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string db_err;
+	if (!ensure_tag_db_for_request(upload_dir, db_err)) {
+		json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	std::string tag_id = trim_copy(req.getParameter("tag_id"));
+	if (!validate_tag_id(tag_id, db_err)) {
+		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	const char* file = req.getParameter("file");
+	if (file == NULL || *file == '\0') {
+		json_error(res, 400, "missing query parameter: file", req.isKeepAlive());
+		return true;
+	}
+
+	const char* basename = acl_safe_basename(file);
+	if (basename == NULL || *basename == '\0' || strcmp(basename, file) != 0) {
+		json_error(res, 400, "invalid file name", req.isKeepAlive());
+		return true;
+	}
+
+	{
+		std::lock_guard<std::mutex> guard(g_tag_mutex);
+		acl::db_sqlite db(g_tag_db_file.c_str(), "utf-8");
+		if (!open_tag_db_locked(db, db_err)) {
+			json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+
+		acl::query query;
+		query.create("DELETE FROM file_tag_rel WHERE tag_id=:tag_id AND file_name=:file_name")
+			.set_parameter("tag_id", tag_id.c_str())
+			.set_parameter("file_name", basename);
+		if (!db.exec_update(query)) {
+			json_error(res, 500, db.get_error(), req.isKeepAlive());
+			return true;
+		}
+	}
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("tag_id", tag_id.c_str());
+	root.add_text("file", basename);
+	root.add_text("message", "file unbound from tag");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool TagFilesAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string db_err;
+	if (!ensure_tag_db_for_request(upload_dir, db_err)) {
+		json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	std::string tag_id = trim_copy(req.getParameter("tag_id"));
+	if (!validate_tag_id(tag_id, db_err)) {
+		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	std::vector<std::string> file_names;
+	std::string tag_name;
+	{
+		std::lock_guard<std::mutex> guard(g_tag_mutex);
+		acl::db_sqlite db(g_tag_db_file.c_str(), "utf-8");
+		if (!open_tag_db_locked(db, db_err)) {
+			json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+
+		TagRow row;
+		if (!fetch_tag_locked(db, tag_id, &row, db_err)) {
+			json_error(res, 404,
+				db_err.empty() ? "tag not found" : db_err.c_str(),
+				req.isKeepAlive());
+			return true;
+		}
+		tag_name = row.name;
+
+		acl::query query;
+		query.create("SELECT file_name FROM file_tag_rel WHERE tag_id=:tag_id"
+			" ORDER BY updated_at DESC, file_name ASC")
+			.set_parameter("tag_id", tag_id.c_str());
+		if (!db.exec_select(query)) {
+			json_error(res, 500, db.get_error(), req.isKeepAlive());
+			return true;
+		}
+		for (size_t i = 0; i < db.length(); ++i) {
+			const acl::db_row* file_row = db[i];
+			if (file_row == NULL) {
+				continue;
+			}
+			const char* file_name = (*file_row)["file_name"];
+			if (file_name != NULL && *file_name != '\0') {
+				file_names.push_back(file_name);
+			}
+		}
+		db.free_result();
+	}
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("tag_id", tag_id.c_str());
+	root.add_text("tag_name", tag_name.c_str());
+	acl::json_node& files = json.create_array();
+	root.add_child("files", files);
+	long long count = 0;
+
+	for (size_t i = 0; i < file_names.size(); ++i) {
+		const char* basename = acl_safe_basename(file_names[i].c_str());
+		if (basename == NULL || *basename == '\0') {
+			continue;
+		}
+
+		acl::string full;
+		full.format("%s/%s", upload_dir.c_str(), basename);
+		struct stat st;
+		if (stat(full.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+			continue;
+		}
+
+		long long fsize = -1;
+		acl::ifstream in;
+		if (in.open_read(full.c_str())) {
+			fsize = in.fsize();
+			in.close();
+		}
+
+		char uploaded_time[32];
+		uploaded_time[0] = '\0';
+		format_upload_time(st.st_mtime, uploaded_time, sizeof(uploaded_time));
+
+		acl::json_node& item = files.add_child(false, true);
+		item.add_text("name", basename);
+		item.add_number("size", fsize);
+		item.add_number("uploaded_at", (long long) st.st_mtime);
+		item.add_text("uploaded_time", uploaded_time);
+		count++;
+	}
+
+	root.add_number("count", count);
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+} // namespace action

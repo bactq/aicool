@@ -11,9 +11,12 @@ typedef ::response_t response_t;
 
 bool init_video_resume_db(const std::string& upload_dir, std::string& err);
 bool init_category_folder_db(const std::string& upload_dir, std::string& err);
+bool init_tag_db(const std::string& upload_dir, std::string& err);
 bool folder_bind_file(const std::string& upload_dir, const std::string& file_name,
 	long long folder_id, std::string& err);
 bool folder_unbind_file(const std::string& upload_dir,
+	const std::string& file_name, std::string& err);
+bool tag_unbind_file(const std::string& upload_dir,
 	const std::string& file_name, std::string& err);
 bool folder_load_file_bindings(const std::string& upload_dir,
 	std::map<std::string, long long>& file_to_folder_id,
@@ -122,6 +125,42 @@ public:
 };
 
 class FolderDeleteAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class TagListAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class TagCreateAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class TagDeleteAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class TagBindAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class TagUnbindAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class TagFilesAction {
 public:
 	static bool run(request_t& req, response_t& res,
 		const std::string& upload_dir);

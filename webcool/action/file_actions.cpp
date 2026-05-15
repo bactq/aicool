@@ -343,6 +343,9 @@ bool FilesAction::run(request_t& req, response_t& res,
 		if (strcmp(name, ".folder_catalog.db") == 0) {
 			continue;
 		}
+		if (strcmp(name, ".tag_catalog.db") == 0) {
+			continue;
+		}
 
 		acl::string full;
 		full.format("%s/%s", upload_dir.c_str(), name);
@@ -435,6 +438,14 @@ bool DeleteAction::run(request_t& req, response_t& res,
 
 	std::string rel_err;
 	if (!folder_unbind_file(upload_dir, basename, rel_err)) {
+		acl::json json;
+		acl::json_node& root = json.create_node();
+		root.add_bool("ok", false);
+		root.add_text("error", rel_err.c_str());
+		return sendJson(res, 500, root, req.isKeepAlive());
+	}
+
+	if (!tag_unbind_file(upload_dir, basename, rel_err)) {
 		acl::json json;
 		acl::json_node& root = json.create_node();
 		root.add_bool("ok", false);

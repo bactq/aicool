@@ -1,6 +1,12 @@
-    (function () {
+(function () {
       const api = {
         files: '/api/v1/files',
+        tags: '/api/v1/tags',
+        tagCreate: '/api/v1/tags/create',
+        tagDelete: '/api/v1/tags/delete',
+        tagBind: '/api/v1/tags/bind',
+        tagUnbind: '/api/v1/tags/unbind',
+        tagFiles: '/api/v1/tag-files',
         upload: '/api/v1/upload',
         del: '/api/v1/delete',
         download: '/api/v1/download',
@@ -27,12 +33,28 @@
       const sortKey = document.getElementById('sort-key');
       const sortOrder = document.getElementById('sort-order');
       const sortButtons = Array.from(document.querySelectorAll('.sort-btn[data-sort-key]'));
+      const filesTagToggleBtn = document.getElementById('files-tag-toggle');
+      const tagManager = document.getElementById('tag-manager');
+      const tagDialog = document.getElementById('tag-dialog');
+      const tagDialogForm = document.getElementById('tag-dialog-form');
+      const tagDialogTitle = document.getElementById('tag-dialog-title');
+      const tagDialogDesc = document.getElementById('tag-dialog-desc');
+      const tagDialogInput = document.getElementById('tag-dialog-input');
+      const tagDialogCancelBtn = document.getElementById('tag-dialog-cancel');
       const previewLayer = document.getElementById('preview-layer');
       const menuButtons = Array.from(document.querySelectorAll('.menu-btn[data-panel]'));
       const panels = Array.from(document.querySelectorAll('.panel'));
+      const TAG_TREE_STORAGE_KEY = 'webcool:file-tags:v1';
+      const TAG_MAX_LEVEL = 3;
       let allFiles = [];
+      let tagTree = [];
+      let activeFilterTagId = '';
+      const expandedTagNodeIds = new Set();
+      let activeTagMenuId = '';
+      let activeDropTagNode = null;
       let previewZ = 900;
       let activeDrag = null;
+      let activeTagDialogResolver = null;
       const openedPreviewWindows = new Map();
       const transcodeProgressTimers = new Map();
       const videoResumeSaveTimers = new Map();
@@ -219,6 +241,419 @@
       function showStatus(msg, type) {
         statusBox.className = 'status show ' + (type || 'ok');
         statusBox.textContent = msg;
+      }
+
+      function closeTagDialog(value) {
+        if (!tagDialog) {
+          return;
+        }
+        tagDialog.hidden = true;
+        document.body.style.overflow = '';
+        const resolver = activeTagDialogResolver;
+        activeTagDialogResolver = null;
+        if (resolver) {
+          resolver(value);
+        }
+      }
+
+      function askTagName(options) {
+        if (!tagDialog || !tagDialogTitle || !tagDialogDesc || !tagDialogInput) {
+          return Promise.resolve(null);
+        }
+
+        if (activeTagDialogResolver) {
+          closeTagDialog(null);
+        }
+
+        const opts = options || {};
+        tagDialogTitle.textContent = String(opts.title || '新建标签');
+        tagDialogDesc.textContent = String(opts.description || '请输入标签名称。');
+        tagDialogInput.value = String(opts.initialValue || '');
+        tagDialogInput.placeholder = String(opts.placeholder || '请输入标签名称');
+        tagDialog.hidden = false;
+        document.body.style.overflow = 'hidden';
+
+        requestAnimationFrame(function () {
+          tagDialogInput.focus();
+          tagDialogInput.select();
+        });
+
+        return new Promise(function (resolve) {
+          activeTagDialogResolver = resolve;
+        });
+      }
+
+      function makeTagId() {
+        return 'tag_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
+      }
+
+      function loadLegacyTagTreeState() {
+        try {
+          const raw = localStorage.getItem(TAG_TREE_STORAGE_KEY);
+          if (!raw) {
+            return [];
+          }
+
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed)) {
+            return [];
+          }
+
+          const normalized = [];
+          for (let i = 0; i < parsed.length; i += 1) {
+            const node = normalizeTagNode(parsed[i], 1);
+            if (node) {
+              normalized.push(node);
+            }
+          }
+          return normalized;
+        } catch (_) {
+          return [];
+        }
+      }
+
+      function normalizeTagNode(node, level) {
+        if (!node || level > TAG_MAX_LEVEL) {
+          return null;
+        }
+
+        const name = String(node.name || '').trim();
+        if (!name) {
+          return null;
+        }
+
+        const files = Array.isArray(node.files)
+          ? node.files.map(function (it) { return String(it || ''); }).filter(Boolean)
+          : [];
+
+        const childrenInput = Array.isArray(node.children) ? node.children : [];
+        const children = [];
+        for (let i = 0; i < childrenInput.length; i += 1) {
+          const normalized = normalizeTagNode(childrenInput[i], level + 1);
+          if (normalized) {
+            children.push(normalized);
+          }
+        }
+
+        return {
+          id: String(node.id || makeTagId()),
+          name: name.slice(0, 60),
+          files: Array.from(new Set(files)),
+          children: children
+        };
+      }
+
+      async function loadTagTreeState() {
+        try {
+          const data = await fetchJson(api.tags);
+          const parsed = Array.isArray(data.tags) ? data.tags : [];
+          let source = parsed;
+
+          if (!source.length) {
+            const legacyNodes = loadLegacyTagTreeState();
+            if (legacyNodes.length) {
+              await migrateLegacyTagTree(legacyNodes);
+              const refreshed = await fetchJson(api.tags);
+              source = Array.isArray(refreshed.tags) ? refreshed.tags : [];
+            }
+          }
+
+          const normalized = [];
+          for (let i = 0; i < source.length; i += 1) {
+            const node = normalizeTagNode(source[i], 1);
+            if (node) {
+              normalized.push(node);
+            }
+          }
+          tagTree = normalized;
+        } catch (_) {
+          tagTree = [];
+        }
+      }
+
+      function saveTagTreeState() {
+      }
+
+      function hasTagChildren(node) {
+        return !!(node && Array.isArray(node.children) && node.children.length > 0);
+      }
+
+      function getTagNodeToggleSymbol(node, level) {
+        if (level >= TAG_MAX_LEVEL) {
+          return '';
+        }
+        if (!hasTagChildren(node)) {
+          return '+';
+        }
+        return expandedTagNodeIds.has(node.id) ? 'v' : '>';
+      }
+
+      function buildTagNodeHtml(node, level) {
+        const safeLevel = Math.max(1, Math.min(TAG_MAX_LEVEL, level || 1));
+        const indent = (safeLevel - 1) * 5;
+        const bindIndent = indent;
+        const canExpand = safeLevel < TAG_MAX_LEVEL;
+        const hasChildren = hasTagChildren(node);
+        const expanded = expandedTagNodeIds.has(node.id);
+        const toggleSymbol = getTagNodeToggleSymbol(node, safeLevel);
+        const refs = Array.isArray(node.files) ? node.files : [];
+        const refsHtml = refs.length
+          ? refs.map(function (fileName) {
+            return (
+              '<span class="tag-ref-chip">' +
+                '<span title="' + escapeHtml(fileName) + '">' + escapeHtml(fileName) + '</span>' +
+                '<button type="button" class="tag-unbind-btn" data-tag-id="' + node.id + '" data-file="' + encodeURIComponent(fileName) + '">×</button>' +
+              '</span>'
+            );
+          }).join('')
+          : '';
+
+        let childHtml = '';
+        if (canExpand && hasChildren && expanded) {
+          childHtml = (Array.isArray(node.children) ? node.children : []).map(function (child) {
+            return buildTagNodeHtml(child, safeLevel + 1);
+          }).join('');
+        }
+
+        const isLevel1 = safeLevel === 1;
+        const toggleBtnStyle = isLevel1 ? ' style="position: absolute; left: 0; top: 0;"' : '';
+        const nameInlineStyle = 'cursor:pointer;' + (isLevel1 ? 'position: relative; left: 18px;' : '');
+        const toggleBtn = canExpand
+          ? '<button type="button" class="tag-node-toggle" data-tag-id="' + node.id + '" data-tag-level="' + safeLevel + '"' + toggleBtnStyle + '>' + toggleSymbol + '</button>'
+          : '<span class="tag-node-toggle placeholder"></span>';
+
+        const menuOpen = activeTagMenuId === node.id;
+        const nodeClass = menuOpen ? 'tag-node menu-open' : 'tag-node';
+        const menuHtml =
+          '<div class="tag-more-wrap">' +
+            '<button type="button" class="tag-more-btn" data-tag-menu-btn="' + node.id + '">...</button>' +
+            (menuOpen
+              ? '<div class="tag-pop-menu"><button type="button" class="tag-pop-item danger" data-tag-menu-delete="' + node.id + '">删除标签</button></div>'
+              : '') +
+          '</div>';
+
+        return (
+          '<div class="' + nodeClass + '" data-tag-id="' + node.id + '">' +
+            '<div class="tag-line">' +
+              '<div class="tag-line-main" style="padding-left:' + indent + 'px; position: relative;">' +
+                toggleBtn +
+                '<span class="tag-node-name" data-tag-id="' + node.id + '" style="' + nameInlineStyle + '">' + escapeHtml(node.name) + '</span>' +
+              '</div>' +
+              menuHtml +
+            '</div>' +
+            childHtml +
+          '</div>'
+        );
+      }
+
+      function updateFilesTagToggleButton() {
+        if (!filesTagToggleBtn) {
+          return;
+        }
+        filesTagToggleBtn.textContent = '+';
+        filesTagToggleBtn.setAttribute('title', '新增一级标签');
+      }
+
+      function renderTagTree() {
+        if (!tagManager) {
+          return;
+        }
+
+        updateFilesTagToggleButton();
+        if (!tagTree.length) {
+          tagManager.classList.remove('open');
+          tagManager.innerHTML = '';
+          return;
+        }
+
+        const treeHtml = '<div class="tag-tree">' + tagTree.map(function (node) {
+          return buildTagNodeHtml(node, 1);
+        }).join('') + '</div>';
+
+        tagManager.classList.add('open');
+        tagManager.innerHTML = treeHtml;
+      }
+
+      function setDropHighlight(nodeEl) {
+        if (activeDropTagNode && activeDropTagNode !== nodeEl) {
+          activeDropTagNode.classList.remove('drop-target');
+        }
+        activeDropTagNode = nodeEl || null;
+        if (activeDropTagNode) {
+          activeDropTagNode.classList.add('drop-target');
+        }
+      }
+
+      function clearDropHighlight() {
+        if (!activeDropTagNode) {
+          return;
+        }
+        activeDropTagNode.classList.remove('drop-target');
+        activeDropTagNode = null;
+      }
+
+      function walkTagNodes(list, visitor, level, parent, parentList) {
+        const nodes = Array.isArray(list) ? list : [];
+        for (let i = 0; i < nodes.length; i += 1) {
+          const node = nodes[i];
+          const stop = visitor(node, level, parent, parentList, i);
+          if (stop) {
+            return true;
+          }
+          if (walkTagNodes(node.children, visitor, level + 1, node, node.children)) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function findTagMetaById(tagId) {
+        let found = null;
+        walkTagNodes(tagTree, function (node, level, parent, parentList, index) {
+          if (node.id === tagId) {
+            found = {
+              node: node,
+              level: level,
+              parent: parent,
+              parentList: parentList,
+              index: index
+            };
+            return true;
+          }
+          return false;
+        }, 1, null, tagTree);
+        return found;
+      }
+
+      async function addTagNode(parentTagId, name) {
+        const cleanName = String(name || '').trim();
+        if (!cleanName) {
+          return { ok: false, message: '标签名称不能为空' };
+        }
+
+        try {
+          const created = await fetchJson(
+            api.tagCreate + '?name=' + encodeURIComponent(cleanName)
+              + (parentTagId ? '&parent_id=' + encodeURIComponent(parentTagId) : ''),
+            { method: 'POST' }
+          );
+          return { ok: true, id: created.id || '' };
+        } catch (err) {
+          return { ok: false, message: err.message };
+        }
+      }
+
+      async function migrateLegacyTagNode(node, parentTagId) {
+        const createResult = await addTagNode(parentTagId, node.name || '');
+        if (!createResult.ok || !createResult.id) {
+          throw new Error(createResult.message || '创建标签失败');
+        }
+
+        const serverTagId = createResult.id;
+        const files = Array.isArray(node.files) ? node.files : [];
+        for (let i = 0; i < files.length; i += 1) {
+          const fileName = String(files[i] || '');
+          if (!fileName) {
+            continue;
+          }
+          await bindFileToTag(serverTagId, fileName);
+        }
+
+        const children = Array.isArray(node.children) ? node.children : [];
+        for (let i = 0; i < children.length; i += 1) {
+          await migrateLegacyTagNode(children[i], serverTagId);
+        }
+      }
+
+      async function migrateLegacyTagTree(legacyNodes) {
+        for (let i = 0; i < legacyNodes.length; i += 1) {
+          await migrateLegacyTagNode(legacyNodes[i], '');
+        }
+        try {
+          localStorage.removeItem(TAG_TREE_STORAGE_KEY);
+        } catch (_) {
+        }
+      }
+
+      async function removeTagNode(tagId) {
+        try {
+          return await fetchJson(api.tagDelete + '?id=' + encodeURIComponent(tagId), {
+            method: 'POST'
+          });
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function clearExpandedNodeState(node) {
+        if (!node) {
+          return;
+        }
+        expandedTagNodeIds.delete(node.id);
+        const children = Array.isArray(node.children) ? node.children : [];
+        for (let i = 0; i < children.length; i += 1) {
+          clearExpandedNodeState(children[i]);
+        }
+      }
+
+      function getFileNameSet() {
+        const set = new Set();
+        allFiles.forEach(function (it) {
+          const name = String((it && it.name) || '');
+          if (name) {
+            set.add(name);
+          }
+        });
+        return set;
+      }
+
+      async function bindFileToTag(tagId, fileName) {
+        const cleanName = String(fileName || '');
+        if (!cleanName) {
+          return { ok: false, message: '请选择要引用的文件' };
+        }
+
+        try {
+          await fetchJson(
+            api.tagBind + '?tag_id=' + encodeURIComponent(tagId) + '&file=' + encodeURIComponent(cleanName),
+            { method: 'POST' }
+          );
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, message: err.message };
+        }
+      }
+
+      async function unbindFileFromTag(tagId, fileName) {
+        try {
+          await fetchJson(
+            api.tagUnbind + '?tag_id=' + encodeURIComponent(tagId) + '&file=' + encodeURIComponent(fileName),
+            { method: 'POST' }
+          );
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function removeFileRefsFromAllTags(fileName) {
+        return 0;
+      }
+
+      function pruneTagRefsByCurrentFiles() {
+        const available = getFileNameSet();
+        let changed = false;
+        walkTagNodes(tagTree, function (node) {
+          const before = node.files.length;
+          node.files = node.files.filter(function (it) {
+            return available.has(it);
+          });
+          if (before !== node.files.length) {
+            changed = true;
+          }
+          return false;
+        }, 1, null, tagTree);
+        return changed;
       }
 
       function showManualTranscodePrompt(candidates) {
@@ -545,6 +980,17 @@
         return String(Number(num) || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
       }
 
+      async function showFilesForTag(tagId) {
+        const data = await fetchJson(api.tagFiles + '?tag_id=' + encodeURIComponent(tagId));
+        activeFilterTagId = tagId;
+        renderFiles(Array.isArray(data.files) ? data.files : []);
+      }
+
+      function clearTagFileFilter() {
+        activeFilterTagId = '';
+        renderFiles(allFiles);
+      }
+
       function compareFiles(a, b, key, order) {
         let res = 0;
         if (key === 'size') {
@@ -572,6 +1018,7 @@
 
         const key = sortKey.value || 'name';
         const order = sortOrder.value || 'asc';
+        const isTagFilterMode = !!activeFilterTagId;
         const sorted = files.slice().sort((a, b) => compareFiles(a, b, key, order));
         updateSortIndicator();
 
@@ -594,12 +1041,15 @@
           const textBtn = isTextName(file.name)
             ? '<button class="text-btn" data-text-file="' + encoded + '" data-text-name="' + name + '">查看</button>'
             : '';
+          const rowActionBtn = isTagFilterMode
+            ? '<button class="delete-btn" data-file="' + encoded + '" data-name="' + name + '">移除</button>'
+            : '<button class="delete-btn" data-file="' + encoded + '" data-name="' + name + '">删除</button>';
           return (
-            '<tr>' +
-              '<td><a class="file-name" href="' + api.download + '?file=' + encoded + '">' + name + '</a></td>' +
+            '<tr class="draggable-file-row" draggable="true" data-drag-file="' + encoded + '">' +
+              '<td><a class="file-name" draggable="false" href="' + api.download + '?file=' + encoded + '">' + name + '</a></td>' +
               '<td><span class="size">' + formatNumber(size) + ' 字节</span></td>' +
               '<td><span class="time">' + uploaded + '</span></td>' +
-              '<td class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + '<button class="delete-btn" data-file="' + encoded + '" data-name="' + name + '">删除</button></td>' +
+              '<td class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + rowActionBtn + '</td>' +
             '</tr>'
           );
         }).join('');
@@ -983,13 +1433,25 @@
         try {
           const data = await fetchJson(api.files);
           allFiles = Array.isArray(data.files) ? data.files : [];
-          renderFiles(allFiles);
+          await loadTagTreeState();
+          renderTagTree();
+          if (activeFilterTagId) {
+            try {
+              await showFilesForTag(activeFilterTagId);
+            } catch (_) {
+              clearTagFileFilter();
+            }
+          } else {
+            renderFiles(allFiles);
+          }
           await recoverRunningTranscodeTasks();
         } catch (err) {
+          allFiles = [];
           fileList.innerHTML = '';
           fileTable.style.display = 'none';
           fileEmpty.textContent = '加载文件列表失败：' + err.message;
           fileEmpty.style.display = 'block';
+          renderTagTree();
           showStatus('加载列表失败：' + err.message, 'err');
         }
       }
@@ -1167,8 +1629,30 @@
         }
 
         const file = btn.getAttribute('data-file');
-        const name = btn.getAttribute('data-name') || '';
+        const name = decodeURIComponent(file || '') || (btn.getAttribute('data-name') || '');
         if (!file) {
+          return;
+        }
+
+        const activeTagId = activeFilterTagId;
+
+        if (activeTagId) {
+          if (!confirm('确认将文件『' + name + '』从当前标签中移除？此操作只解除标签引用，不会删除文件。')) {
+            return;
+          }
+
+          resetStatus();
+          try {
+            const ok = await unbindFileFromTag(activeTagId, name);
+            if (!ok) {
+              showStatus('移除引用失败：关联不存在', 'err');
+              return;
+            }
+            await showFilesForTag(activeTagId);
+            showStatus('已移除标签引用：' + name, 'warn');
+          } catch (err) {
+            showStatus('移除引用失败：' + err.message, 'err');
+          }
           return;
         }
 
@@ -1183,6 +1667,242 @@
           await loadFiles();
         } catch (err) {
           showStatus('删除失败：' + err.message, 'err');
+        }
+      });
+
+      fileList.addEventListener('dragstart', function (e) {
+        const row = e.target.closest('tr[data-drag-file]');
+        if (!row || !e.dataTransfer) {
+          return;
+        }
+        const encoded = row.getAttribute('data-drag-file') || '';
+        const fileName = decodeURIComponent(encoded);
+        if (!fileName) {
+          return;
+        }
+        e.dataTransfer.effectAllowed = 'copy';
+        e.dataTransfer.setData('text/plain', fileName);
+      });
+
+      fileList.addEventListener('dragend', function () {
+        clearDropHighlight();
+      });
+
+      if (filesTagToggleBtn) {
+        filesTagToggleBtn.addEventListener('click', async function () {
+          const rootName = await askTagName({
+            title: '新建一级标签',
+            description: '标签会显示在左侧树的第一层。',
+            placeholder: '请输入一级标签名称'
+          });
+          if (rootName === null) {
+            return;
+          }
+          const result = await addTagNode('', rootName);
+          if (!result.ok) {
+            showStatus('创建标签失败：' + result.message, 'err');
+            return;
+          }
+          await loadTagTreeState();
+          renderTagTree();
+          showStatus('一级标签已创建', 'ok');
+        });
+      }
+
+      if (tagManager) {
+        tagManager.addEventListener('click', async function (e) {
+          const tagNameEl = e.target.closest('.tag-node-name[data-tag-id]');
+          if (tagNameEl) {
+            e.stopPropagation();
+            const tagId = tagNameEl.getAttribute('data-tag-id') || '';
+            if (!tagId) {
+              return;
+            }
+            try {
+              if (activeFilterTagId === tagId) {
+                clearTagFileFilter();
+              } else {
+                await showFilesForTag(tagId);
+              }
+            } catch (err) {
+              showStatus('加载标签文件失败：' + err.message, 'err');
+            }
+            return;
+          }
+
+          const menuBtn = e.target.closest('.tag-more-btn[data-tag-menu-btn]');
+          if (menuBtn) {
+            e.stopPropagation();
+            const tagId = menuBtn.getAttribute('data-tag-menu-btn') || '';
+            activeTagMenuId = activeTagMenuId === tagId ? '' : tagId;
+            renderTagTree();
+            return;
+          }
+
+          const menuDelete = e.target.closest('.tag-pop-item[data-tag-menu-delete]');
+          if (menuDelete) {
+            e.stopPropagation();
+            const tagId = menuDelete.getAttribute('data-tag-menu-delete') || '';
+            if (!confirm('确认删除该标签节点及其子节点？仅会删除标签引用关系，不会删除文件。')) {
+              return;
+            }
+            const removedNode = await removeTagNode(tagId);
+            if (!removedNode || removedNode.ok === false) {
+              showStatus('删除标签失败：节点不存在', 'err');
+              return;
+            }
+            activeTagMenuId = '';
+            expandedTagNodeIds.delete(tagId);
+            if (activeFilterTagId === tagId) {
+              clearTagFileFilter();
+            }
+            await loadTagTreeState();
+            renderTagTree();
+            showStatus('标签节点已删除（未删除任何文件）', 'warn');
+            return;
+          }
+
+          const nodeToggleBtn = e.target.closest('.tag-node-toggle[data-tag-id][data-tag-level]');
+          if (nodeToggleBtn) {
+            const tagId = nodeToggleBtn.getAttribute('data-tag-id') || '';
+            const level = Number(nodeToggleBtn.getAttribute('data-tag-level') || '0');
+            if (level <= 0 || level >= TAG_MAX_LEVEL) {
+              return;
+            }
+
+            const meta = findTagMetaById(tagId);
+            if (!meta || !meta.node) {
+              showStatus('节点不存在，可能已被删除', 'err');
+              return;
+            }
+
+            if (hasTagChildren(meta.node)) {
+              if (expandedTagNodeIds.has(tagId)) {
+                expandedTagNodeIds.delete(tagId);
+              } else {
+                expandedTagNodeIds.add(tagId);
+              }
+              renderTagTree();
+              return;
+            }
+
+            const childName = await askTagName({
+              title: '新建子标签',
+              description: '当前节点下最多支持三级标签。',
+              placeholder: '请输入子标签名称'
+            });
+            if (childName === null) {
+              return;
+            }
+            const addResult = await addTagNode(tagId, childName);
+            if (!addResult.ok) {
+              showStatus('创建子标签失败：' + addResult.message, 'err');
+              return;
+            }
+            expandedTagNodeIds.add(tagId);
+            await loadTagTreeState();
+            renderTagTree();
+            showStatus('子标签已创建', 'ok');
+            return;
+          }
+
+          const unbindBtn = e.target.closest('.tag-unbind-btn[data-tag-id][data-file]');
+          if (unbindBtn) {
+            const tagId = unbindBtn.getAttribute('data-tag-id') || '';
+            const fileName = decodeURIComponent(unbindBtn.getAttribute('data-file') || '');
+            if (!(await unbindFileFromTag(tagId, fileName))) {
+              showStatus('解引用失败：关联不存在', 'err');
+              return;
+            }
+            await loadTagTreeState();
+            renderTagTree();
+            if (activeFilterTagId === tagId) {
+              await showFilesForTag(tagId);
+            }
+            showStatus('文件已解引用', 'warn');
+          }
+        });
+
+        tagManager.addEventListener('dragover', function (e) {
+          const nodeEl = e.target.closest('.tag-node[data-tag-id]');
+          if (!nodeEl) {
+            clearDropHighlight();
+            return;
+          }
+          e.preventDefault();
+          if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'copy';
+          }
+          setDropHighlight(nodeEl);
+        });
+
+        tagManager.addEventListener('dragleave', function (e) {
+          if (!tagManager.contains(e.relatedTarget)) {
+            clearDropHighlight();
+          }
+        });
+
+        tagManager.addEventListener('drop', async function (e) {
+          const nodeEl = e.target.closest('.tag-node[data-tag-id]');
+          const fileName = e.dataTransfer ? String(e.dataTransfer.getData('text/plain') || '') : '';
+          clearDropHighlight();
+          if (!nodeEl || !fileName) {
+            return;
+          }
+          e.preventDefault();
+
+          const tagId = nodeEl.getAttribute('data-tag-id') || '';
+          const result = await bindFileToTag(tagId, fileName);
+          if (!result.ok) {
+            showStatus('拖拽引用失败：' + result.message, 'err');
+            return;
+          }
+
+          await loadTagTreeState();
+          renderTagTree();
+          if (activeFilterTagId === tagId) {
+            await showFilesForTag(tagId);
+          }
+          showStatus('已通过拖拽引用文件', 'ok');
+        });
+      }
+
+      document.addEventListener('click', function (e) {
+        if (tagDialog && !tagDialog.hidden) {
+          const closeTarget = e.target.closest('[data-tag-dialog-close="1"]');
+          if (closeTarget) {
+            closeTagDialog(null);
+            return;
+          }
+        }
+
+        if (!activeTagMenuId) {
+          return;
+        }
+        if (tagManager && tagManager.contains(e.target)) {
+          return;
+        }
+        activeTagMenuId = '';
+        renderTagTree();
+      });
+
+      if (tagDialogForm) {
+        tagDialogForm.addEventListener('submit', function (e) {
+          e.preventDefault();
+          closeTagDialog(tagDialogInput ? tagDialogInput.value : '');
+        });
+      }
+
+      if (tagDialogCancelBtn) {
+        tagDialogCancelBtn.addEventListener('click', function () {
+          closeTagDialog(null);
+        });
+      }
+
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && tagDialog && !tagDialog.hidden) {
+          e.preventDefault();
+          closeTagDialog(null);
         }
       });
 
@@ -1231,6 +1951,9 @@
       menuButtons.forEach(function (btn) {
         btn.addEventListener('click', function () {
           const panelId = btn.getAttribute('data-panel');
+          if (panelId === 'panel-files') {
+            activeFilterTagId = '';
+          }
           if (panelId) {
             activatePanel(panelId);
           }
