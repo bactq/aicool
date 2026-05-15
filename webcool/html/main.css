@@ -391,8 +391,12 @@
     }
 
     .tag-node-toggle {
-      width: auto;
-      height: auto;
+      width: 14px;
+      height: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 14px;
       border: none;
       border-radius: 0;
       background: transparent;
@@ -457,31 +461,40 @@
       color: #657c96;
     }
 
-    .tag-more-wrap {
-      position: relative;
+    .tag-actions {
       display: inline-flex;
       align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
     }
 
-    .tag-more-btn {
-      width: 24px;
+    .tag-inline-btn {
+      width: 20px;
       height: 20px;
-      border: 1px solid #c7d9ed;
-      border-radius: 6px;
-      background: #f4f9ff;
-      color: #365d82;
+      border: 1px solid #d3dfeb;
+      border-radius: 999px;
+      background: #f8fbfe;
+      color: #5f768f;
       font-size: 12px;
       line-height: 1;
+      padding: 0;
       cursor: pointer;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity .12s ease;
     }
 
-    .tag-node:hover .tag-more-btn,
-    .tag-node.menu-open .tag-more-btn {
-      opacity: 1;
-      pointer-events: auto;
+    .tag-inline-btn:hover {
+      background: #eef5fb;
+      border-color: #c3d6e7;
+    }
+
+    .tag-inline-btn.danger {
+      color: #8a6670;
+      background: #faf7f8;
+      border-color: #e5d9dd;
+    }
+
+    .tag-inline-btn.danger:hover {
+      background: #f6f0f2;
+      border-color: #dbc8ce;
     }
 
     .tag-pop-menu {

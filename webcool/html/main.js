@@ -407,36 +407,34 @@
           }).join('');
         }
 
-        const isLevel1 = safeLevel === 1;
-        const toggleBtnStyle = isLevel1 ? ' style="position: absolute; left: 0; top: 0;"' : '';
-        const nameInlineStyle = 'cursor:pointer;' + (isLevel1 ? 'position: relative; left: 18px;' : '');
-        const toggleBtn = canExpand
-          ? '<button type="button" class="tag-node-toggle" data-tag-id="' + node.id + '" data-tag-level="' + safeLevel + '"' + toggleBtnStyle + '>' + toggleSymbol + '</button>'
+        const nameInlineStyle = 'cursor:pointer;';
+        const toggleBtn = hasChildren
+          ? '<button type="button" class="tag-node-toggle" data-tag-id="' + node.id + '">' + toggleSymbol + '</button>'
           : '<span class="tag-node-toggle placeholder"></span>';
 
-        const menuOpen = activeTagMenuId === node.id;
-        const nodeClass = menuOpen ? 'tag-node menu-open' : 'tag-node';
+        const nodeClass = 'tag-node';
         const canDeleteTag = !isProtectedRestrictedRootTag(node, safeLevel);
-        const menuHtml = canDeleteTag
-          ? '<div class="tag-more-wrap">' +
-              '<button type="button" class="tag-more-btn" data-tag-menu-btn="' + node.id + '">...</button>' +
-              (menuOpen
-                ? '<div class="tag-pop-menu"><button type="button" class="tag-pop-item danger" data-tag-menu-delete="' + node.id + '">删除标签</button></div>'
-                : '') +
-            '</div>'
-          : '';
+        const actionHtml =
+          '<div class="tag-actions">' +
+            (canExpand
+              ? '<button type="button" class="tag-inline-btn" data-tag-create="' + node.id + '" data-tag-level="' + safeLevel + '" title="新增子标签">+</button>'
+              : '') +
+            (canDeleteTag
+              ? '<button type="button" class="tag-inline-btn danger" data-tag-delete="' + node.id + '" title="删除标签">-</button>'
+              : '') +
+          '</div>';
 
         return (
           '<div class="' + nodeClass + '" data-tag-id="' + node.id + '">' +
             '<div class="tag-line">' +
-              '<div class="tag-line-main" style="padding-left:' + indent + 'px; position: relative;">' +
+              '<div class="tag-line-main" style="padding-left:' + indent + 'px;">' +
                 toggleBtn +
                 '<span class="tag-node-name-wrap" style="' + nameInlineStyle + '">' +
                   '<span class="tag-node-name" data-tag-id="' + node.id + '">' + escapeHtml(node.name) + '</span>' +
                   restrictedBadgeHtml +
                 '</span>' +
               '</div>' +
-              menuHtml +
+              actionHtml +
             '</div>' +
             childHtml +
           '</div>'
@@ -1787,23 +1785,13 @@
             return;
           }
 
-          const menuBtn = e.target.closest('.tag-more-btn[data-tag-menu-btn]');
-          if (menuBtn) {
+          const deleteBtn = e.target.closest('.tag-inline-btn[data-tag-delete]');
+          if (deleteBtn) {
             e.stopPropagation();
-            const tagId = menuBtn.getAttribute('data-tag-menu-btn') || '';
-            activeTagMenuId = activeTagMenuId === tagId ? '' : tagId;
-            renderTagTree();
-            return;
-          }
-
-          const menuDelete = e.target.closest('.tag-pop-item[data-tag-menu-delete]');
-          if (menuDelete) {
-            e.stopPropagation();
-            const tagId = menuDelete.getAttribute('data-tag-menu-delete') || '';
+            const tagId = deleteBtn.getAttribute('data-tag-delete') || '';
             const meta = findTagMetaById(tagId);
             if (meta && isProtectedRestrictedRootTag(meta.node, meta.level)) {
               showStatus('受限一级标签不能删除', 'err');
-              activeTagMenuId = '';
               renderTagTree();
               return;
             }
@@ -1815,7 +1803,6 @@
               showStatus('删除标签失败：' + ((removedNode && removedNode.error) ? removedNode.error : '节点不存在'), 'err');
               return;
             }
-            activeTagMenuId = '';
             expandedTagNodeIds.delete(tagId);
             if (activeFilterTagId === tagId) {
               clearTagFileFilter();
@@ -1826,27 +1813,12 @@
             return;
           }
 
-          const nodeToggleBtn = e.target.closest('.tag-node-toggle[data-tag-id][data-tag-level]');
-          if (nodeToggleBtn) {
-            const tagId = nodeToggleBtn.getAttribute('data-tag-id') || '';
-            const level = Number(nodeToggleBtn.getAttribute('data-tag-level') || '0');
+          const createBtn = e.target.closest('.tag-inline-btn[data-tag-create][data-tag-level]');
+          if (createBtn) {
+            e.stopPropagation();
+            const tagId = createBtn.getAttribute('data-tag-create') || '';
+            const level = Number(createBtn.getAttribute('data-tag-level') || '0');
             if (level <= 0 || level >= TAG_MAX_LEVEL) {
-              return;
-            }
-
-            const meta = findTagMetaById(tagId);
-            if (!meta || !meta.node) {
-              showStatus('节点不存在，可能已被删除', 'err');
-              return;
-            }
-
-            if (hasTagChildren(meta.node)) {
-              if (expandedTagNodeIds.has(tagId)) {
-                expandedTagNodeIds.delete(tagId);
-              } else {
-                expandedTagNodeIds.add(tagId);
-              }
-              renderTagTree();
               return;
             }
 
@@ -1868,6 +1840,27 @@
             renderTagTree();
             showStatus('子标签已创建', 'ok');
             return;
+          }
+
+          const nodeToggleBtn = e.target.closest('.tag-node-toggle[data-tag-id]');
+          if (nodeToggleBtn) {
+            const tagId = nodeToggleBtn.getAttribute('data-tag-id') || '';
+
+            const meta = findTagMetaById(tagId);
+            if (!meta || !meta.node) {
+              showStatus('节点不存在，可能已被删除', 'err');
+              return;
+            }
+
+            if (hasTagChildren(meta.node)) {
+              if (expandedTagNodeIds.has(tagId)) {
+                expandedTagNodeIds.delete(tagId);
+              } else {
+                expandedTagNodeIds.add(tagId);
+              }
+              renderTagTree();
+              return;
+            }
           }
 
           const unbindBtn = e.target.closest('.tag-unbind-btn[data-tag-id][data-file]');
@@ -1954,15 +1947,6 @@
             return;
           }
         }
-
-        if (!activeTagMenuId) {
-          return;
-        }
-        if (tagManager && tagManager.contains(e.target)) {
-          return;
-        }
-        activeTagMenuId = '';
-        renderTagTree();
       });
 
       if (tagDialogForm) {
