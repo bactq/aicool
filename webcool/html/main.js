@@ -391,21 +391,13 @@
       function buildTagNodeHtml(node, level) {
         const safeLevel = Math.max(1, Math.min(TAG_MAX_LEVEL, level || 1));
         const indent = (safeLevel - 1) * 5;
-        const bindIndent = indent;
         const canExpand = safeLevel < TAG_MAX_LEVEL;
         const hasChildren = hasTagChildren(node);
         const expanded = expandedTagNodeIds.has(node.id);
         const toggleSymbol = getTagNodeToggleSymbol(node, safeLevel);
-        const refs = Array.isArray(node.files) ? node.files : [];
-        const refsHtml = refs.length
-          ? refs.map(function (fileName) {
-            return (
-              '<span class="tag-ref-chip">' +
-                '<span title="' + escapeHtml(fileName) + '">' + escapeHtml(fileName) + '</span>' +
-                '<button type="button" class="tag-unbind-btn" data-tag-id="' + node.id + '" data-file="' + encodeURIComponent(fileName) + '">×</button>' +
-              '</span>'
-            );
-          }).join('')
+        const restrictedRootType = getRestrictedRootTagType(node, safeLevel);
+        const restrictedBadgeHtml = restrictedRootType
+          ? '<span class="tag-limit-badge ' + restrictedRootType + '">' + (restrictedRootType === 'video' ? '仅视频' : (restrictedRootType === 'audio' ? '仅音频' : '仅图片')) + '</span>'
           : '';
 
         let childHtml = '';
@@ -424,20 +416,25 @@
 
         const menuOpen = activeTagMenuId === node.id;
         const nodeClass = menuOpen ? 'tag-node menu-open' : 'tag-node';
-        const menuHtml =
-          '<div class="tag-more-wrap">' +
-            '<button type="button" class="tag-more-btn" data-tag-menu-btn="' + node.id + '">...</button>' +
-            (menuOpen
-              ? '<div class="tag-pop-menu"><button type="button" class="tag-pop-item danger" data-tag-menu-delete="' + node.id + '">删除标签</button></div>'
-              : '') +
-          '</div>';
+        const canDeleteTag = !isProtectedRestrictedRootTag(node, safeLevel);
+        const menuHtml = canDeleteTag
+          ? '<div class="tag-more-wrap">' +
+              '<button type="button" class="tag-more-btn" data-tag-menu-btn="' + node.id + '">...</button>' +
+              (menuOpen
+                ? '<div class="tag-pop-menu"><button type="button" class="tag-pop-item danger" data-tag-menu-delete="' + node.id + '">删除标签</button></div>'
+                : '') +
+            '</div>'
+          : '';
 
         return (
           '<div class="' + nodeClass + '" data-tag-id="' + node.id + '">' +
             '<div class="tag-line">' +
               '<div class="tag-line-main" style="padding-left:' + indent + 'px; position: relative;">' +
                 toggleBtn +
-                '<span class="tag-node-name" data-tag-id="' + node.id + '" style="' + nameInlineStyle + '">' + escapeHtml(node.name) + '</span>' +
+                '<span class="tag-node-name-wrap" style="' + nameInlineStyle + '">' +
+                  '<span class="tag-node-name" data-tag-id="' + node.id + '">' + escapeHtml(node.name) + '</span>' +
+                  restrictedBadgeHtml +
+                '</span>' +
               '</div>' +
               menuHtml +
             '</div>' +
@@ -523,6 +520,66 @@
           return false;
         }, 1, null, tagTree);
         return found;
+      }
+
+      function getTagRootMeta(tagId) {
+        let meta = findTagMetaById(tagId);
+        if (!meta) {
+          return null;
+        }
+        while (meta.parent) {
+          meta = findTagMetaById(meta.parent.id);
+          if (!meta) {
+            return null;
+          }
+        }
+        return meta;
+      }
+
+      function getTagFileTypeConstraint(tagId) {
+        const rootMeta = getTagRootMeta(tagId);
+        if (!rootMeta || !rootMeta.node) {
+          return '';
+        }
+        const rootName = String(rootMeta.node.name || '').trim();
+        if (rootName === '视频') {
+          return 'video';
+        }
+        if (rootName === '音频') {
+          return 'audio';
+        }
+        if (rootName === '图片') {
+          return 'image';
+        }
+        return '';
+      }
+
+      function getRestrictedRootTagType(node, level) {
+        if ((level || 1) !== 1 || !node || !node.id) {
+          return '';
+        }
+        return getTagFileTypeConstraint(node.id);
+      }
+
+      function isProtectedRestrictedRootTag(node, level) {
+        return !!getRestrictedRootTagType(node, level);
+      }
+
+      function canBindFileToTagOnClient(tagId, fileName) {
+        const constraint = getTagFileTypeConstraint(tagId);
+        if (!constraint) {
+          return { ok: true, message: '' };
+        }
+        if (constraint === 'video' && !isVideoName(fileName)) {
+          return { ok: false, message: '视频标签及其子标签只能引用视频文件（mp4/avi/mkv/rmvb）' };
+        }
+        if (constraint === 'audio' && !isAudioName(fileName)) {
+          return { ok: false, message: '音频标签及其子标签只能引用音频文件（mp3/m4a/aac/wav/ogg/flac）' };
+        }
+        if (constraint === 'image' && !isImageName(fileName)) {
+          return { ok: false, message: '图片标签及其子标签只能引用图片文件（png/jpg/jpeg/gif）' };
+        }
+        return { ok: true, message: '' };
       }
 
       async function addTagNode(parentTagId, name) {
@@ -1743,12 +1800,19 @@
           if (menuDelete) {
             e.stopPropagation();
             const tagId = menuDelete.getAttribute('data-tag-menu-delete') || '';
+            const meta = findTagMetaById(tagId);
+            if (meta && isProtectedRestrictedRootTag(meta.node, meta.level)) {
+              showStatus('受限一级标签不能删除', 'err');
+              activeTagMenuId = '';
+              renderTagTree();
+              return;
+            }
             if (!confirm('确认删除该标签节点及其子节点？仅会删除标签引用关系，不会删除文件。')) {
               return;
             }
             const removedNode = await removeTagNode(tagId);
             if (!removedNode || removedNode.ok === false) {
-              showStatus('删除标签失败：节点不存在', 'err');
+              showStatus('删除标签失败：' + ((removedNode && removedNode.error) ? removedNode.error : '节点不存在'), 'err');
               return;
             }
             activeTagMenuId = '';
@@ -1829,6 +1893,16 @@
             clearDropHighlight();
             return;
           }
+          const tagId = nodeEl.getAttribute('data-tag-id') || '';
+          const fileName = e.dataTransfer ? String(e.dataTransfer.getData('text/plain') || '') : '';
+          const check = canBindFileToTagOnClient(tagId, fileName);
+          if (!check.ok) {
+            clearDropHighlight();
+            if (e.dataTransfer) {
+              e.dataTransfer.dropEffect = 'none';
+            }
+            return;
+          }
           e.preventDefault();
           if (e.dataTransfer) {
             e.dataTransfer.dropEffect = 'copy';
@@ -1852,6 +1926,11 @@
           e.preventDefault();
 
           const tagId = nodeEl.getAttribute('data-tag-id') || '';
+          const check = canBindFileToTagOnClient(tagId, fileName);
+          if (!check.ok) {
+            showStatus('拖拽引用失败：' + check.message, 'err');
+            return;
+          }
           const result = await bindFileToTag(tagId, fileName);
           if (!result.ok) {
             showStatus('拖拽引用失败：' + result.message, 'err');

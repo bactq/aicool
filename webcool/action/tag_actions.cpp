@@ -8,8 +8,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -23,6 +25,10 @@ struct TagRow {
 	std::string name;
 	long long sort_order;
 };
+
+static bool open_tag_db_locked(acl::db_sqlite& db, std::string& err);
+static long long next_sort_order_locked(acl::db_sqlite& db,
+	const std::string& parent_id, std::string& err);
 
 static std::mutex g_tag_mutex;
 static std::string g_tag_db_file;
@@ -55,6 +61,13 @@ static const char* g_tag_file_rel_table_create_sql =
 static const char* g_tag_file_rel_index_sql =
 	"CREATE INDEX IF NOT EXISTS idx_file_tag_rel_tag"
 	" ON file_tag_rel(tag_id, updated_at)";
+
+static const char* g_default_video_tag_id = "builtin_video";
+static const char* g_default_audio_tag_id = "builtin_audio";
+static const char* g_default_image_tag_id = "builtin_image";
+static const char* g_default_video_tag_name = "视频";
+static const char* g_default_audio_tag_name = "音频";
+static const char* g_default_image_tag_name = "图片";
 
 static void json_error(response_t& res, int status, const char* msg,
 	bool keep_alive)
@@ -173,6 +186,67 @@ static bool validate_tag_id(const std::string& tag_id, std::string& err) {
 	return true;
 }
 
+static bool ends_with_ignore_case(const std::string& text, const char* suffix) {
+	if (suffix == NULL) {
+		return false;
+	}
+	size_t suffix_len = strlen(suffix);
+	if (text.size() < suffix_len) {
+		return false;
+	}
+	const size_t start = text.size() - suffix_len;
+	for (size_t i = 0; i < suffix_len; ++i) {
+		unsigned char a = (unsigned char) text[start + i];
+		unsigned char b = (unsigned char) suffix[i];
+		if (a >= 'A' && a <= 'Z') {
+			a = (unsigned char) (a - 'A' + 'a');
+		}
+		if (b >= 'A' && b <= 'Z') {
+			b = (unsigned char) (b - 'A' + 'a');
+		}
+		if (a != b) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool is_video_file_name(const std::string& name) {
+	static const char* kVideoSuffixes[] = {
+		".mp4", ".avi", ".mkv", ".rmvb"
+	};
+	for (size_t i = 0; i < sizeof(kVideoSuffixes) / sizeof(kVideoSuffixes[0]); ++i) {
+		if (ends_with_ignore_case(name, kVideoSuffixes[i])) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool is_audio_file_name(const std::string& name) {
+	static const char* kAudioSuffixes[] = {
+		".mp3", ".m4a", ".aac", ".wav", ".ogg", ".flac"
+	};
+	for (size_t i = 0; i < sizeof(kAudioSuffixes) / sizeof(kAudioSuffixes[0]); ++i) {
+		if (ends_with_ignore_case(name, kAudioSuffixes[i])) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool is_image_file_name(const std::string& name) {
+	static const char* kImageSuffixes[] = {
+		".png", ".jpg", ".jpeg", ".gif"
+	};
+	for (size_t i = 0; i < sizeof(kImageSuffixes) / sizeof(kImageSuffixes[0]); ++i) {
+		if (ends_with_ignore_case(name, kImageSuffixes[i])) {
+			return true;
+		}
+	}
+	return false;
+}
+
 static bool ensure_tag_dir(const std::string& upload_dir, std::string& err) {
 	err.clear();
 	if (!make_dir(upload_dir.c_str())) {
@@ -234,6 +308,76 @@ static bool ensure_tag_tables_locked(std::string& err) {
 	return true;
 }
 
+static bool ensure_default_root_tags_locked(acl::db_sqlite& db, std::string& err) {
+	err.clear();
+	acl::query query;
+	query.create("SELECT id, tag_name FROM tag_catalog WHERE parent_id='' ");
+	if (!db.exec_select(query)) {
+		err = db.get_error();
+		return false;
+	}
+
+	bool has_video = false;
+	bool has_audio = false;
+	bool has_image = false;
+	for (size_t i = 0; i < db.length(); ++i) {
+		const acl::db_row* row = db[i];
+		if (row == NULL) {
+			continue;
+		}
+		const char* id = (*row)["id"];
+		const char* tag_name = (*row)["tag_name"];
+		const std::string id_text = id ? id : "";
+		const std::string name_text = tag_name ? tag_name : "";
+		if (id_text == g_default_video_tag_id || name_text == g_default_video_tag_name) {
+			has_video = true;
+		}
+		if (id_text == g_default_audio_tag_id || name_text == g_default_audio_tag_name) {
+			has_audio = true;
+		}
+		if (id_text == g_default_image_tag_id || name_text == g_default_image_tag_name) {
+			has_image = true;
+		}
+	}
+	db.free_result();
+
+	struct DefaultTagSpec {
+		const char* id;
+		const char* name;
+		bool present;
+	};
+	DefaultTagSpec specs[] = {
+		{ g_default_video_tag_id, g_default_video_tag_name, has_video },
+		{ g_default_audio_tag_id, g_default_audio_tag_name, has_audio },
+		{ g_default_image_tag_id, g_default_image_tag_name, has_image }
+	};
+
+	for (size_t i = 0; i < sizeof(specs) / sizeof(specs[0]); ++i) {
+		if (specs[i].present) {
+			continue;
+		}
+		long long sort_order = next_sort_order_locked(db, std::string(), err);
+		if (sort_order <= 0) {
+			if (err.empty()) {
+				err = "failed to allocate default tag sort order";
+			}
+			return false;
+		}
+		acl::query insert;
+		insert.create("INSERT INTO tag_catalog(id, parent_id, tag_name, sort_order, updated_at)"
+			" VALUES(:id, '', :tag_name, :sort_order, strftime('%s','now'))")
+			.set_parameter("id", specs[i].id)
+			.set_parameter("tag_name", specs[i].name)
+			.set_parameter("sort_order", sort_order);
+		if (!db.exec_update(insert)) {
+			err = db.get_error();
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static bool ensure_tag_db_for_request(const std::string& upload_dir,
 	std::string& err)
 {
@@ -253,6 +397,17 @@ static bool ensure_tag_db_for_request(const std::string& upload_dir,
 		g_tag_db_ready = false;
 		return false;
 	}
+
+	acl::db_sqlite db(g_tag_db_file.c_str(), "utf-8");
+	if (!open_tag_db_locked(db, err)) {
+		g_tag_db_ready = false;
+		return false;
+	}
+	if (!ensure_default_root_tags_locked(db, err)) {
+		g_tag_db_ready = false;
+		return false;
+	}
+
 	g_tag_db_ready = true;
 	return true;
 }
@@ -440,6 +595,67 @@ static bool collect_subtree_ids_locked(acl::db_sqlite& db,
 	return true;
 }
 
+static bool get_root_tag_locked(acl::db_sqlite& db, const std::string& tag_id,
+	TagRow* out, std::string& err)
+{
+	err.clear();
+	if (tag_id.empty()) {
+		err = "tag id is empty";
+		return false;
+	}
+
+	std::set<std::string> visited;
+	std::string current = tag_id;
+	while (!current.empty()) {
+		if (!visited.insert(current).second) {
+			err = "tag parent cycle detected";
+			return false;
+		}
+		TagRow row;
+		if (!fetch_tag_locked(db, current, &row, err)) {
+			if (err.empty()) {
+				err = "tag not found";
+			}
+			return false;
+		}
+		if (row.parent_id.empty()) {
+			if (out != NULL) {
+				*out = row;
+			}
+			return true;
+		}
+		current = row.parent_id;
+	}
+
+	err = "root tag not found";
+	return false;
+}
+
+static int root_tag_priority(const TagRow& row) {
+	if (row.id == g_default_video_tag_id || row.name == g_default_video_tag_name) {
+		return 0;
+	}
+	if (row.id == g_default_audio_tag_id || row.name == g_default_audio_tag_name) {
+		return 1;
+	}
+	if (row.id == g_default_image_tag_id || row.name == g_default_image_tag_name) {
+		return 2;
+	}
+	return 3;
+}
+
+static bool is_protected_root_tag(const TagRow& row) {
+	if (!row.parent_id.empty()) {
+		return false;
+	}
+	return row.id == g_default_video_tag_id
+		|| row.id == g_default_audio_tag_id
+		|| row.id == g_default_image_tag_id
+		|| row.name == g_default_video_tag_name
+		|| row.name == g_default_audio_tag_name
+		|| row.name == g_default_image_tag_name;
+}
+
 } // namespace
 
 bool init_tag_db(const std::string& upload_dir, std::string& err) {
@@ -514,6 +730,10 @@ bool TagListAction::run(request_t& req, response_t& res,
 		json_error(res, 500, db_err.c_str(), req.isKeepAlive());
 		return true;
 	}
+	if (!ensure_default_root_tags_locked(db, db_err)) {
+		json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+		return true;
+	}
 
 	acl::query query;
 	query.create("SELECT id, parent_id, tag_name, sort_order"
@@ -551,6 +771,26 @@ bool TagListAction::run(request_t& req, response_t& res,
 		}
 	}
 	db.free_result();
+
+	std::sort(roots.begin(), roots.end(),
+		[&rows_by_id](const std::string& left, const std::string& right) {
+			std::map<std::string, TagRow>::const_iterator lit = rows_by_id.find(left);
+			std::map<std::string, TagRow>::const_iterator rit = rows_by_id.find(right);
+			if (lit == rows_by_id.end() || rit == rows_by_id.end()) {
+				return left < right;
+			}
+			const TagRow& lrow = lit->second;
+			const TagRow& rrow = rit->second;
+			const int lprio = root_tag_priority(lrow);
+			const int rprio = root_tag_priority(rrow);
+			if (lprio != rprio) {
+				return lprio < rprio;
+			}
+			if (lrow.sort_order != rrow.sort_order) {
+				return lrow.sort_order < rrow.sort_order;
+			}
+			return lrow.id < rrow.id;
+		});
 
 	acl::json json;
 	acl::json_node& root = json.create_node();
@@ -594,6 +834,10 @@ bool TagCreateAction::run(request_t& req, response_t& res,
 		std::lock_guard<std::mutex> guard(g_tag_mutex);
 		acl::db_sqlite db(g_tag_db_file.c_str(), "utf-8");
 		if (!open_tag_db_locked(db, db_err)) {
+			json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+		if (!ensure_default_root_tags_locked(db, db_err)) {
 			json_error(res, 500, db_err.c_str(), req.isKeepAlive());
 			return true;
 		}
@@ -671,11 +915,21 @@ bool TagDeleteAction::run(request_t& req, response_t& res,
 			json_error(res, 500, db_err.c_str(), req.isKeepAlive());
 			return true;
 		}
+		if (!ensure_default_root_tags_locked(db, db_err)) {
+			json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
 
 		TagRow row;
 		if (!fetch_tag_locked(db, tag_id, &row, db_err)) {
 			json_error(res, 404,
 				db_err.empty() ? "tag not found" : db_err.c_str(),
+				req.isKeepAlive());
+			return true;
+		}
+		if (is_protected_root_tag(row)) {
+			json_error(res, 400,
+				"restricted root tags cannot be deleted",
 				req.isKeepAlive());
 			return true;
 		}
@@ -749,6 +1003,36 @@ bool TagBindAction::run(request_t& req, response_t& res,
 		if (!fetch_tag_locked(db, tag_id, &row, db_err)) {
 			json_error(res, 404,
 				db_err.empty() ? "tag not found" : db_err.c_str(),
+				req.isKeepAlive());
+			return true;
+		}
+
+		TagRow root_row;
+		if (!get_root_tag_locked(db, tag_id, &root_row, db_err)) {
+			json_error(res, 500, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+		if (root_row.name == g_default_video_tag_name
+			&& !is_video_file_name(std::string(basename)))
+		{
+			json_error(res, 400,
+				"video tag can only bind video files",
+				req.isKeepAlive());
+			return true;
+		}
+		if (root_row.name == g_default_audio_tag_name
+			&& !is_audio_file_name(std::string(basename)))
+		{
+			json_error(res, 400,
+				"audio tag can only bind audio files",
+				req.isKeepAlive());
+			return true;
+		}
+		if (root_row.name == g_default_image_tag_name
+			&& !is_image_file_name(std::string(basename)))
+		{
+			json_error(res, 400,
+				"image tag can only bind image files",
 				req.isKeepAlive());
 			return true;
 		}
