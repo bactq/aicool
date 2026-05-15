@@ -412,7 +412,7 @@
           ? '<button type="button" class="tag-node-toggle" data-tag-id="' + node.id + '">' + toggleSymbol + '</button>'
           : '<span class="tag-node-toggle placeholder"></span>';
 
-        const nodeClass = 'tag-node';
+        const nodeClass = activeFilterTagId === node.id ? 'tag-node active' : 'tag-node';
         const canDeleteTag = !isProtectedRestrictedRootTag(node, safeLevel);
         const actionHtml =
           '<div class="tag-actions">' +
@@ -1039,11 +1039,13 @@
         const data = await fetchJson(api.tagFiles + '?tag_id=' + encodeURIComponent(tagId));
         activeFilterTagId = tagId;
         renderFiles(Array.isArray(data.files) ? data.files : []);
+        renderTagTree();
       }
 
       function clearTagFileFilter() {
         activeFilterTagId = '';
         renderFiles(allFiles);
+        renderTagTree();
       }
 
       function compareFiles(a, b, key, order) {
