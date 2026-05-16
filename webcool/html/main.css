@@ -510,6 +510,21 @@
       white-space: nowrap;
     }
 
+    .folder-rename-input {
+      min-width: 0;
+      width: 100%;
+      border: 1px solid #8cb8e6;
+      border-radius: 7px;
+      padding: 4px 7px;
+      background: #fff;
+      color: #20324a;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(30, 111, 217, 0.12);
+    }
+
     .folder-tree-count {
       flex: 0 0 auto;
       color: #70859d;

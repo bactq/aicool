@@ -326,6 +326,10 @@ bool FolderRenameAction::run(request_t& req, response_t& res,
 
 	const std::string parent_path = parent_relative_path(old_path);
 	const std::string new_path = parent_path.empty() ? new_name : (parent_path + "/" + new_name);
+	if (is_recycle_root_path(new_path)) {
+		json_error(res, 409, "recycle folder name is protected", req.isKeepAlive());
+		return true;
+	}
 	if (new_path == old_path) {
 		acl::json json;
 		acl::json_node& root = json.create_node();
@@ -343,6 +347,24 @@ bool FolderRenameAction::run(request_t& req, response_t& res,
 	std::string new_full = join_upload_path(upload_dir, new_path);
 	if (::rename(old_full.c_str(), new_full.c_str()) != 0) {
 		json_error(res, 500, "rename folder failed", req.isKeepAlive());
+		return true;
+	}
+
+	bool tag_updated = false;
+	std::string rename_err;
+	if (!tag_rename_folder_prefix(upload_dir, old_path, new_path, rename_err)) {
+		::rename(new_full.c_str(), old_full.c_str());
+		json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	tag_updated = true;
+	if (!video_resume_rename_folder_prefix(upload_dir, old_path, new_path, rename_err)) {
+		if (tag_updated) {
+			std::string rollback_err;
+			tag_rename_folder_prefix(upload_dir, new_path, old_path, rollback_err);
+		}
+		::rename(new_full.c_str(), old_full.c_str());
+		json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
 		return true;
 	}
 

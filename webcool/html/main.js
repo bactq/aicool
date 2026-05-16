@@ -3,6 +3,7 @@
         files: '/api/v1/files',
         folders: '/api/v1/folders',
         folderCreate: '/api/v1/folders/create',
+        folderRename: '/api/v1/folders/rename',
         folderMove: '/api/v1/folders/move',
         folderDelete: '/api/v1/folders/delete',
         fileMove: '/api/v1/files/move',
@@ -88,6 +89,8 @@
       let activeDropFolderPath = null;
       let activeFolderAutoExpandPath = '';
       let folderAutoExpandTimer = null;
+      let activeFolderRenamePath = '';
+      let folderRenameRequestPath = '';
       const selectedFileNames = new Set();
       const expandedFolderPaths = new Set(['']);
       let tagTree = [];
@@ -177,6 +180,17 @@
           return target + current.slice(source.length);
         }
         return current;
+      }
+
+      function canRenameFolderPath(path) {
+        const text = String(path || '');
+        return !!text && !isRecycleFolderPath(text);
+      }
+
+      function folderNameFromPath(path) {
+        const text = String(path || '');
+        const index = text.lastIndexOf('/');
+        return index >= 0 ? text.slice(index + 1) : text;
       }
 
       function normalizeFolderMoveSources(paths) {
@@ -1814,10 +1828,14 @@
           const expanded = expandedFolderPaths.has(path);
           const hasChildren = Array.isArray(node.children) && node.children.length > 0;
           const isActive = activeFolderPath === path;
+          const isRenaming = activeFolderRenamePath === path && canRenameFolderPath(path);
           const padding = 10 + (Math.max(0, Number(level) || 0) * 18);
           const childHtml = hasChildren && expanded
             ? '<div class="folder-tree-children">' + buildFolderTreeHtml(node.children, (level || 0) + 1) + '</div>'
             : '';
+          const nameHtml = isRenaming
+            ? '<input class="folder-rename-input" data-folder-rename-input="' + escapeHtml(path) + '" value="' + escapeHtml(node.name || '') + '" maxlength="120">'
+            : '<span class="folder-tree-name">' + escapeHtml(node.name || '') + '</span>';
           return (
             '<div class="folder-tree-node' + (isActive ? ' active' : '') + (activeDropFolderPath === path ? ' drop-target' : '') + '" data-folder-path="' + escapeHtml(path) + '">' +
               '<div class="folder-tree-line" style="padding-left:' + padding + 'px;">' +
@@ -1825,7 +1843,7 @@
                   ? '<button type="button" class="folder-tree-toggle" data-folder-toggle="' + escapeHtml(path) + '">' + (expanded ? '▾' : '▸') + '</button>'
                   : '<span class="folder-tree-toggle placeholder">•</span>') +
                 '<div class="folder-tree-entry" data-folder-select="' + escapeHtml(path) + '" data-drag-folder="' + escapeHtml(path) + '" draggable="true">' +
-                  '<span class="folder-tree-name">' + escapeHtml(node.name || '') + '</span>' +
+                  nameHtml +
                   '<span class="folder-tree-count">' + String(Number(node.file_count || 0)) + '</span>' +
                 '</div>' +
               '</div>' +
@@ -1873,6 +1891,87 @@
           '</div>' +
           buildFolderTreeHtml(getRootFolderTreeNodesForRender(), 0);
         syncFolderDropHighlight();
+        focusActiveFolderRenameInput();
+      }
+
+      function focusActiveFolderRenameInput() {
+        if (!folderTree || !activeFolderRenamePath) {
+          return;
+        }
+        setTimeout(function () {
+          if (!folderTree || !activeFolderRenamePath) {
+            return;
+          }
+          const input = folderTree.querySelector('.folder-rename-input[data-folder-rename-input]');
+          if (!input) {
+            return;
+          }
+          input.focus();
+          input.select();
+        }, 0);
+      }
+
+      function startFolderRename(path) {
+        const target = String(path || '');
+        if (!canRenameFolderPath(target)) {
+          return;
+        }
+        activeFolderRenamePath = target;
+        ensureFolderPathExpanded(target);
+        renderFolderTree();
+      }
+
+      function cancelFolderRename() {
+        if (!activeFolderRenamePath) {
+          return;
+        }
+        activeFolderRenamePath = '';
+        renderFolderTree();
+      }
+
+      async function submitFolderRename(input) {
+        if (!input) {
+          return;
+        }
+        const oldPath = String(input.getAttribute('data-folder-rename-input') || '');
+        if (!canRenameFolderPath(oldPath) || activeFolderRenamePath !== oldPath) {
+          return;
+        }
+        if (folderRenameRequestPath === oldPath) {
+          return;
+        }
+        const nextName = String(input.value || '').trim();
+        const oldName = folderNameFromPath(oldPath);
+        if (!nextName) {
+          showStatus('文件夹名称不能为空', 'err');
+          input.focus();
+          return;
+        }
+        if (nextName === oldName) {
+          activeFolderRenamePath = '';
+          renderFolderTree();
+          return;
+        }
+
+        try {
+          folderRenameRequestPath = oldPath;
+          const result = await fetchJson(
+            api.folderRename + '?path=' + encodeURIComponent(oldPath) + '&name=' + encodeURIComponent(nextName),
+            { method: 'POST' }
+          );
+          const newPath = String((result && result.path) || '');
+          activeFolderRenamePath = '';
+          activeFolderPath = relocatePathAfterFolderMove(activeFolderPath, oldPath, newPath);
+          ensureFolderPathExpanded(activeFolderPath);
+          await loadFiles();
+          showStatus('文件夹已改名：' + nextName, 'ok');
+        } catch (err) {
+          showStatus('文件夹改名失败：' + err.message, 'err');
+          input.focus();
+          input.select();
+        } finally {
+          folderRenameRequestPath = '';
+        }
       }
 
       async function loadFolderTreeState() {
@@ -3004,6 +3103,9 @@
 
       if (folderTree) {
         folderTree.addEventListener('click', function (e) {
+          if (e.target.closest('.folder-rename-input')) {
+            return;
+          }
           const toggle = e.target.closest('.folder-tree-toggle[data-folder-toggle]');
           if (toggle) {
             const path = toggle.getAttribute('data-folder-toggle') || '';
@@ -3020,13 +3122,65 @@
           if (!entry) {
             return;
           }
-          activeFolderPath = entry.getAttribute('data-folder-select') || '';
+          const path = entry.getAttribute('data-folder-select') || '';
+          if (e.detail >= 2 && canRenameFolderPath(path)) {
+            e.preventDefault();
+            activeFolderPath = path;
+            startFolderRename(path);
+            renderFiles(activeSourceFiles);
+            return;
+          }
+          activeFolderPath = path;
           ensureFolderPathExpanded(activeFolderPath);
           renderFolderTree();
           renderFiles(activeSourceFiles);
         });
 
+        folderTree.addEventListener('dblclick', function (e) {
+          if (e.target.closest('.folder-rename-input')) {
+            return;
+          }
+          const entry = e.target.closest('.folder-tree-entry[data-folder-select]');
+          if (!entry) {
+            return;
+          }
+          const path = entry.getAttribute('data-folder-select') || '';
+          if (!canRenameFolderPath(path)) {
+            return;
+          }
+          e.preventDefault();
+          startFolderRename(path);
+        });
+
+        folderTree.addEventListener('keydown', function (e) {
+          const input = e.target.closest('.folder-rename-input[data-folder-rename-input]');
+          if (!input) {
+            return;
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelFolderRename();
+            return;
+          }
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            submitFolderRename(input);
+          }
+        });
+
+        folderTree.addEventListener('focusout', function (e) {
+          const input = e.target.closest('.folder-rename-input[data-folder-rename-input]');
+          if (!input) {
+            return;
+          }
+          submitFolderRename(input);
+        });
+
         folderTree.addEventListener('dragstart', function (e) {
+          if (e.target.closest('.folder-rename-input')) {
+            e.preventDefault();
+            return;
+          }
           const entry = e.target.closest('.folder-tree-entry[data-drag-folder]');
           if (!entry || !e.dataTransfer) {
             return;
