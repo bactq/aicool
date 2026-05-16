@@ -1458,16 +1458,17 @@
 
     .file-table.recycle-mode td.actions-cell {
       width: 1%;
-      text-align: right;
+      text-align: center;
     }
 
     .file-table.recycle-mode td.actions-cell .actions {
       margin-left: 0;
-      justify-content: flex-end;
+      width: 100%;
+      justify-content: center;
     }
 
     .file-table.recycle-mode .file-actions-head {
-      text-align: right !important;
+      text-align: center !important;
     }
 
     .file-table.recycle-mode .file-actions-head .file-actions-head-label {
@@ -1476,6 +1477,12 @@
 
     .file-table.recycle-mode .file-actions-head .file-actions-head-label-recycle {
       display: flex;
+      width: 100%;
+      justify-content: center;
+      align-items: center;
+      font-size: 12px;
+      line-height: 1.15;
+      text-align: center;
     }
 
     .file-table.recycle-mode .file-bulk-head,
@@ -1500,11 +1507,11 @@
     .file-table.recycle-mode .video-btn,
     .file-table.recycle-mode .audio-btn,
     .file-table.recycle-mode .text-btn {
-      margin-right: 8px;
+      margin-right: 0;
     }
 
     .file-table.recycle-mode .actions {
-      gap: 0;
+      gap: 8px;
     }
 
     .file-table.recycle-mode .danger-actions,

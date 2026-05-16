@@ -1835,6 +1835,20 @@
         }).join('');
       }
 
+      function getRootFolderTreeNodesForRender() {
+        const list = Array.isArray(folderTreeData) ? folderTreeData : [];
+        const recycleNodes = [];
+        const otherNodes = [];
+        list.forEach(function (node) {
+          if (node && isRecycleFolderPath(node.path)) {
+            recycleNodes.push(node);
+          } else {
+            otherNodes.push(node);
+          }
+        });
+        return recycleNodes.concat(otherNodes);
+      }
+
       function renderFolderTree() {
         if (!folderTree || !folderTreeEmpty) {
           return;
@@ -1857,7 +1871,7 @@
               '</div>' +
             '</div>' +
           '</div>' +
-          buildFolderTreeHtml(folderTreeData, 0);
+          buildFolderTreeHtml(getRootFolderTreeNodesForRender(), 0);
         syncFolderDropHighlight();
       }
 
