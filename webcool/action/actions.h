@@ -174,6 +174,12 @@ public:
 		const std::string& upload_dir);
 };
 
+class TagRenameAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
 class TagDeleteAction {
 public:
 	static bool run(request_t& req, response_t& res,

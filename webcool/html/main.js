@@ -9,6 +9,7 @@
         fileMove: '/api/v1/files/move',
         tags: '/api/v1/tags',
         tagCreate: '/api/v1/tags/create',
+        tagRename: '/api/v1/tags/rename',
         tagDelete: '/api/v1/tags/delete',
         tagBind: '/api/v1/tags/bind',
         tagUnbind: '/api/v1/tags/unbind',
@@ -98,6 +99,8 @@
       const expandedTagNodeIds = new Set();
       let activeTagMenuId = '';
       let activeDropTagNode = null;
+      let activeTagRenameId = '';
+      let tagRenameRequestId = '';
       let previewZ = 900;
       let activeDrag = null;
       let activeTagDialogResolver = null;
@@ -1077,6 +1080,10 @@
 
         const nodeClass = activeFilterTagId === node.id ? 'tag-node active' : 'tag-node';
         const canDeleteTag = !isProtectedRestrictedRootTag(node, safeLevel);
+        const isRenaming = activeTagRenameId === node.id && canRenameTagNode(node, safeLevel);
+        const tagNameHtml = isRenaming
+          ? '<input class="tag-rename-input" data-tag-rename-input="' + escapeHtml(node.id) + '" value="' + escapeHtml(node.name) + '" maxlength="60">'
+          : '<span class="tag-node-name" data-tag-id="' + node.id + '">' + escapeHtml(node.name) + '</span>';
         const actionHtml =
           '<div class="tag-actions">' +
             (canExpand
@@ -1093,7 +1100,7 @@
               '<div class="tag-line-main" style="padding-left:' + indent + 'px;">' +
                 toggleBtn +
                 '<span class="tag-node-name-wrap" style="' + nameInlineStyle + '">' +
-                  '<span class="tag-node-name" data-tag-id="' + node.id + '">' + escapeHtml(node.name) + '</span>' +
+                  tagNameHtml +
                   restrictedBadgeHtml +
                 '</span>' +
               '</div>' +
@@ -1130,6 +1137,97 @@
 
         tagManager.classList.add('open');
         tagManager.innerHTML = treeHtml;
+        focusActiveTagRenameInput();
+      }
+
+      function focusActiveTagRenameInput() {
+        if (!tagManager || !activeTagRenameId) {
+          return;
+        }
+        setTimeout(function () {
+          if (!tagManager || !activeTagRenameId) {
+            return;
+          }
+          const input = tagManager.querySelector('.tag-rename-input[data-tag-rename-input]');
+          if (!input) {
+            return;
+          }
+          input.focus();
+          input.select();
+        }, 0);
+      }
+
+      function startTagRename(tagId) {
+        const id = String(tagId || '');
+        const meta = findTagMetaById(id);
+        if (!meta || !canRenameTagNode(meta.node, meta.level)) {
+          return;
+        }
+        activeTagRenameId = id;
+        renderTagTree();
+      }
+
+      function cancelTagRename() {
+        if (!activeTagRenameId) {
+          return;
+        }
+        activeTagRenameId = '';
+        renderTagTree();
+      }
+
+      async function submitTagRename(input) {
+        if (!input) {
+          return;
+        }
+        const tagId = String(input.getAttribute('data-tag-rename-input') || '');
+        if (!tagId || activeTagRenameId !== tagId) {
+          return;
+        }
+        if (tagRenameRequestId === tagId) {
+          return;
+        }
+
+        const meta = findTagMetaById(tagId);
+        if (!meta || !canRenameTagNode(meta.node, meta.level)) {
+          activeTagRenameId = '';
+          renderTagTree();
+          return;
+        }
+
+        const nextName = String(input.value || '').trim();
+        if (!nextName) {
+          showStatus('标签名称不能为空', 'err');
+          input.focus();
+          return;
+        }
+        if (nextName === String(meta.node.name || '')) {
+          activeTagRenameId = '';
+          renderTagTree();
+          return;
+        }
+
+        try {
+          tagRenameRequestId = tagId;
+          await fetchJson(
+            api.tagRename + '?id=' + encodeURIComponent(tagId) + '&name=' + encodeURIComponent(nextName),
+            { method: 'POST' }
+          );
+          activeTagRenameId = '';
+          await loadTagTreeState();
+          renderTagTree();
+          if (activeFilterTagId === tagId) {
+            await showFilesForTag(tagId);
+          } else {
+            updateFileViewContext();
+          }
+          showStatus('标签已改名：' + nextName, 'ok');
+        } catch (err) {
+          showStatus('标签改名失败：' + err.message, 'err');
+          input.focus();
+          input.select();
+        } finally {
+          tagRenameRequestId = '';
+        }
       }
 
       function setDropHighlight(nodeEl) {
@@ -1224,6 +1322,10 @@
 
       function isProtectedRestrictedRootTag(node, level) {
         return !!getRestrictedRootTagType(node, level);
+      }
+
+      function canRenameTagNode(node, level) {
+        return !!(node && node.id) && !isProtectedRestrictedRootTag(node, level);
       }
 
       function canBindFileToTagOnClient(tagId, fileName) {
@@ -3301,11 +3403,22 @@
 
       if (tagManager) {
         tagManager.addEventListener('click', async function (e) {
+          if (e.target.closest('.tag-rename-input')) {
+            return;
+          }
           const tagNameEl = e.target.closest('.tag-node-name[data-tag-id]');
           if (tagNameEl) {
             e.stopPropagation();
             const tagId = tagNameEl.getAttribute('data-tag-id') || '';
             if (!tagId) {
+              return;
+            }
+            if (e.detail >= 2) {
+              const meta = findTagMetaById(tagId);
+              if (meta && canRenameTagNode(meta.node, meta.level)) {
+                e.preventDefault();
+                startTagRename(tagId);
+              }
               return;
             }
             try {
@@ -3415,7 +3528,34 @@
           }
         });
 
+        tagManager.addEventListener('keydown', function (e) {
+          const input = e.target.closest('.tag-rename-input[data-tag-rename-input]');
+          if (!input) {
+            return;
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelTagRename();
+            return;
+          }
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            submitTagRename(input);
+          }
+        });
+
+        tagManager.addEventListener('focusout', function (e) {
+          const input = e.target.closest('.tag-rename-input[data-tag-rename-input]');
+          if (!input) {
+            return;
+          }
+          submitTagRename(input);
+        });
+
         tagManager.addEventListener('contextmenu', function (e) {
+          if (e.target.closest('.tag-rename-input')) {
+            return;
+          }
           const tagNameEl = e.target.closest('.tag-node-name[data-tag-id]');
           if (!tagNameEl) {
             closeAudioTagContextMenu();

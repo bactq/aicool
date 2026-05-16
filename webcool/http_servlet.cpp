@@ -122,6 +122,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/folders/move", &http_servlet::routeFolderMove },
 		{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
 		{ "/api/v1/tags", &http_servlet::routeTagList },
+		{ "/api/v1/tags/rename", &http_servlet::routeTagRename },
 		{ "/api/v1/tag-files", &http_servlet::routeTagFiles },
 		{ "/api/v1/upload", &http_servlet::routeUpload },
 	};
@@ -217,6 +218,10 @@ bool http_servlet::routeTagCreate(request_t& req, response_t& res) {
 	return action::TagCreateAction::run(req, res, upload_dir_);
 }
 
+bool http_servlet::routeTagRename(request_t& req, response_t& res) {
+	return action::TagRenameAction::run(req, res, upload_dir_);
+}
+
 bool http_servlet::routeTagDelete(request_t& req, response_t& res) {
 	return action::TagDeleteAction::run(req, res, upload_dir_);
 }
@@ -253,6 +258,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/folders/move", &http_servlet::routeFolderMove },
 		{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
 		{ "/api/v1/tags/create", &http_servlet::routeTagCreate },
+		{ "/api/v1/tags/rename", &http_servlet::routeTagRename },
 		{ "/api/v1/tags/delete", &http_servlet::routeTagDelete },
 		{ "/api/v1/tags/bind", &http_servlet::routeTagBind },
 		{ "/api/v1/tags/unbind", &http_servlet::routeTagUnbind },

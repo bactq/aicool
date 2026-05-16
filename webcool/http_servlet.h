@@ -52,6 +52,7 @@ private:
 	bool routeFolderDelete(request_t& req, response_t& res);
 	bool routeTagList(request_t& req, response_t& res);
 	bool routeTagCreate(request_t& req, response_t& res);
+	bool routeTagRename(request_t& req, response_t& res);
 	bool routeTagDelete(request_t& req, response_t& res);
 	bool routeTagBind(request_t& req, response_t& res);
 	bool routeTagUnbind(request_t& req, response_t& res);
