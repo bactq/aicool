@@ -1,9 +1,10 @@
-.PHONY: all acl sqlite sqlite-download tools app clean rebuild
+.PHONY: all acl sqlite sqlite-download tools app clean rebuild webcool-regression
 
 ACL_DIR := third-party/acl
 SQLITE_DIR := third-party/sqlite
 SRC_DIR := webcool
 TOOLS_DIR := tools
+WEBCOOL_BASE_URL ?= http://127.0.0.1:18093
 
 all: app
 
@@ -42,3 +43,6 @@ clean:
 	$(MAKE) -C $(SQLITE_DIR) clean
 
 rebuild: clean all
+
+webcool-regression:
+	python3 webcool/tests/webcool_regression.py --base-url "$(WEBCOOL_BASE_URL)"
