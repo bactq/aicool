@@ -91,6 +91,7 @@
       let activeFilterTagId = '';
       const expandedTagNodeIds = new Set();
       let activeTagMenuId = '';
+      let activeDropTagNode = null;
       let previewZ = 900;
       let activeDrag = null;
       let activeTagDialogResolver = null;
