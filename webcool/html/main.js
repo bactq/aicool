@@ -14,6 +14,7 @@
         tagFiles: '/api/v1/tag-files',
         upload: '/api/v1/upload',
         del: '/api/v1/delete',
+        restore: '/api/v1/restore',
         download: '/api/v1/download',
         reloadTpl: '/api/v1/admin/template/reload',
         convertVideo: '/api/v1/video/convert',
@@ -40,6 +41,7 @@
       const fileCounter = document.getElementById('file-counter');
       const fileSelectAll = document.getElementById('file-select-all');
       const fileBulkAction = document.getElementById('file-bulk-action');
+      const fileBulkDeleteAction = document.getElementById('file-bulk-delete-action');
       const fileViewContext = document.getElementById('file-view-context');
       const explorerShell = document.querySelector('.explorer-shell');
       const folderBrowser = document.querySelector('.folder-browser');
@@ -77,6 +79,7 @@
         sequential: '⇥',
         loop: '↻'
       };
+      const RECYCLE_FOLDER_NAME = '回收站';
       let allFiles = [];
       let activeSourceFiles = [];
       let currentFiles = [];
@@ -123,6 +126,10 @@
 
       function getFolderLabel(path) {
         return path ? path : '根目录';
+      }
+
+      function isRecycleFolderPath(path) {
+        return String(path || '') === RECYCLE_FOLDER_NAME;
       }
 
       function collectFolderPaths(nodes, out) {
@@ -1781,7 +1788,7 @@
 
       function syncFolderActionButtons() {
         if (folderDeleteBtn) {
-          folderDeleteBtn.disabled = !activeFolderPath;
+          folderDeleteBtn.disabled = !activeFolderPath || isRecycleFolderPath(activeFolderPath);
         }
         if (folderCurrentPath) {
           folderCurrentPath.textContent = getFolderLabel(activeFolderPath);
@@ -1999,18 +2006,31 @@
       }
 
       function updateFileBulkActionButton() {
-        if (!fileBulkAction) {
+        if (!fileBulkAction && !fileBulkDeleteAction) {
           return;
         }
 
         const selectedCount = getSelectedVisibleFileNames().length;
         const isTagFilterMode = !!activeFilterTagId;
-        const label = isTagFilterMode ? '移除' : '删除';
-        const title = isTagFilterMode ? '批量从当前标签移除' : '批量删除文件';
-        fileBulkAction.textContent = label;
-        fileBulkAction.title = title;
-        fileBulkAction.setAttribute('aria-label', title);
-        fileBulkAction.disabled = selectedCount === 0;
+        const isRecycleMode = !isTagFilterMode && isRecycleFolderPath(activeFolderPath);
+        if (fileBulkAction) {
+          const label = isTagFilterMode ? '移除' : (isRecycleMode ? '恢复' : '删除');
+          const title = isTagFilterMode
+            ? '批量从当前标签移除'
+            : (isRecycleMode ? '批量恢复文件到原路径' : '批量删除文件（移入回收站）');
+          fileBulkAction.textContent = label;
+          fileBulkAction.title = title;
+          fileBulkAction.setAttribute('aria-label', title);
+          fileBulkAction.disabled = selectedCount === 0;
+        }
+
+        if (fileBulkDeleteAction) {
+          const title = '批量彻底删除文件（仅回收站）';
+          fileBulkDeleteAction.textContent = '彻底删除';
+          fileBulkDeleteAction.title = title;
+          fileBulkDeleteAction.setAttribute('aria-label', title);
+          fileBulkDeleteAction.disabled = !isRecycleMode || selectedCount === 0;
+        }
       }
 
       async function bindFilesToTag(tagId, fileNames) {
@@ -2063,6 +2083,10 @@
         const isTagFilterMode = !!activeFilterTagId;
         const sorted = currentFiles.slice().sort((a, b) => compareFiles(a, b, key, order));
         updateSortIndicator();
+        const isRecycleMode = !isTagFilterMode && isRecycleFolderPath(activeFolderPath);
+        if (fileTable && fileTable.classList) {
+          fileTable.classList.toggle('recycle-mode', isRecycleMode);
+        }
 
         fileEmpty.style.display = 'none';
         fileTable.style.display = 'table';
@@ -2088,9 +2112,14 @@
           const textBtn = isTextName(file.name)
             ? '<button class="text-btn" data-text-file="' + encodedPath + '" data-text-name="' + escapeHtml(rawName) + '">查看</button>'
             : '';
-          const rowActionBtn = isTagFilterMode
+          const primaryActionBtn = isTagFilterMode
             ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">移除</button>'
-            : '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">删除</button>';
+            : (isRecycleMode
+              ? ('<button class="restore-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">恢复</button>')
+              : '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">删除</button>');
+          const permanentDeleteBtn = isRecycleMode
+            ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">彻底删除</button>'
+            : '';
           return (
             '<tr class="draggable-file-row" draggable="true" data-drag-file="' + encodedPath + '">' +
               '<td class="file-select-cell"><input class="file-select-input" type="checkbox" data-select-file="' + encodedPath + '" aria-label="选择文件 ' + escapeHtml(rawName) + '"' + checked + '></td>' +
@@ -2098,7 +2127,8 @@
               '<td>' + formatNumber(size) + ' 字节</td>' +
               '<td>' + uploaded + '</td>' +
               '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + '</div></td>' +
-              '<td class="row-danger-action"><div class="danger-actions">' + rowActionBtn + '</div></td>' +
+              '<td class="row-danger-action"><div class="danger-actions">' + primaryActionBtn + '</div></td>' +
+              '<td class="row-permanent-action"><div class="permanent-actions">' + permanentDeleteBtn + '</div></td>' +
             '</tr>'
           );
         }).join('');
@@ -2688,6 +2718,27 @@
         }
 
         const btn = e.target.closest('.delete-btn');
+    const restoreBtn = e.target.closest('.restore-btn');
+    if (restoreBtn) {
+      const restoreFile = restoreBtn.getAttribute('data-file');
+      const restoreName = decodeURIComponent(restoreFile || '') || (restoreBtn.getAttribute('data-name') || '');
+      if (!restoreFile) {
+      return;
+      }
+      if (!confirm('确认恢复文件：' + restoreName + ' ？将恢复到原路径（如冲突会自动改名）。')) {
+      return;
+      }
+      resetStatus();
+      try {
+      const result = await fetchJson(api.restore + '?file=' + restoreFile, { method: 'POST' });
+      const targetPath = String((result && result.path) || '');
+      showStatus('已恢复：' + restoreName + (targetPath ? (' -> ' + targetPath) : ''), 'ok');
+      await loadFiles();
+      } catch (err) {
+      showStatus('恢复失败：' + err.message, 'err');
+      }
+      return;
+    }
         if (!btn) {
           return;
         }
@@ -2720,14 +2771,18 @@
           return;
         }
 
-        if (!confirm('确认删除文件：' + name + ' ？')) {
+        const isRecycleMode = isRecycleFolderPath(activeFolderPath);
+        const confirmText = isRecycleMode
+          ? ('确认彻底删除文件：' + name + ' ？此操作不可恢复。')
+          : ('确认删除文件：' + name + ' ？将先移入回收站。');
+        if (!confirm(confirmText)) {
           return;
         }
 
         resetStatus();
         try {
           await fetchJson(api.del + '?file=' + file);
-          showStatus('已删除：' + name, 'warn');
+          showStatus(isRecycleMode ? ('已彻底删除：' + name) : ('已移入回收站：' + name), 'warn');
           await loadFiles();
         } catch (err) {
           showStatus('删除失败：' + err.message, 'err');
@@ -2800,10 +2855,13 @@
           }
 
           const activeTagId = activeFilterTagId;
-          const actionLabel = activeTagId ? '移除' : '删除';
+          const isRecycleMode = !activeTagId && isRecycleFolderPath(activeFolderPath);
+          const actionLabel = activeTagId ? '移除' : (isRecycleMode ? '恢复' : '删除');
           const confirmText = activeTagId
             ? ('确认将选中的 ' + fileNames.length + ' 个文件从当前标签中移除？此操作只解除标签引用，不会删除文件。')
-            : ('确认删除选中的 ' + fileNames.length + ' 个文件？');
+            : (isRecycleMode
+              ? ('确认恢复选中的 ' + fileNames.length + ' 个文件？将恢复到原路径（如冲突会自动改名）。')
+              : ('确认删除选中的 ' + fileNames.length + ' 个文件？将先移入回收站。'));
           if (!confirm(confirmText)) {
             return;
           }
@@ -2823,6 +2881,15 @@
                 selectedFileNames.delete(name);
               });
               await showFilesForTag(activeTagId);
+            } else if (isRecycleMode) {
+              for (let i = 0; i < fileNames.length; i += 1) {
+                await fetchJson(api.restore + '?file=' + encodeURIComponent(fileNames[i]), { method: 'POST' });
+                completedCount += 1;
+              }
+              fileNames.forEach(function (name) {
+                selectedFileNames.delete(name);
+              });
+              await loadFiles();
             } else {
               for (let i = 0; i < fileNames.length; i += 1) {
                 await fetchJson(api.del + '?file=' + encodeURIComponent(fileNames[i]));
@@ -2846,6 +2913,47 @@
               return;
             }
             showStatus('批量' + actionLabel + '失败：' + err.message, 'err');
+          }
+        });
+      }
+
+      if (fileBulkDeleteAction) {
+        fileBulkDeleteAction.addEventListener('click', async function () {
+          const fileNames = getSelectedVisibleFileNames();
+          if (!fileNames.length) {
+            updateFileBulkActionButton();
+            return;
+          }
+
+          const isRecycleMode = !activeFilterTagId && isRecycleFolderPath(activeFolderPath);
+          if (!isRecycleMode) {
+            return;
+          }
+
+          const confirmText = '确认彻底删除选中的 ' + fileNames.length + ' 个文件？此操作不可恢复。';
+          if (!confirm(confirmText)) {
+            return;
+          }
+
+          resetStatus();
+          let completedCount = 0;
+          try {
+            for (let i = 0; i < fileNames.length; i += 1) {
+              await fetchJson(api.del + '?file=' + encodeURIComponent(fileNames[i]));
+              completedCount += 1;
+            }
+            fileNames.forEach(function (name) {
+              selectedFileNames.delete(name);
+            });
+            await loadFiles();
+            showStatus('已批量彻底删除 ' + completedCount + ' 个文件', 'warn');
+          } catch (err) {
+            if (completedCount > 0) {
+              await loadFiles();
+              showStatus('批量彻底删除在处理 ' + completedCount + ' 个文件后失败：' + err.message, 'err');
+              return;
+            }
+            showStatus('批量彻底删除失败：' + err.message, 'err');
           }
         });
       }

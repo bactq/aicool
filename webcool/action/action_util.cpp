@@ -6,6 +6,12 @@
 
 namespace action {
 
+namespace {
+
+static const char* kRecycleFolderName = "回收站";
+
+} // namespace
+
 bool make_dir(const char* path) {
 	struct stat st;
 	if (stat(path, &st) == 0) {
@@ -167,6 +173,23 @@ bool upload_directory_exists(const std::string& upload_dir,
 	struct stat st;
 	std::string full = join_upload_path(upload_dir, relative_path);
 	return stat(full.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+const char* recycle_folder_name() {
+	return kRecycleFolderName;
+}
+
+bool is_recycle_root_path(const std::string& relative_path) {
+	return relative_path == recycle_folder_name();
+}
+
+bool is_recycle_file_path(const std::string& relative_path) {
+	if (is_recycle_root_path(relative_path)) {
+		return true;
+	}
+	const std::string prefix = std::string(recycle_folder_name()) + "/";
+	return relative_path.size() > prefix.size()
+		&& relative_path.compare(0, prefix.size(), prefix) == 0;
 }
 
 bool sendHtml(response_t& res, const acl::string& html, bool keep_alive) {

@@ -105,6 +105,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 	static const std::map<std::string, route_handler> routes = {
 		{ "/api/v1/admin/template/reload", &http_servlet::routeTemplateReload },
 		{ "/api/v1/delete", &http_servlet::routeDelete },
+		{ "/api/v1/restore", &http_servlet::routeRestore },
 		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
 		{ "/api/v1/files", &http_servlet::routeFiles },
 		{ "/api/v1/download", &http_servlet::routeDownload },
@@ -138,6 +139,10 @@ bool http_servlet::routeTemplateReload(request_t& req, response_t& res) {
 
 bool http_servlet::routeDelete(request_t& req, response_t& res) {
 	return action::DeleteAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeRestore(request_t& req, response_t& res) {
+	return action::RestoreAction::run(req, res, upload_dir_);
 }
 
 bool http_servlet::routeMoveFile(request_t& req, response_t& res) {
@@ -235,6 +240,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 	const char* path = req.getPathInfo();
 	static const std::map<std::string, route_handler> routes = {
 		{ "/api/v1/upload", &http_servlet::routeUpload },
+		{ "/api/v1/restore", &http_servlet::routeRestore },
 		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
 		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },
 		{ "/api/v1/video/convert/cancel", &http_servlet::routeVideoConvertCancel },

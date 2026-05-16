@@ -179,6 +179,13 @@ int main(int argc, char* argv[]) {
 	}
 	printf("  分类文件夹数据库: 已初始化\n");
 
+	std::string recycle_db_err;
+	if (!action::init_recycle_bin_db(g_upload_dir, recycle_db_err)) {
+		fprintf(stderr, "初始化回收站数据库失败: %s\n", recycle_db_err.c_str());
+		return 1;
+	}
+	printf("  回收站数据库: 已初始化\n");
+
 	acl::server_socket server;
 
 	if (!reuse_port) {

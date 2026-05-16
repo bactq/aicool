@@ -12,6 +12,7 @@ typedef ::response_t response_t;
 bool init_video_resume_db(const std::string& upload_dir, std::string& err);
 bool init_category_folder_db(const std::string& upload_dir, std::string& err);
 bool init_tag_db(const std::string& upload_dir, std::string& err);
+bool init_recycle_bin_db(const std::string& upload_dir, std::string& err);
 bool folder_bind_file(const std::string& upload_dir, const std::string& file_name,
 	long long folder_id, std::string& err);
 bool folder_unbind_file(const std::string& upload_dir,
@@ -52,6 +53,12 @@ public:
 };
 
 class DeleteAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class RestoreAction {
 public:
 	static bool run(request_t& req, response_t& res,
 		const std::string& upload_dir);

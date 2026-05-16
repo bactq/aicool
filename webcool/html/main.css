@@ -1183,10 +1183,25 @@
       text-align: right !important;
     }
 
+    .file-permanent-head {
+      width: 1%;
+      white-space: nowrap;
+      text-align: right !important;
+    }
+
     .file-actions-head-label {
       display: inline-flex;
       align-items: center;
       line-height: 1;
+    }
+
+    .file-actions-head-label-recycle {
+      display: none;
+      align-items: center;
+      justify-content: flex-end;
+      width: 100%;
+      line-height: 1;
+      text-align: right;
     }
 
     .file-bulk-action-btn {
@@ -1406,11 +1421,95 @@
       width: 1%;
     }
 
+    .file-table td.row-permanent-action {
+      text-align: right;
+      white-space: nowrap;
+      width: 1%;
+    }
+
     .danger-actions {
       display: flex;
       justify-content: flex-end;
       align-items: center;
       white-space: nowrap;
+    }
+
+    .permanent-actions {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      white-space: nowrap;
+    }
+
+    .file-table:not(.recycle-mode) .file-permanent-head,
+    .file-table:not(.recycle-mode) td.row-permanent-action {
+      display: none;
+    }
+
+    .file-table.recycle-mode .file-actions-head,
+    .file-table.recycle-mode .file-bulk-head,
+    .file-table.recycle-mode .file-permanent-head,
+    .file-table.recycle-mode td.actions-cell,
+    .file-table.recycle-mode td.row-danger-action,
+    .file-table.recycle-mode td.row-permanent-action {
+      padding-left: 4px;
+      padding-right: 4px;
+    }
+
+    .file-table.recycle-mode td.actions-cell {
+      width: 1%;
+      text-align: right;
+    }
+
+    .file-table.recycle-mode td.actions-cell .actions {
+      margin-left: 0;
+      justify-content: flex-end;
+    }
+
+    .file-table.recycle-mode .file-actions-head {
+      text-align: right !important;
+    }
+
+    .file-table.recycle-mode .file-actions-head .file-actions-head-label {
+      display: none;
+    }
+
+    .file-table.recycle-mode .file-actions-head .file-actions-head-label-recycle {
+      display: flex;
+    }
+
+    .file-table.recycle-mode .file-bulk-head,
+    .file-table.recycle-mode .file-permanent-head,
+    .file-table.recycle-mode td.row-danger-action,
+    .file-table.recycle-mode td.row-permanent-action {
+      width: 1%;
+    }
+
+    .file-table.recycle-mode .file-bulk-action-btn,
+    .file-table.recycle-mode .delete-btn,
+    .file-table.recycle-mode .preview-btn,
+    .file-table.recycle-mode .video-btn,
+    .file-table.recycle-mode .audio-btn,
+    .file-table.recycle-mode .text-btn {
+      padding: 6px 10px;
+      font-size: 12px;
+      line-height: 1.15;
+    }
+
+    .file-table.recycle-mode .preview-btn,
+    .file-table.recycle-mode .video-btn,
+    .file-table.recycle-mode .audio-btn,
+    .file-table.recycle-mode .text-btn {
+      margin-right: 8px;
+    }
+
+    .file-table.recycle-mode .actions {
+      gap: 0;
+    }
+
+    .file-table.recycle-mode .danger-actions,
+    .file-table.recycle-mode .permanent-actions {
+      gap: 4px;
     }
 
     .preview-layer {

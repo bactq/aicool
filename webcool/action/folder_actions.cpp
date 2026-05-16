@@ -258,6 +258,10 @@ bool FolderCreateAction::run(request_t& req, response_t& res,
 		json_error(res, 400, err.c_str(), req.isKeepAlive());
 		return true;
 	}
+	if (is_recycle_file_path(parent_path)) {
+		json_error(res, 409, "cannot create folder inside recycle folder", req.isKeepAlive());
+		return true;
+	}
 
 	std::string name = req.getParameter("name") ? req.getParameter("name") : "";
 	if (!validate_folder_segment(name, err)) {
@@ -303,6 +307,10 @@ bool FolderRenameAction::run(request_t& req, response_t& res,
 	std::string err;
 	if (!normalize_relative_path(req.getParameter("path"), old_path, err, false)) {
 		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (is_recycle_root_path(old_path)) {
+		json_error(res, 409, "recycle folder is protected", req.isKeepAlive());
 		return true;
 	}
 
@@ -357,6 +365,10 @@ bool FolderDeleteAction::run(request_t& req, response_t& res,
 		json_error(res, 400, err.c_str(), req.isKeepAlive());
 		return true;
 	}
+	if (is_recycle_root_path(path)) {
+		json_error(res, 409, "recycle folder is protected", req.isKeepAlive());
+		return true;
+	}
 	if (!upload_directory_exists(upload_dir, path)) {
 		json_error(res, 404, "folder not found", req.isKeepAlive());
 		return true;
@@ -394,10 +406,18 @@ bool FolderMoveAction::run(request_t& req, response_t& res,
 		json_error(res, 400, err.c_str(), req.isKeepAlive());
 		return true;
 	}
+	if (is_recycle_root_path(source_path)) {
+		json_error(res, 409, "recycle folder is protected", req.isKeepAlive());
+		return true;
+	}
 
 	std::string target_parent;
 	if (!normalize_relative_path(req.getParameter("folder"), target_parent, err, true)) {
 		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (is_recycle_file_path(target_parent)) {
+		json_error(res, 409, "cannot move folder into recycle folder", req.isKeepAlive());
 		return true;
 	}
 

@@ -25,6 +25,12 @@ bool upload_regular_file_exists(const std::string& upload_dir,
 bool upload_directory_exists(const std::string& upload_dir,
 	const std::string& relative_path);
 
+const char* recycle_folder_name();
+
+bool is_recycle_root_path(const std::string& relative_path);
+
+bool is_recycle_file_path(const std::string& relative_path);
+
 bool sendHtml(response_t& res, const acl::string& html,
 	bool keep_alive = true);
 
