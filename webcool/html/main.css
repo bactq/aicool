@@ -55,20 +55,6 @@
       overflow: auto;
     }
 
-    .left-pane-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 6px;
-    }
-
-    .brand {
-      margin: 0;
-      font-size: 20px;
-      font-weight: 800;
-      color: #27476b;
-    }
 
     .sidebar-toggle-btn {
       width: 32px;
@@ -368,16 +354,12 @@
       top: 0;
     }
 
-    .file-browser {
-      padding: 14px;
-    }
-
     .folder-browser-head {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: 10px;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
 
     .folder-browser-head h2 {
@@ -474,29 +456,17 @@
     }
 
     .folder-tree-toggle {
-      width: 18px;
-      height: 18px;
+      width: 24px;
+      height: 24px;
       border: none;
       background: transparent;
       color: #64809d;
-      font-size: 11px;
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1;
       padding: 0;
       cursor: pointer;
-      flex: 0 0 18px;
-    }
-
-    .folder-tree-select {
-      width: 16px;
-      height: 16px;
-      margin: 0;
-      cursor: pointer;
-      accent-color: #1e6fd9;
-      flex: 0 0 16px;
-    }
-
-    .folder-tree-select.placeholder {
-      visibility: hidden;
-      pointer-events: none;
+      flex: 0 0 24px;
     }
 
     .folder-tree-toggle.placeholder {

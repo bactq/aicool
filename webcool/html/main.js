@@ -47,7 +47,6 @@
       const folderTreeEmpty = document.getElementById('folder-tree-empty');
       const folderCurrentPath = document.getElementById('folder-current-path');
       const folderCreateBtn = document.getElementById('folder-create-btn');
-      const folderMoveBtn = document.getElementById('folder-move-btn');
       const folderDeleteBtn = document.getElementById('folder-delete-btn');
       const folderRootBtn = document.getElementById('folder-root-btn');
       const sortKey = document.getElementById('sort-key');
@@ -86,14 +85,12 @@
       let activeDropFolderPath = null;
       let activeFolderAutoExpandPath = '';
       let folderAutoExpandTimer = null;
-      const selectedFolderPaths = new Set();
       const selectedFileNames = new Set();
       const expandedFolderPaths = new Set(['']);
       let tagTree = [];
       let activeFilterTagId = '';
       const expandedTagNodeIds = new Set();
       let activeTagMenuId = '';
-      let activeDropTagNode = null;
       let previewZ = 900;
       let activeDrag = null;
       let activeTagDialogResolver = null;
@@ -101,7 +98,6 @@
       const openedPreviewWindows = new Map();
       const transcodeProgressTimers = new Map();
       const videoResumeSaveTimers = new Map();
-
       function normalizeFileRecord(file) {
         const source = file && typeof file === 'object' ? file : {};
         const path = String(source.path || source.name || '');
@@ -150,7 +146,6 @@
         }
         return collectFolderPaths(folderTreeData, []).includes(text);
       }
-
       function isSameOrChildFolderPath(basePath, testPath) {
         const base = String(basePath || '');
         const test = String(testPath || '');
@@ -221,20 +216,10 @@
           movedCount += 1;
         }
 
-        selectedFolderPaths.clear();
         ensureFolderPathExpanded(activeFolderPath);
         ensureFolderPathExpanded(target);
         await loadFiles();
         return { movedCount: movedCount, ignoredCount: ignoredCount };
-      }
-
-      function syncSelectedFoldersWithTreeData() {
-        const valid = new Set(collectFolderPaths(folderTreeData, []));
-        Array.from(selectedFolderPaths).forEach(function (path) {
-          if (!valid.has(path)) {
-            selectedFolderPaths.delete(path);
-          }
-        });
       }
 
       function setUploadTargetFolder(path) {
@@ -1794,9 +1779,6 @@
       }
 
       function syncFolderActionButtons() {
-        if (folderMoveBtn) {
-          folderMoveBtn.disabled = selectedFolderPaths.size === 0;
-        }
         if (folderDeleteBtn) {
           folderDeleteBtn.disabled = !activeFolderPath;
         }
@@ -1824,7 +1806,6 @@
           const expanded = expandedFolderPaths.has(path);
           const hasChildren = Array.isArray(node.children) && node.children.length > 0;
           const isActive = activeFolderPath === path;
-          const checked = selectedFolderPaths.has(path) ? ' checked' : '';
           const padding = 10 + (Math.max(0, Number(level) || 0) * 18);
           const childHtml = hasChildren && expanded
             ? '<div class="folder-tree-children">' + buildFolderTreeHtml(node.children, (level || 0) + 1) + '</div>'
@@ -1835,7 +1816,6 @@
                 (hasChildren
                   ? '<button type="button" class="folder-tree-toggle" data-folder-toggle="' + escapeHtml(path) + '">' + (expanded ? '▾' : '▸') + '</button>'
                   : '<span class="folder-tree-toggle placeholder">•</span>') +
-                '<input class="folder-tree-select" type="checkbox" data-folder-check="' + escapeHtml(path) + '" aria-label="选择文件夹 ' + escapeHtml(node.name || path) + '"' + checked + '>' +
                 '<div class="folder-tree-entry" data-folder-select="' + escapeHtml(path) + '" data-drag-folder="' + escapeHtml(path) + '" draggable="true">' +
                   '<span class="folder-tree-name">' + escapeHtml(node.name || '') + '</span>' +
                   '<span class="folder-tree-count">' + String(Number(node.file_count || 0)) + '</span>' +
@@ -1863,7 +1843,6 @@
           '<div class="folder-tree-node' + (activeFolderPath ? '' : ' active') + (activeDropFolderPath === '' ? ' drop-target' : '') + '" data-folder-path="">' +
             '<div class="folder-tree-line" style="padding-left:10px;">' +
               '<span class="folder-tree-toggle placeholder">•</span>' +
-              '<input class="folder-tree-select placeholder" type="checkbox" tabindex="-1" aria-hidden="true">' +
               '<div class="folder-tree-entry" data-folder-select="">' +
                 '<span class="folder-tree-name">根目录</span>' +
                 '<span class="folder-tree-count"></span>' +
@@ -1877,7 +1856,6 @@
       async function loadFolderTreeState() {
         const data = await fetchJson(api.folders);
         folderTreeData = Array.isArray(data.folders) ? data.folders.map(normalizeFolderNode) : [];
-        syncSelectedFoldersWithTreeData();
         ensureFolderPathExpanded(activeFolderPath);
         renderFolderTree();
       }
@@ -1913,38 +1891,6 @@
         renderFolderTree();
         renderFiles(activeSourceFiles);
         showStatus('文件夹已删除', 'warn');
-      }
-
-      async function moveSelectedFolders() {
-        const selected = normalizeFolderMoveSources(Array.from(selectedFolderPaths));
-        if (!selected.length) {
-          return;
-        }
-
-        const folderHints = ['根目录'].concat(collectFolderPaths(folderTreeData, [])).join(' / ');
-        const input = await askTagName({
-          title: '移动文件夹',
-          description: '请输入目标文件夹路径，留空表示根目录。可选目录：' + folderHints,
-          initialValue: activeFolderPath || '',
-          placeholder: '例如：分类/电影'
-        });
-        if (input === null) {
-          return;
-        }
-
-        const targetFolder = String(input || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-        if (!folderPathExists(targetFolder)) {
-          showStatus('移动文件夹失败：目标文件夹不存在', 'err');
-          return;
-        }
-        const summary = await moveFoldersToFolder(selected, targetFolder);
-        const movedCount = summary.movedCount;
-        const ignoredCount = summary.ignoredCount;
-        let message = movedCount > 1 ? ('已移动 ' + movedCount + ' 个文件夹') : '文件夹已移动';
-        if (ignoredCount > 0) {
-          message += '，已忽略 ' + ignoredCount + ' 个重复子文件夹';
-        }
-        showStatus(message, 'ok');
       }
 
       async function moveFilesToFolder(filePaths, folderPath) {
@@ -2921,16 +2867,6 @@
         });
       }
 
-      if (folderMoveBtn) {
-        folderMoveBtn.addEventListener('click', async function () {
-          try {
-            await moveSelectedFolders();
-          } catch (err) {
-            showStatus('移动文件夹失败：' + err.message, 'err');
-          }
-        });
-      }
-
       if (folderDeleteBtn) {
         folderDeleteBtn.addEventListener('click', async function () {
           try {
@@ -2944,21 +2880,6 @@
 
       if (folderTree) {
         folderTree.addEventListener('click', function (e) {
-          const checkbox = e.target.closest('.folder-tree-select[data-folder-check]');
-          if (checkbox) {
-            const path = checkbox.getAttribute('data-folder-check') || '';
-            if (!path) {
-              return;
-            }
-            if (checkbox.checked) {
-              selectedFolderPaths.add(path);
-            } else {
-              selectedFolderPaths.delete(path);
-            }
-            syncFolderActionButtons();
-            return;
-          }
-
           const toggle = e.target.closest('.folder-tree-toggle[data-folder-toggle]');
           if (toggle) {
             const path = toggle.getAttribute('data-folder-toggle') || '';
@@ -2990,12 +2911,9 @@
           if (!folderPath) {
             return;
           }
-          const selectedPaths = selectedFolderPaths.has(folderPath)
-            ? normalizeFolderMoveSources(Array.from(selectedFolderPaths))
-            : [folderPath];
           e.dataTransfer.effectAllowed = 'move';
           e.dataTransfer.setData('text/plain', folderPath);
-          e.dataTransfer.setData('application/webcool-folder-list', JSON.stringify(selectedPaths));
+          e.dataTransfer.setData('application/webcool-folder-list', JSON.stringify([folderPath]));
         });
 
         folderTree.addEventListener('dragend', function () {
