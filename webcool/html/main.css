@@ -28,14 +28,14 @@
         radial-gradient(circle at 12% 18%, rgba(123, 210, 255, 0.25), transparent 36%),
         radial-gradient(circle at 90% 10%, rgba(255, 192, 128, 0.28), transparent 32%),
         linear-gradient(145deg, var(--bg1), var(--bg2));
-      padding: 22px;
+      padding: 14px;
       overflow: hidden;
     }
 
     .shell {
-      width: min(1180px, 100%);
-      height: calc(100vh - 44px);
-      min-height: calc(100vh - 44px);
+      width: 100%;
+      height: calc(100vh - 28px);
+      min-height: calc(100vh - 28px);
       margin: 0 auto;
       background: var(--card);
       border: 1px solid var(--line);
