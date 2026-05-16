@@ -6,6 +6,9 @@
         folderRename: '/api/v1/folders/rename',
         folderMove: '/api/v1/folders/move',
         folderDelete: '/api/v1/folders/delete',
+        folderLock: '/api/v1/folders/lock',
+        folderUnlock: '/api/v1/folders/unlock',
+        folderLockVerify: '/api/v1/folders/lock/verify',
         fileMove: '/api/v1/files/move',
         tags: '/api/v1/tags',
         tagCreate: '/api/v1/tags/create',
@@ -92,6 +95,8 @@
       let folderAutoExpandTimer = null;
       let activeFolderRenamePath = '';
       let folderRenameRequestPath = '';
+      let activeFolderContextMenu = null;
+      const unlockedFolderPasswords = new Map();
       const selectedFileNames = new Set();
       const expandedFolderPaths = new Set(['']);
       let tagTree = [];
@@ -196,6 +201,143 @@
         return index >= 0 ? text.slice(index + 1) : text;
       }
 
+      function parentFolderPathFromFilePath(path) {
+        const text = String(path || '');
+        const index = text.lastIndexOf('/');
+        return index >= 0 ? text.slice(0, index) : '';
+      }
+
+      function getFolderLockAncestorPath(path) {
+        const text = String(path || '');
+        if (!text) {
+          return '';
+        }
+        const parts = text.split('/');
+        for (let i = parts.length; i > 0; i -= 1) {
+          const candidate = parts.slice(0, i).join('/');
+          const node = findFolderNodeByPath(candidate);
+          if (node && node.locked) {
+            return candidate;
+          }
+        }
+        return '';
+      }
+
+      function getFolderPasswordForPath(path) {
+        const lockedPath = getFolderLockAncestorPath(path);
+        if (!lockedPath) {
+          return '';
+        }
+        return unlockedFolderPasswords.get(lockedPath) || '';
+      }
+
+      function withFolderPassword(url, path, paramName) {
+        const password = getFolderPasswordForPath(path);
+        if (!password) {
+          return url;
+        }
+        return url + '&' + encodeURIComponent(paramName || 'folder_password') + '=' + encodeURIComponent(password);
+      }
+
+      function downloadUrlForFile(filePath, preview) {
+        const encoded = encodeURIComponent(filePath || '');
+        let url = api.download + '?' + (preview ? 'preview=1&' : '') + 'file=' + encoded;
+        url = withFolderPassword(url, parentFolderPathFromFilePath(filePath));
+        return url;
+      }
+
+      async function ensureFolderUnlocked(path) {
+        const lockedPath = getFolderLockAncestorPath(path);
+        if (!lockedPath) {
+          return true;
+        }
+        if (unlockedFolderPasswords.has(lockedPath)) {
+          return true;
+        }
+        const password = window.prompt('请输入目录「' + lockedPath + '」的解锁密码');
+        if (password === null) {
+          return false;
+        }
+        await fetchJson(
+          api.folderLockVerify + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(password),
+          { method: 'POST' }
+        );
+        unlockedFolderPasswords.set(lockedPath, password);
+        return true;
+      }
+
+      function closeFolderContextMenu() {
+        if (activeFolderContextMenu && activeFolderContextMenu.parentNode) {
+          activeFolderContextMenu.parentNode.removeChild(activeFolderContextMenu);
+        }
+        activeFolderContextMenu = null;
+      }
+
+      function openFolderContextMenu(path, clientX, clientY) {
+        closeFolderContextMenu();
+        const node = findFolderNodeByPath(path);
+        if (!node || !canRenameFolderPath(path)) {
+          return;
+        }
+        const menu = document.createElement('div');
+        menu.className = 'folder-context-menu';
+        menu.setAttribute('data-folder-path', path);
+        menu.innerHTML =
+          '<button type="button" class="folder-context-item" data-folder-menu-action="create">新建子目录</button>' +
+          '<button type="button" class="folder-context-item" data-folder-menu-action="delete">删除</button>' +
+          '<button type="button" class="folder-context-item" data-folder-menu-action="rename">改名</button>' +
+          '<button type="button" class="folder-context-item" data-folder-menu-action="' + (node.locked ? 'unlock' : 'lock') + '">' + (node.locked ? '解锁' : '加锁') + '</button>';
+        document.body.appendChild(menu);
+        menu.style.left = Math.round(clientX) + 'px';
+        menu.style.top = Math.round(clientY) + 'px';
+        clampFloatingMenuPosition(menu, clientX, clientY);
+        activeFolderContextMenu = menu;
+      }
+
+      async function handleFolderContextAction(action, path) {
+        if (!action || !path) {
+          return;
+        }
+        if (action === 'lock') {
+          if (!(await ensureFolderUnlocked(path))) {
+            return;
+          }
+          const password = window.prompt('请输入目录「' + path + '」的加锁密码');
+          if (password === null) {
+            return;
+          }
+          await fetchJson(api.folderLock + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(password), { method: 'POST' });
+          unlockedFolderPasswords.set(path, password);
+          await loadFiles();
+          showStatus('目录已加锁：' + path, 'ok');
+          return;
+        }
+        if (action === 'unlock') {
+          const password = window.prompt('请输入目录「' + path + '」的解锁密码');
+          if (password === null) {
+            return;
+          }
+          await fetchJson(api.folderUnlock + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(password), { method: 'POST' });
+          unlockedFolderPasswords.delete(path);
+          await loadFiles();
+          showStatus('目录已解锁：' + path, 'ok');
+          return;
+        }
+        if (!(await ensureFolderUnlocked(path))) {
+          return;
+        }
+        activeFolderPath = path;
+        if (action === 'create') {
+          await createFolderAtCurrentPath();
+          await loadFiles();
+        } else if (action === 'delete') {
+          await deleteCurrentFolder();
+          await loadFiles();
+        } else if (action === 'rename') {
+          startFolderRename(path);
+        }
+      }
+
       function normalizeFolderMoveSources(paths) {
         const sorted = (Array.isArray(paths) ? paths : [])
           .map(function (path) { return String(path || ''); })
@@ -233,7 +375,11 @@
         for (let i = 0; i < selected.length; i += 1) {
           const sourcePath = selected[i];
           const result = await fetchJson(
-            api.folderMove + '?path=' + encodeURIComponent(sourcePath) + '&folder=' + encodeURIComponent(target),
+            withFolderPassword(
+              withFolderPassword(api.folderMove + '?path=' + encodeURIComponent(sourcePath) + '&folder=' + encodeURIComponent(target), sourcePath),
+              target,
+              'target_folder_password'
+            ),
             { method: 'POST' }
           );
           const nextPath = String((result && result.path) || '');
@@ -309,7 +455,7 @@
       function isVideoPlayable(fileName, timeoutMs) {
         return new Promise(function (resolve) {
           const encoded = encodeURIComponent(fileName || '');
-          const src = api.download + '?preview=1&file=' + encoded;
+          const src = downloadUrlForFile(fileName || '', true);
           const video = document.createElement('video');
           let done = false;
 
@@ -753,7 +899,7 @@
           }
           const fileName = getFilePath(current);
           updateCurrentTrack(index, fileName);
-          audioEl.src = api.download + '?preview=1&file=' + encodeURIComponent(fileName) + '&v=' + Date.now();
+          audioEl.src = downloadUrlForFile(fileName, true) + '&v=' + Date.now();
           audioEl.load();
           if (autoplay !== false) {
             audioEl.play().catch(function () {});
@@ -1808,6 +1954,7 @@
           path: String(item.path || ''),
           parent_path: String(item.parent_path || ''),
           file_count: Number(item.file_count || 0),
+          locked: !!item.locked,
           children: children
         };
       }
@@ -1938,6 +2085,7 @@
           const nameHtml = isRenaming
             ? '<input class="folder-rename-input" data-folder-rename-input="' + escapeHtml(path) + '" value="' + escapeHtml(node.name || '') + '" maxlength="120">'
             : '<span class="folder-tree-name">' + escapeHtml(node.name || '') + '</span>';
+          const lockHtml = node.locked ? '<span class="folder-lock-icon" title="已加锁" aria-label="已加锁">🔒</span>' : '';
           return (
             '<div class="folder-tree-node' + (isActive ? ' active' : '') + (activeDropFolderPath === path ? ' drop-target' : '') + '" data-folder-path="' + escapeHtml(path) + '">' +
               '<div class="folder-tree-line" style="padding-left:' + padding + 'px;">' +
@@ -1946,6 +2094,7 @@
                   : '<span class="folder-tree-toggle placeholder">•</span>') +
                 '<div class="folder-tree-entry" data-folder-select="' + escapeHtml(path) + '" data-drag-folder="' + escapeHtml(path) + '" draggable="true">' +
                   nameHtml +
+                  lockHtml +
                   '<span class="folder-tree-count">' + String(Number(node.file_count || 0)) + '</span>' +
                 '</div>' +
               '</div>' +
@@ -2058,7 +2207,7 @@
         try {
           folderRenameRequestPath = oldPath;
           const result = await fetchJson(
-            api.folderRename + '?path=' + encodeURIComponent(oldPath) + '&name=' + encodeURIComponent(nextName),
+            withFolderPassword(api.folderRename + '?path=' + encodeURIComponent(oldPath) + '&name=' + encodeURIComponent(nextName), oldPath),
             { method: 'POST' }
           );
           const newPath = String((result && result.path) || '');
@@ -2084,6 +2233,9 @@
       }
 
       async function createFolderAtCurrentPath() {
+        if (!(await ensureFolderUnlocked(activeFolderPath))) {
+          return;
+        }
         const name = window.prompt('请输入新建文件夹名称');
         if (name === null) {
           return;
@@ -2094,7 +2246,10 @@
           return;
         }
         await fetchJson(
-          api.folderCreate + '?parent=' + encodeURIComponent(activeFolderPath || '') + '&name=' + encodeURIComponent(cleanName),
+          withFolderPassword(
+            api.folderCreate + '?parent=' + encodeURIComponent(activeFolderPath || '') + '&name=' + encodeURIComponent(cleanName),
+            activeFolderPath
+          ),
           { method: 'POST' }
         );
         ensureFolderPathExpanded(activeFolderPath);
@@ -2106,10 +2261,13 @@
         if (!activeFolderPath) {
           return;
         }
+        if (!(await ensureFolderUnlocked(activeFolderPath))) {
+          return;
+        }
         if (!confirm('确认删除文件夹『' + activeFolderPath + '』？仅允许删除空文件夹。')) {
           return;
         }
-        await fetchJson(api.folderDelete + '?path=' + encodeURIComponent(activeFolderPath), { method: 'POST' });
+        await fetchJson(withFolderPassword(api.folderDelete + '?path=' + encodeURIComponent(activeFolderPath), activeFolderPath), { method: 'POST' });
         activeFolderPath = '';
         renderFolderTree();
         renderFiles(activeSourceFiles);
@@ -2123,7 +2281,11 @@
         }
         for (let i = 0; i < list.length; i += 1) {
           await fetchJson(
-            api.fileMove + '?file=' + encodeURIComponent(list[i]) + '&folder=' + encodeURIComponent(folderPath || ''),
+            withFolderPassword(
+              withFolderPassword(api.fileMove + '?file=' + encodeURIComponent(list[i]) + '&folder=' + encodeURIComponent(folderPath || ''), parentFolderPathFromFilePath(list[i])),
+              folderPath || '',
+              'target_folder_password'
+            ),
             { method: 'POST' }
           );
           selectedFileNames.delete(list[i]);
@@ -2338,7 +2500,7 @@
           return (
             '<tr class="draggable-file-row" draggable="true" data-drag-file="' + encodedPath + '">' +
               '<td class="file-select-cell"><input class="file-select-input" type="checkbox" data-select-file="' + encodedPath + '" aria-label="选择文件 ' + escapeHtml(rawName) + '"' + checked + '></td>' +
-              '<td><a class="file-name" draggable="false" href="' + api.download + '?file=' + encodedPath + '">' + name + '</a>' + pathMeta + '</td>' +
+              '<td><a class="file-name" draggable="false" href="' + escapeHtml(downloadUrlForFile(rawName, false)) + '">' + name + '</a>' + pathMeta + '</td>' +
               '<td>' + formatNumber(size) + ' 字节</td>' +
               '<td>' + uploaded + '</td>' +
               '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + '</div></td>' +
@@ -2362,7 +2524,8 @@
           return;
         }
 
-        const url = api.download + '?preview=1&file=' + file + '&v=' + Date.now();
+        const rawFileForUrl = decodeURIComponent(String(file || ''));
+        const url = downloadUrlForFile(rawFileForUrl, true) + '&v=' + Date.now();
         const win = document.createElement('div');
         win.className = 'floating-preview';
         previewZ += 1;
@@ -2377,7 +2540,7 @@
         if (kind === 'video') {
           const rawName = decodeURIComponent(String(file || '')) || String(name || '');
           const subtitleName = toVttSidecarName(rawName);
-          const subtitleUrl = api.download + '?preview=1&file=' + encodeURIComponent(subtitleName) + '&v=' + Date.now();
+          const subtitleUrl = downloadUrlForFile(subtitleName, true) + '&v=' + Date.now();
           mediaHtml = '<video class="preview-video" controls preload="metadata">' +
             '<track kind="subtitles" srclang="zh-CN" label="中文字幕" default src="' + subtitleUrl + '">' +
             '</video>';
@@ -2728,8 +2891,14 @@
 
       async function loadFiles() {
         try {
+          let filesUrl = api.files;
+          const activePassword = getFolderPasswordForPath(activeFolderPath);
+          if (activeFolderPath && activePassword) {
+            filesUrl += '?folder=' + encodeURIComponent(activeFolderPath)
+              + '&folder_password=' + encodeURIComponent(activePassword);
+          }
           const results = await Promise.all([
-            fetchJson(api.files),
+            fetchJson(filesUrl),
             fetchJson(api.folders)
           ]);
           allFiles = Array.isArray(results[0].files) ? results[0].files.map(normalizeFileRecord) : [];
@@ -2812,6 +2981,10 @@
         setUploadProgress(0, '开始上传...');
 
         const formData = new FormData(uploadForm);
+        const uploadPassword = getFolderPasswordForPath(activeFolderPath);
+        if (uploadPassword) {
+          formData.set('folder_password', uploadPassword);
+        }
         try {
           const data = await uploadWithProgress(formData);
           setUploadProgress(100, '上传完成 100%');
@@ -2945,7 +3118,7 @@
       }
       resetStatus();
       try {
-      const result = await fetchJson(api.restore + '?file=' + restoreFile, { method: 'POST' });
+      const result = await fetchJson(withFolderPassword(api.restore + '?file=' + restoreFile, activeFolderPath), { method: 'POST' });
       const targetPath = String((result && result.path) || '');
       showStatus('已恢复：' + restoreName + (targetPath ? (' -> ' + targetPath) : ''), 'ok');
       await loadFiles();
@@ -2996,7 +3169,7 @@
 
         resetStatus();
         try {
-          await fetchJson(api.del + '?file=' + file);
+          await fetchJson(withFolderPassword(api.del + '?file=' + file, parentFolderPathFromFilePath(name)), { method: 'POST' });
           showStatus(isRecycleMode ? ('已彻底删除：' + name) : ('已移入回收站：' + name), 'warn');
           await loadFiles();
         } catch (err) {
@@ -3098,7 +3271,7 @@
               await showFilesForTag(activeTagId);
             } else if (isRecycleMode) {
               for (let i = 0; i < fileNames.length; i += 1) {
-                await fetchJson(api.restore + '?file=' + encodeURIComponent(fileNames[i]), { method: 'POST' });
+                await fetchJson(withFolderPassword(api.restore + '?file=' + encodeURIComponent(fileNames[i]), activeFolderPath), { method: 'POST' });
                 completedCount += 1;
               }
               fileNames.forEach(function (name) {
@@ -3107,7 +3280,7 @@
               await loadFiles();
             } else {
               for (let i = 0; i < fileNames.length; i += 1) {
-                await fetchJson(api.del + '?file=' + encodeURIComponent(fileNames[i]));
+                await fetchJson(withFolderPassword(api.del + '?file=' + encodeURIComponent(fileNames[i]), parentFolderPathFromFilePath(fileNames[i])));
                 completedCount += 1;
               }
               fileNames.forEach(function (name) {
@@ -3154,7 +3327,7 @@
           let completedCount = 0;
           try {
             for (let i = 0; i < fileNames.length; i += 1) {
-              await fetchJson(api.del + '?file=' + encodeURIComponent(fileNames[i]));
+              await fetchJson(withFolderPassword(api.del + '?file=' + encodeURIComponent(fileNames[i]), parentFolderPathFromFilePath(fileNames[i])));
               completedCount += 1;
             }
             fileNames.forEach(function (name) {
@@ -3204,7 +3377,7 @@
       }
 
       if (folderTree) {
-        folderTree.addEventListener('click', function (e) {
+        folderTree.addEventListener('click', async function (e) {
           if (e.target.closest('.folder-rename-input')) {
             return;
           }
@@ -3227,15 +3400,37 @@
           const path = entry.getAttribute('data-folder-select') || '';
           if (e.detail >= 2 && canRenameFolderPath(path)) {
             e.preventDefault();
+            if (!(await ensureFolderUnlocked(path))) {
+              return;
+            }
             activeFolderPath = path;
             startFolderRename(path);
             renderFiles(activeSourceFiles);
+            return;
+          }
+          if (!(await ensureFolderUnlocked(path))) {
             return;
           }
           activeFolderPath = path;
           ensureFolderPathExpanded(activeFolderPath);
           renderFolderTree();
           renderFiles(activeSourceFiles);
+        });
+
+        folderTree.addEventListener('contextmenu', function (e) {
+          if (e.target.closest('.folder-rename-input')) {
+            return;
+          }
+          const entry = e.target.closest('.folder-tree-entry[data-folder-select]');
+          if (!entry) {
+            return;
+          }
+          const path = entry.getAttribute('data-folder-select') || '';
+          if (!canRenameFolderPath(path)) {
+            return;
+          }
+          e.preventDefault();
+          openFolderContextMenu(path, e.clientX, e.clientY);
         });
 
         folderTree.addEventListener('dblclick', function (e) {
@@ -3668,6 +3863,21 @@
       }
 
       document.addEventListener('click', function (e) {
+        const folderMenuItem = e.target.closest('.folder-context-item[data-folder-menu-action]');
+        if (folderMenuItem && activeFolderContextMenu && activeFolderContextMenu.contains(folderMenuItem)) {
+          const menu = activeFolderContextMenu;
+          const action = folderMenuItem.getAttribute('data-folder-menu-action') || '';
+          const path = menu.getAttribute('data-folder-path') || '';
+          closeFolderContextMenu();
+          handleFolderContextAction(action, path).catch(function (err) {
+            showStatus('目录操作失败：' + err.message, 'err');
+          });
+          return;
+        }
+        if (activeFolderContextMenu && !e.target.closest('.folder-context-menu')) {
+          closeFolderContextMenu();
+        }
+
         if (activeAudioTagContextMenu && !e.target.closest('.tag-context-menu')) {
           closeAudioTagContextMenu();
         }

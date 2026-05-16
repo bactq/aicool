@@ -118,6 +118,30 @@ bool UploadAction::run(request_t& req, response_t& res,
 		eroot.add_text("error", "target folder not found");
 		return sendJson(res, 404, eroot, req.isKeepAlive());
 	}
+	{
+		bool lock_allowed = false;
+		std::string locked_path;
+		std::string lock_err;
+		if (!folder_lock_path_allows(upload_dir, folder_path,
+			req.getParameter("folder_password") ? req.getParameter("folder_password") : "",
+			lock_allowed, locked_path, lock_err))
+		{
+			::unlink(tmp_path.c_str());
+			acl::json err;
+			acl::json_node& eroot = err.create_node();
+			eroot.add_bool("ok", false);
+			eroot.add_text("error", lock_err.c_str());
+			return sendJson(res, 500, eroot, req.isKeepAlive());
+		}
+		if (!lock_allowed) {
+			::unlink(tmp_path.c_str());
+			acl::json err;
+			acl::json_node& eroot = err.create_node();
+			eroot.add_bool("ok", false);
+			eroot.add_text("error", "folder is locked");
+			return sendJson(res, 403, eroot, req.isKeepAlive());
+		}
+	}
 
 	int saved_count = 0;
 	bool ok = saveFiles(*mime, upload_dir, files, saved_count, folder_path);

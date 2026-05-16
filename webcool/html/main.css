@@ -532,6 +532,44 @@
       font-weight: 700;
     }
 
+    .folder-lock-icon {
+      flex: 0 0 auto;
+      font-size: 12px;
+      line-height: 1;
+      color: #536c84;
+    }
+
+    .folder-context-menu {
+      position: fixed;
+      z-index: 1500;
+      min-width: 128px;
+      padding: 6px;
+      border: 1px solid #d6e4f2;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 14px 28px rgba(31, 52, 79, 0.18);
+      display: grid;
+      gap: 4px;
+    }
+
+    .folder-context-item {
+      width: 100%;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: #f5faff;
+      color: #345372;
+      text-align: left;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .folder-context-item:hover {
+      background: #e8f3ff;
+      border-color: #c9ddf0;
+    }
+
     .folder-tree-children {
       display: grid;
       gap: 4px;

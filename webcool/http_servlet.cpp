@@ -121,6 +121,9 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/folders/rename", &http_servlet::routeFolderRename },
 		{ "/api/v1/folders/move", &http_servlet::routeFolderMove },
 		{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
+		{ "/api/v1/folders/lock", &http_servlet::routeFolderLock },
+		{ "/api/v1/folders/unlock", &http_servlet::routeFolderUnlock },
+		{ "/api/v1/folders/lock/verify", &http_servlet::routeFolderLockVerify },
 		{ "/api/v1/tags", &http_servlet::routeTagList },
 		{ "/api/v1/tags/rename", &http_servlet::routeTagRename },
 		{ "/api/v1/tag-files", &http_servlet::routeTagFiles },
@@ -210,6 +213,18 @@ bool http_servlet::routeFolderDelete(request_t& req, response_t& res) {
 	return action::FolderDeleteAction::run(req, res, upload_dir_);
 }
 
+bool http_servlet::routeFolderLock(request_t& req, response_t& res) {
+	return action::FolderLockAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeFolderUnlock(request_t& req, response_t& res) {
+	return action::FolderUnlockAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeFolderLockVerify(request_t& req, response_t& res) {
+	return action::FolderLockVerifyAction::run(req, res, upload_dir_);
+}
+
 bool http_servlet::routeTagList(request_t& req, response_t& res) {
 	return action::TagListAction::run(req, res, upload_dir_);
 }
@@ -257,6 +272,9 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/folders/rename", &http_servlet::routeFolderRename },
 		{ "/api/v1/folders/move", &http_servlet::routeFolderMove },
 		{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
+		{ "/api/v1/folders/lock", &http_servlet::routeFolderLock },
+		{ "/api/v1/folders/unlock", &http_servlet::routeFolderUnlock },
+		{ "/api/v1/folders/lock/verify", &http_servlet::routeFolderLockVerify },
 		{ "/api/v1/tags/create", &http_servlet::routeTagCreate },
 		{ "/api/v1/tags/rename", &http_servlet::routeTagRename },
 		{ "/api/v1/tags/delete", &http_servlet::routeTagDelete },

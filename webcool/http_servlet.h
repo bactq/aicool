@@ -50,6 +50,9 @@ private:
 	bool routeFolderRename(request_t& req, response_t& res);
 	bool routeFolderMove(request_t& req, response_t& res);
 	bool routeFolderDelete(request_t& req, response_t& res);
+	bool routeFolderLock(request_t& req, response_t& res);
+	bool routeFolderUnlock(request_t& req, response_t& res);
+	bool routeFolderLockVerify(request_t& req, response_t& res);
 	bool routeTagList(request_t& req, response_t& res);
 	bool routeTagCreate(request_t& req, response_t& res);
 	bool routeTagRename(request_t& req, response_t& res);

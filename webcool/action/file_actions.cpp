@@ -638,8 +638,8 @@ static bool parse_range_header(const char* range, long long size,
 }
 
 static bool collect_files_recursive(const std::string& upload_dir,
-	const std::string& relative_dir, std::vector<file_entry_t>& out,
-	std::string& err)
+	const std::string& relative_dir, const std::string& folder_password,
+	std::vector<file_entry_t>& out, std::string& err)
 {
 	err.clear();
 	const std::string full_dir = join_upload_path(upload_dir, relative_dir);
@@ -662,7 +662,18 @@ static bool collect_files_recursive(const std::string& upload_dir,
 			continue;
 		}
 		if (S_ISDIR(st.st_mode)) {
-			if (!collect_files_recursive(upload_dir, rel_path, out, err)) {
+			bool lock_allowed = false;
+			std::string locked_path;
+			if (!folder_lock_path_allows(upload_dir, rel_path, folder_password,
+				lock_allowed, locked_path, err))
+			{
+				closedir(dir);
+				return false;
+			}
+			if (!lock_allowed) {
+				continue;
+			}
+			if (!collect_files_recursive(upload_dir, rel_path, folder_password, out, err)) {
 				closedir(dir);
 				return false;
 			}
@@ -708,9 +719,24 @@ bool FilesAction::run(request_t& req, response_t& res,
 		json_error(res, 400, err.c_str(), req.isKeepAlive());
 		return true;
 	}
+	const std::string folder_password = req.getParameter("folder_password")
+		? req.getParameter("folder_password")
+		: "";
+	bool lock_allowed = false;
+	std::string locked_path;
+	if (!folder_lock_path_allows(upload_dir, filter_folder, folder_password,
+		lock_allowed, locked_path, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!lock_allowed) {
+		json_error(res, 403, "folder is locked", req.isKeepAlive());
+		return true;
+	}
 
 	std::vector<file_entry_t> entries;
-	if (!collect_files_recursive(upload_dir, std::string(), entries, err)) {
+	if (!collect_files_recursive(upload_dir, std::string(), folder_password, entries, err)) {
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
 	}
@@ -786,6 +812,19 @@ bool DeleteAction::run(request_t& req, response_t& res,
 		json_error(res, 404, "file not found", req.isKeepAlive());
 		return true;
 	}
+	bool lock_allowed = false;
+	std::string locked_path;
+	if (!folder_lock_path_allows(upload_dir, parent_relative_path(file_path),
+		req.getParameter("folder_password") ? req.getParameter("folder_password") : "",
+		lock_allowed, locked_path, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!lock_allowed) {
+		json_error(res, 403, "folder is locked", req.isKeepAlive());
+		return true;
+	}
 
 	const bool hard_delete = is_recycle_file_path(file_path);
 	if (hard_delete) {
@@ -856,6 +895,19 @@ bool RestoreAction::run(request_t& req, response_t& res,
 	}
 
 	const std::string target_parent = parent_relative_path(target_path);
+	bool restore_lock_allowed = false;
+	std::string restore_locked_path;
+	if (!folder_lock_path_allows(upload_dir, target_parent,
+		req.getParameter("folder_password") ? req.getParameter("folder_password") : "",
+		restore_lock_allowed, restore_locked_path, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!restore_lock_allowed) {
+		json_error(res, 403, "target folder is locked", req.isKeepAlive());
+		return true;
+	}
 	if (!target_parent.empty()) {
 		const std::string parent_full = join_upload_path(upload_dir, target_parent);
 		if (!make_dir_recursive(parent_full.c_str())) {
@@ -929,6 +981,31 @@ bool MoveFileAction::run(request_t& req, response_t& res,
 		json_error(res, 404, "target folder not found", req.isKeepAlive());
 		return true;
 	}
+	bool source_lock_allowed = false;
+	std::string locked_path;
+	if (!folder_lock_path_allows(upload_dir, parent_relative_path(file_path),
+		req.getParameter("folder_password") ? req.getParameter("folder_password") : "",
+		source_lock_allowed, locked_path, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!source_lock_allowed) {
+		json_error(res, 403, "source folder is locked", req.isKeepAlive());
+		return true;
+	}
+	bool target_lock_allowed = false;
+	if (!folder_lock_path_allows(upload_dir, target_folder,
+		req.getParameter("target_folder_password") ? req.getParameter("target_folder_password") : "",
+		target_lock_allowed, locked_path, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!target_lock_allowed) {
+		json_error(res, 403, "target folder is locked", req.isKeepAlive());
+		return true;
+	}
 
 	const std::string target_path = target_folder.empty()
 		? base_name_from_relative_path(file_path)
@@ -980,6 +1057,17 @@ bool DownloadAction::run(request_t& req, response_t& res,
 	std::string err;
 	if (!normalize_relative_path(req.getParameter("file"), file_path, err, false)) {
 		return sendText(res, 400, "invalid file name\n", req.isKeepAlive());
+	}
+	bool lock_allowed = false;
+	std::string locked_path;
+	if (!folder_lock_path_allows(upload_dir, parent_relative_path(file_path),
+		req.getParameter("folder_password") ? req.getParameter("folder_password") : "",
+		lock_allowed, locked_path, err))
+	{
+		return sendText(res, 500, err.c_str(), req.isKeepAlive());
+	}
+	if (!lock_allowed) {
+		return sendText(res, 403, "folder is locked\n", req.isKeepAlive());
 	}
 
 	const std::string fullpath = join_upload_path(upload_dir, file_path);
