@@ -546,6 +546,7 @@ bool DownloadAction::run(request_t& req, response_t& res,
 	if (has_range) {
 		acl::string content_range;
 		content_range.format("bytes %lld-%lld/%lld", send_begin, send_end, fsize);
+		printf("content range: %s\n", content_range.c_str());
 		res.setStatus(206)
 			.setKeepAlive(req.isKeepAlive())
 			.setContentType(ctype)
@@ -570,6 +571,7 @@ bool DownloadAction::run(request_t& req, response_t& res,
 
 	char buf[8192];
 	long long remain = send_size;
+	long long total_sent = 0;
 	while (remain > 0 && !in.eof()) {
 		size_t want = sizeof(buf);
 		if ((long long) want > remain) {
@@ -584,11 +586,15 @@ bool DownloadAction::run(request_t& req, response_t& res,
 		}
 		if (!res.write(buf, (size_t) n)) {
 			in.close();
+			printf("1->sent remain %lld bytes, total sent %lld bytes\n",remain, total_sent);
 			return false;
 		}
 		remain -= n;
+		total_sent += n;
+		//printf("sent %d bytes, remain %lld bytes, total sent %lld bytes\n", n, remain, total_sent);
 	}
 
+	printf("2->sent remain %lld bytes, total sent %lld bytes\n",remain, total_sent);
 	in.close();
 	return res.write(NULL, 0);
 }

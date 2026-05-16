@@ -2133,7 +2133,7 @@
           const rawName = decodeURIComponent(String(file || '')) || String(name || '');
           const subtitleName = toVttSidecarName(rawName);
           const subtitleUrl = api.download + '?preview=1&file=' + encodeURIComponent(subtitleName) + '&v=' + Date.now();
-          mediaHtml = '<video class="preview-video" controls preload="metadata" src="' + url + '">' +
+          mediaHtml = '<video class="preview-video" controls preload="metadata">' +
             '<track kind="subtitles" srclang="zh-CN" label="中文字幕" default src="' + subtitleUrl + '">' +
             '</video>';
         } else if (kind === 'audio') {
@@ -2159,6 +2159,7 @@
         if (mediaVideo) {
           const rawVideoFile = decodeURIComponent(String(file || ''));
           bindVideoResume(mediaVideo, rawVideoFile);
+          mediaVideo.src = url;
           mediaVideo.play().catch(function () {});
 
           // Check if video has audio track
