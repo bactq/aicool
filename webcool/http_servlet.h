@@ -47,6 +47,7 @@ private:
 	bool routeFolderList(request_t& req, response_t& res);
 	bool routeFolderCreate(request_t& req, response_t& res);
 	bool routeFolderRename(request_t& req, response_t& res);
+	bool routeFolderMove(request_t& req, response_t& res);
 	bool routeFolderDelete(request_t& req, response_t& res);
 	bool routeTagList(request_t& req, response_t& res);
 	bool routeTagCreate(request_t& req, response_t& res);

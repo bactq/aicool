@@ -180,6 +180,42 @@ bool video_resume_rename_file(const std::string& upload_dir,
 	return true;
 }
 
+bool video_resume_rename_folder_prefix(const std::string& upload_dir,
+	const std::string& old_prefix, const std::string& new_prefix,
+	std::string& err)
+{
+	err.clear();
+	if (old_prefix.empty() || new_prefix.empty() || old_prefix == new_prefix) {
+		return true;
+	}
+	if (!ensure_video_resume_db_for_request(upload_dir, err)) {
+		return false;
+	}
+
+	std::lock_guard<std::mutex> guard(g_resume_mutex);
+	acl::db_sqlite db(g_resume_db_file.c_str(), "utf-8");
+	if (!db.open()) {
+		err = db.get_error();
+		return false;
+	}
+	db.set_busy_timeout(3000);
+
+	const std::string old_like = old_prefix + "/%";
+	acl::query query;
+	query.create("UPDATE video_resume "
+		"SET file_name=:new_prefix || substr(file_name, length(:old_prefix) + 1), "
+		"updated_at=strftime('%s','now') "
+		"WHERE file_name LIKE :old_like")
+		.set_parameter("new_prefix", new_prefix.c_str())
+		.set_parameter("old_prefix", old_prefix.c_str())
+		.set_parameter("old_like", old_like.c_str());
+	if (!db.exec_update(query)) {
+		err = db.get_error();
+		return false;
+	}
+	return true;
+}
+
 bool VideoResumeGetAction::run(request_t& req, response_t& res,
 	const std::string& upload_dir)
 {

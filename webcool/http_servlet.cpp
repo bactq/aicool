@@ -118,6 +118,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/folders", &http_servlet::routeFolderList },
 		{ "/api/v1/folders/create", &http_servlet::routeFolderCreate },
 		{ "/api/v1/folders/rename", &http_servlet::routeFolderRename },
+		{ "/api/v1/folders/move", &http_servlet::routeFolderMove },
 		{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
 		{ "/api/v1/tags", &http_servlet::routeTagList },
 		{ "/api/v1/tag-files", &http_servlet::routeTagFiles },
@@ -195,6 +196,10 @@ bool http_servlet::routeFolderRename(request_t& req, response_t& res) {
 	return action::FolderRenameAction::run(req, res, upload_dir_);
 }
 
+bool http_servlet::routeFolderMove(request_t& req, response_t& res) {
+	return action::FolderMoveAction::run(req, res, upload_dir_);
+}
+
 bool http_servlet::routeFolderDelete(request_t& req, response_t& res) {
 	return action::FolderDeleteAction::run(req, res, upload_dir_);
 }
@@ -239,6 +244,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/video/resume/save", &http_servlet::routeVideoResumeSet },
 		{ "/api/v1/folders/create", &http_servlet::routeFolderCreate },
 		{ "/api/v1/folders/rename", &http_servlet::routeFolderRename },
+		{ "/api/v1/folders/move", &http_servlet::routeFolderMove },
 		{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
 		{ "/api/v1/tags/create", &http_servlet::routeTagCreate },
 		{ "/api/v1/tags/delete", &http_servlet::routeTagDelete },

@@ -21,8 +21,14 @@ bool tag_unbind_file(const std::string& upload_dir,
 bool tag_rename_file(const std::string& upload_dir,
 	const std::string& old_file_name, const std::string& new_file_name,
 	std::string& err);
+bool tag_rename_folder_prefix(const std::string& upload_dir,
+	const std::string& old_prefix, const std::string& new_prefix,
+	std::string& err);
 bool video_resume_rename_file(const std::string& upload_dir,
 	const std::string& old_file_name, const std::string& new_file_name,
+	std::string& err);
+bool video_resume_rename_folder_prefix(const std::string& upload_dir,
+	const std::string& old_prefix, const std::string& new_prefix,
 	std::string& err);
 bool folder_load_file_bindings(const std::string& upload_dir,
 	std::map<std::string, long long>& file_to_folder_id,
@@ -132,6 +138,12 @@ public:
 };
 
 class FolderRenameAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class FolderMoveAction {
 public:
 	static bool run(request_t& req, response_t& res,
 		const std::string& upload_dir);

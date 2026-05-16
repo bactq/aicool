@@ -167,6 +167,20 @@ static bool folder_is_empty(const std::string& full_path, bool& empty,
 	return true;
 }
 
+static bool is_same_or_child_path(const std::string& base_path,
+	const std::string& test_path)
+{
+	if (base_path.empty()) {
+		return true;
+	}
+	if (test_path == base_path) {
+		return true;
+	}
+	return test_path.size() > base_path.size()
+		&& test_path.compare(0, base_path.size(), base_path) == 0
+		&& test_path[base_path.size()] == '/';
+}
+
 } // namespace
 
 bool init_category_folder_db(const std::string& upload_dir, std::string& err) {
@@ -368,6 +382,88 @@ bool FolderDeleteAction::run(request_t& req, response_t& res,
 	root.add_bool("ok", true);
 	root.add_text("path", path.c_str());
 	root.add_text("message", "folder deleted");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool FolderMoveAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string source_path;
+	std::string err;
+	if (!normalize_relative_path(req.getParameter("path"), source_path, err, false)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	std::string target_parent;
+	if (!normalize_relative_path(req.getParameter("folder"), target_parent, err, true)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	if (!upload_directory_exists(upload_dir, source_path)) {
+		json_error(res, 404, "folder not found", req.isKeepAlive());
+		return true;
+	}
+	if (!target_parent.empty() && !upload_directory_exists(upload_dir, target_parent)) {
+		json_error(res, 404, "target folder not found", req.isKeepAlive());
+		return true;
+	}
+	if (is_same_or_child_path(source_path, target_parent)) {
+		json_error(res, 409, "cannot move folder into itself or its child", req.isKeepAlive());
+		return true;
+	}
+
+	const std::string folder_name = base_name_from_relative_path(source_path);
+	const std::string target_path = target_parent.empty()
+		? folder_name
+		: (target_parent + "/" + folder_name);
+	if (target_path == source_path) {
+		acl::json json;
+		acl::json_node& root = json.create_node();
+		root.add_bool("ok", true);
+		root.add_text("path", source_path.c_str());
+		root.add_text("message", "folder unchanged");
+		return sendJson(res, 200, root, req.isKeepAlive());
+	}
+	if (upload_directory_exists(upload_dir, target_path)) {
+		json_error(res, 409, "target folder already exists", req.isKeepAlive());
+		return true;
+	}
+
+	const std::string source_full = join_upload_path(upload_dir, source_path);
+	const std::string target_full = join_upload_path(upload_dir, target_path);
+	if (::rename(source_full.c_str(), target_full.c_str()) != 0) {
+		json_error(res, 500, "move folder failed", req.isKeepAlive());
+		return true;
+	}
+
+	bool tag_updated = false;
+	std::string rename_err;
+	if (!tag_rename_folder_prefix(upload_dir, source_path, target_path, rename_err)) {
+		::rename(target_full.c_str(), source_full.c_str());
+		json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	tag_updated = true;
+	if (!video_resume_rename_folder_prefix(upload_dir, source_path, target_path, rename_err)) {
+		if (tag_updated) {
+			std::string rollback_err;
+			tag_rename_folder_prefix(upload_dir, target_path, source_path, rollback_err);
+		}
+		::rename(target_full.c_str(), source_full.c_str());
+		json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("path", target_path.c_str());
+	root.add_text("old_path", source_path.c_str());
+	root.add_text("parent_path", target_parent.c_str());
+	root.add_text("name", folder_name.c_str());
+	root.add_text("message", "folder moved");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 

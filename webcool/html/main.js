@@ -3,6 +3,7 @@
         files: '/api/v1/files',
         folders: '/api/v1/folders',
         folderCreate: '/api/v1/folders/create',
+        folderMove: '/api/v1/folders/move',
         folderDelete: '/api/v1/folders/delete',
         fileMove: '/api/v1/files/move',
         tags: '/api/v1/tags',
@@ -31,6 +32,8 @@
       const uploadProgressFill = document.getElementById('upload-progress-fill');
       const uploadProgressText = document.getElementById('upload-progress-text');
       const uploadFolderPathInput = document.getElementById('upload-folder-path');
+      const shell = document.querySelector('.shell');
+      const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
       const fileList = document.getElementById('file-list');
       const fileTable = document.getElementById('file-table');
       const fileEmpty = document.getElementById('file-empty');
@@ -44,6 +47,7 @@
       const folderTreeEmpty = document.getElementById('folder-tree-empty');
       const folderCurrentPath = document.getElementById('folder-current-path');
       const folderCreateBtn = document.getElementById('folder-create-btn');
+      const folderMoveBtn = document.getElementById('folder-move-btn');
       const folderDeleteBtn = document.getElementById('folder-delete-btn');
       const folderRootBtn = document.getElementById('folder-root-btn');
       const sortKey = document.getElementById('sort-key');
@@ -61,6 +65,7 @@
       const previewLayer = document.getElementById('preview-layer');
       const menuButtons = Array.from(document.querySelectorAll('.menu-btn[data-panel]'));
       const panels = Array.from(document.querySelectorAll('.panel'));
+      const SIDEBAR_COLLAPSED_STORAGE_KEY = 'webcool:sidebar-collapsed:v1';
       const TAG_TREE_STORAGE_KEY = 'webcool:file-tags:v1';
       const TAG_MAX_LEVEL = 3;
       const AUDIO_PLAY_MODE_LABELS = {
@@ -79,6 +84,9 @@
       let folderTreeData = [];
       let activeFolderPath = '';
       let activeDropFolderPath = null;
+      let activeFolderAutoExpandPath = '';
+      let folderAutoExpandTimer = null;
+      const selectedFolderPaths = new Set();
       const selectedFileNames = new Set();
       const expandedFolderPaths = new Set(['']);
       let tagTree = [];
@@ -120,10 +128,130 @@
         return path ? path : '根目录';
       }
 
+      function collectFolderPaths(nodes, out) {
+        const list = Array.isArray(nodes) ? nodes : [];
+        const result = Array.isArray(out) ? out : [];
+        list.forEach(function (node) {
+          const path = String((node && node.path) || '');
+          if (path) {
+            result.push(path);
+          }
+          if (node && Array.isArray(node.children) && node.children.length) {
+            collectFolderPaths(node.children, result);
+          }
+        });
+        return result;
+      }
+
+      function folderPathExists(path) {
+        const text = String(path || '');
+        if (!text) {
+          return true;
+        }
+        return collectFolderPaths(folderTreeData, []).includes(text);
+      }
+
+      function isSameOrChildFolderPath(basePath, testPath) {
+        const base = String(basePath || '');
+        const test = String(testPath || '');
+        if (!base) {
+          return true;
+        }
+        return test === base || test.indexOf(base + '/') === 0;
+      }
+
+      function relocatePathAfterFolderMove(path, sourcePath, targetPath) {
+        const current = String(path || '');
+        const source = String(sourcePath || '');
+        const target = String(targetPath || '');
+        if (!current || !source || !target) {
+          return current;
+        }
+        if (current === source) {
+          return target;
+        }
+        if (current.indexOf(source + '/') === 0) {
+          return target + current.slice(source.length);
+        }
+        return current;
+      }
+
+      function normalizeFolderMoveSources(paths) {
+        const sorted = (Array.isArray(paths) ? paths : [])
+          .map(function (path) { return String(path || ''); })
+          .filter(Boolean)
+          .sort(function (a, b) {
+            if (a.length !== b.length) {
+              return a.length - b.length;
+            }
+            return a.localeCompare(b, 'zh-CN');
+          });
+
+        const result = [];
+        sorted.forEach(function (path) {
+          const covered = result.some(function (picked) {
+            return isSameOrChildFolderPath(picked, path);
+          });
+          if (!covered) {
+            result.push(path);
+          }
+        });
+        return result;
+      }
+
+      async function moveFoldersToFolder(folderPaths, targetFolder) {
+        const selected = normalizeFolderMoveSources(folderPaths);
+        if (!selected.length) {
+          return { movedCount: 0, ignoredCount: 0 };
+        }
+
+        const target = String(targetFolder || '');
+        const rawSelectedCount = Array.isArray(folderPaths) ? folderPaths.length : 0;
+        const ignoredCount = rawSelectedCount > selected.length ? (rawSelectedCount - selected.length) : 0;
+
+        let movedCount = 0;
+        for (let i = 0; i < selected.length; i += 1) {
+          const sourcePath = selected[i];
+          const result = await fetchJson(
+            api.folderMove + '?path=' + encodeURIComponent(sourcePath) + '&folder=' + encodeURIComponent(target),
+            { method: 'POST' }
+          );
+          const nextPath = String((result && result.path) || '');
+          activeFolderPath = relocatePathAfterFolderMove(activeFolderPath, sourcePath, nextPath);
+          movedCount += 1;
+        }
+
+        selectedFolderPaths.clear();
+        ensureFolderPathExpanded(activeFolderPath);
+        ensureFolderPathExpanded(target);
+        await loadFiles();
+        return { movedCount: movedCount, ignoredCount: ignoredCount };
+      }
+
+      function syncSelectedFoldersWithTreeData() {
+        const valid = new Set(collectFolderPaths(folderTreeData, []));
+        Array.from(selectedFolderPaths).forEach(function (path) {
+          if (!valid.has(path)) {
+            selectedFolderPaths.delete(path);
+          }
+        });
+      }
+
       function setUploadTargetFolder(path) {
         if (uploadFolderPathInput) {
           uploadFolderPathInput.value = String(path || '');
         }
+      }
+
+      function setSidebarCollapsed(collapsed) {
+        if (!shell || !sidebarToggleBtn) {
+          return;
+        }
+        const isCollapsed = !!collapsed;
+        shell.classList.toggle('sidebar-collapsed', isCollapsed);
+        sidebarToggleBtn.textContent = isCollapsed ? '▶' : '◀';
+        sidebarToggleBtn.setAttribute('aria-label', isCollapsed ? '展开左侧栏' : '收起左侧栏');
+        sidebarToggleBtn.setAttribute('title', isCollapsed ? '展开左侧栏' : '收起左侧栏');
       }
 
       function setActivePanel(panelId) {
@@ -1589,7 +1717,86 @@
         });
       }
 
+      function findFolderNodeByPath(path, nodes) {
+        const target = String(path || '');
+        const list = Array.isArray(nodes) ? nodes : folderTreeData;
+        for (let i = 0; i < list.length; i += 1) {
+          const node = list[i];
+          if (String((node && node.path) || '') === target) {
+            return node;
+          }
+          const found = findFolderNodeByPath(target, node && node.children);
+          if (found) {
+            return found;
+          }
+        }
+        return null;
+      }
+
+      function findFolderTreeNodeElement(path) {
+        if (!folderTree) {
+          return null;
+        }
+        const target = String(path || '');
+        const nodes = folderTree.querySelectorAll('.folder-tree-node[data-folder-path]');
+        for (let i = 0; i < nodes.length; i += 1) {
+          const node = nodes[i];
+          if (String(node.getAttribute('data-folder-path') || '') === target) {
+            return node;
+          }
+        }
+        return null;
+      }
+
+      function scrollFolderPathIntoView(path) {
+        const node = findFolderTreeNodeElement(path);
+        if (!node || typeof node.scrollIntoView !== 'function') {
+          return;
+        }
+        node.scrollIntoView({ block: 'nearest' });
+      }
+
+      function clearFolderAutoExpandTimer() {
+        if (folderAutoExpandTimer) {
+          clearTimeout(folderAutoExpandTimer);
+          folderAutoExpandTimer = null;
+        }
+        activeFolderAutoExpandPath = '';
+      }
+
+      function scheduleFolderAutoExpand(path) {
+        const targetPath = String(path || '');
+        if (!targetPath || expandedFolderPaths.has(targetPath)) {
+          clearFolderAutoExpandTimer();
+          return;
+        }
+        const node = findFolderNodeByPath(targetPath);
+        const hasChildren = !!(node && Array.isArray(node.children) && node.children.length);
+        if (!hasChildren) {
+          clearFolderAutoExpandTimer();
+          return;
+        }
+        if (activeFolderAutoExpandPath === targetPath && folderAutoExpandTimer) {
+          return;
+        }
+        clearFolderAutoExpandTimer();
+        activeFolderAutoExpandPath = targetPath;
+        folderAutoExpandTimer = setTimeout(function () {
+          folderAutoExpandTimer = null;
+          if (!activeFolderAutoExpandPath) {
+            return;
+          }
+          expandedFolderPaths.add(activeFolderAutoExpandPath);
+          renderFolderTree();
+          scrollFolderPathIntoView(activeFolderAutoExpandPath);
+          activeFolderAutoExpandPath = '';
+        }, 600);
+      }
+
       function syncFolderActionButtons() {
+        if (folderMoveBtn) {
+          folderMoveBtn.disabled = selectedFolderPaths.size === 0;
+        }
         if (folderDeleteBtn) {
           folderDeleteBtn.disabled = !activeFolderPath;
         }
@@ -1617,6 +1824,7 @@
           const expanded = expandedFolderPaths.has(path);
           const hasChildren = Array.isArray(node.children) && node.children.length > 0;
           const isActive = activeFolderPath === path;
+          const checked = selectedFolderPaths.has(path) ? ' checked' : '';
           const padding = 10 + (Math.max(0, Number(level) || 0) * 18);
           const childHtml = hasChildren && expanded
             ? '<div class="folder-tree-children">' + buildFolderTreeHtml(node.children, (level || 0) + 1) + '</div>'
@@ -1627,7 +1835,8 @@
                 (hasChildren
                   ? '<button type="button" class="folder-tree-toggle" data-folder-toggle="' + escapeHtml(path) + '">' + (expanded ? '▾' : '▸') + '</button>'
                   : '<span class="folder-tree-toggle placeholder">•</span>') +
-                '<div class="folder-tree-entry" data-folder-select="' + escapeHtml(path) + '">' +
+                '<input class="folder-tree-select" type="checkbox" data-folder-check="' + escapeHtml(path) + '" aria-label="选择文件夹 ' + escapeHtml(node.name || path) + '"' + checked + '>' +
+                '<div class="folder-tree-entry" data-folder-select="' + escapeHtml(path) + '" data-drag-folder="' + escapeHtml(path) + '" draggable="true">' +
                   '<span class="folder-tree-name">' + escapeHtml(node.name || '') + '</span>' +
                   '<span class="folder-tree-count">' + String(Number(node.file_count || 0)) + '</span>' +
                 '</div>' +
@@ -1654,6 +1863,7 @@
           '<div class="folder-tree-node' + (activeFolderPath ? '' : ' active') + (activeDropFolderPath === '' ? ' drop-target' : '') + '" data-folder-path="">' +
             '<div class="folder-tree-line" style="padding-left:10px;">' +
               '<span class="folder-tree-toggle placeholder">•</span>' +
+              '<input class="folder-tree-select placeholder" type="checkbox" tabindex="-1" aria-hidden="true">' +
               '<div class="folder-tree-entry" data-folder-select="">' +
                 '<span class="folder-tree-name">根目录</span>' +
                 '<span class="folder-tree-count"></span>' +
@@ -1667,6 +1877,7 @@
       async function loadFolderTreeState() {
         const data = await fetchJson(api.folders);
         folderTreeData = Array.isArray(data.folders) ? data.folders.map(normalizeFolderNode) : [];
+        syncSelectedFoldersWithTreeData();
         ensureFolderPathExpanded(activeFolderPath);
         renderFolderTree();
       }
@@ -1702,6 +1913,38 @@
         renderFolderTree();
         renderFiles(activeSourceFiles);
         showStatus('文件夹已删除', 'warn');
+      }
+
+      async function moveSelectedFolders() {
+        const selected = normalizeFolderMoveSources(Array.from(selectedFolderPaths));
+        if (!selected.length) {
+          return;
+        }
+
+        const folderHints = ['根目录'].concat(collectFolderPaths(folderTreeData, [])).join(' / ');
+        const input = await askTagName({
+          title: '移动文件夹',
+          description: '请输入目标文件夹路径，留空表示根目录。可选目录：' + folderHints,
+          initialValue: activeFolderPath || '',
+          placeholder: '例如：分类/电影'
+        });
+        if (input === null) {
+          return;
+        }
+
+        const targetFolder = String(input || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+        if (!folderPathExists(targetFolder)) {
+          showStatus('移动文件夹失败：目标文件夹不存在', 'err');
+          return;
+        }
+        const summary = await moveFoldersToFolder(selected, targetFolder);
+        const movedCount = summary.movedCount;
+        const ignoredCount = summary.ignoredCount;
+        let message = movedCount > 1 ? ('已移动 ' + movedCount + ' 个文件夹') : '文件夹已移动';
+        if (ignoredCount > 0) {
+          message += '，已忽略 ' + ignoredCount + ' 个重复子文件夹';
+        }
+        showStatus(message, 'ok');
       }
 
       async function moveFilesToFolder(filePaths, folderPath) {
@@ -2678,6 +2921,16 @@
         });
       }
 
+      if (folderMoveBtn) {
+        folderMoveBtn.addEventListener('click', async function () {
+          try {
+            await moveSelectedFolders();
+          } catch (err) {
+            showStatus('移动文件夹失败：' + err.message, 'err');
+          }
+        });
+      }
+
       if (folderDeleteBtn) {
         folderDeleteBtn.addEventListener('click', async function () {
           try {
@@ -2691,6 +2944,21 @@
 
       if (folderTree) {
         folderTree.addEventListener('click', function (e) {
+          const checkbox = e.target.closest('.folder-tree-select[data-folder-check]');
+          if (checkbox) {
+            const path = checkbox.getAttribute('data-folder-check') || '';
+            if (!path) {
+              return;
+            }
+            if (checkbox.checked) {
+              selectedFolderPaths.add(path);
+            } else {
+              selectedFolderPaths.delete(path);
+            }
+            syncFolderActionButtons();
+            return;
+          }
+
           const toggle = e.target.closest('.folder-tree-toggle[data-folder-toggle]');
           if (toggle) {
             const path = toggle.getAttribute('data-folder-toggle') || '';
@@ -2713,6 +2981,29 @@
           renderFiles(activeSourceFiles);
         });
 
+        folderTree.addEventListener('dragstart', function (e) {
+          const entry = e.target.closest('.folder-tree-entry[data-drag-folder]');
+          if (!entry || !e.dataTransfer) {
+            return;
+          }
+          const folderPath = entry.getAttribute('data-drag-folder') || '';
+          if (!folderPath) {
+            return;
+          }
+          const selectedPaths = selectedFolderPaths.has(folderPath)
+            ? normalizeFolderMoveSources(Array.from(selectedFolderPaths))
+            : [folderPath];
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', folderPath);
+          e.dataTransfer.setData('application/webcool-folder-list', JSON.stringify(selectedPaths));
+        });
+
+        folderTree.addEventListener('dragend', function () {
+          clearFolderAutoExpandTimer();
+          activeDropFolderPath = null;
+          syncFolderDropHighlight();
+        });
+
         folderTree.addEventListener('dragover', function (e) {
           const node = e.target.closest('.folder-tree-node[data-folder-path]');
           if (!node || !e.dataTransfer) {
@@ -2723,12 +3014,15 @@
           if (activeDropFolderPath !== nextDropPath) {
             activeDropFolderPath = nextDropPath;
             syncFolderDropHighlight();
+            scrollFolderPathIntoView(nextDropPath);
           }
+          scheduleFolderAutoExpand(nextDropPath);
           e.dataTransfer.dropEffect = 'move';
         });
 
         folderTree.addEventListener('dragleave', function (e) {
           if (!folderTree.contains(e.relatedTarget)) {
+            clearFolderAutoExpandTimer();
             activeDropFolderPath = null;
             syncFolderDropHighlight();
           }
@@ -2736,28 +3030,52 @@
 
         folderTree.addEventListener('drop', async function (e) {
           const node = e.target.closest('.folder-tree-node[data-folder-path]');
+          let folderPaths = [];
           let fileNames = [];
           if (e.dataTransfer) {
+            try {
+              folderPaths = JSON.parse(e.dataTransfer.getData('application/webcool-folder-list') || '[]');
+            } catch (_) {
+              folderPaths = [];
+            }
             try {
               fileNames = JSON.parse(e.dataTransfer.getData('application/webcool-file-list') || '[]');
             } catch (_) {
               fileNames = [];
             }
-            if (!fileNames.length) {
+            if (!folderPaths.length && !fileNames.length) {
               const fallbackName = String(e.dataTransfer.getData('text/plain') || '');
               if (fallbackName) {
                 fileNames = [fallbackName];
               }
             }
           }
+          clearFolderAutoExpandTimer();
           activeDropFolderPath = null;
           syncFolderDropHighlight();
-          if (!node || !fileNames.length) {
+          if (!node) {
             return;
           }
           e.preventDefault();
+          const targetFolder = node.getAttribute('data-folder-path') || '';
+          if (folderPaths.length) {
+            try {
+              const summary = await moveFoldersToFolder(folderPaths, targetFolder);
+              let message = summary.movedCount > 1 ? ('已移动 ' + summary.movedCount + ' 个文件夹') : '文件夹已移动';
+              if (summary.ignoredCount > 0) {
+                message += '，已忽略 ' + summary.ignoredCount + ' 个重复子文件夹';
+              }
+              showStatus(message, 'ok');
+            } catch (err) {
+              showStatus('移动文件夹失败：' + err.message, 'err');
+            }
+            return;
+          }
+          if (!fileNames.length) {
+            return;
+          }
           try {
-            await moveFilesToFolder(fileNames, node.getAttribute('data-folder-path') || '');
+            await moveFilesToFolder(fileNames, targetFolder);
           } catch (err) {
             showStatus('移动文件失败：' + err.message, 'err');
           }
@@ -3119,6 +3437,22 @@
         const wins = previewLayer.querySelectorAll('.floating-preview');
         Array.prototype.forEach.call(wins, clampWindowPosition);
       });
+
+      if (sidebarToggleBtn) {
+        sidebarToggleBtn.addEventListener('click', function () {
+          const nextCollapsed = !(shell && shell.classList.contains('sidebar-collapsed'));
+          setSidebarCollapsed(nextCollapsed);
+          try {
+            localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, nextCollapsed ? '1' : '0');
+          } catch (err) {}
+        });
+      }
+
+      try {
+        setSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === '1');
+      } catch (err) {
+        setSidebarCollapsed(false);
+      }
 
       menuButtons.forEach(function (btn) {
         btn.addEventListener('click', function () {

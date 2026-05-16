@@ -8,7 +8,10 @@
 <body>
   <main class="shell">
     <aside class="left-pane">
-      <h1 class="brand">文件控制台</h1>
+      <div class="left-pane-head">
+        <h1 class="brand">文件控制台</h1>
+        <button type="button" id="sidebar-toggle-btn" class="sidebar-toggle-btn" aria-label="收起左侧栏" title="收起左侧栏">◀</button>
+      </div>
       <p class="brand-sub">左帧用于功能切换，右帧展示对应内容与操作结果。</p>
       <nav class="menu" aria-label="功能菜单">
         <button type="button" class="menu-btn" data-panel="panel-upload">上传文件</button>
@@ -56,6 +59,7 @@
               <div class="folder-browser-actions">
                 <button id="folder-root-btn" class="folder-action-btn" type="button">根目录</button>
                 <button id="folder-create-btn" class="folder-action-btn" type="button">新建</button>
+                <button id="folder-move-btn" class="folder-action-btn" type="button" disabled>移动选中</button>
                 <button id="folder-delete-btn" class="folder-action-btn danger" type="button" disabled>删除</button>
               </div>
             </div>
