@@ -16,6 +16,7 @@
       <nav class="menu" aria-label="功能菜单">
         <button type="button" class="menu-btn" data-panel="panel-upload">上传文件</button>
         <button type="button" class="menu-btn active" data-panel="panel-files">文件列表</button>
+        <button type="button" class="menu-btn" data-panel="panel-local-disk">本地磁盘</button>
         <button type="button" class="menu-btn" data-panel="panel-admin">系统管理</button>
       </nav>
       <section class="left-tag-tree-section" aria-label="文件标签树">
@@ -124,6 +125,31 @@
           </div>
         </div>
         <p id="file-empty" class="empty">加载中...</p>
+      </section>
+
+      <section class="panel section" id="panel-local-disk">
+        <h1>本地磁盘</h1>
+        <p class="sub">浏览服务器本机磁盘目录，支持图片预览、视频观影、音频听音和文本查看。</p>
+        <div id="local-disk-context" class="file-view-context">当前路径：/</div>
+        <div class="local-disk-toolbar">
+          <button id="local-disk-root-btn" class="folder-action-btn" type="button">根目录</button>
+          <button id="local-disk-up-btn" class="folder-action-btn" type="button">上一级</button>
+        </div>
+        <div class="file-table-wrap">
+          <table class="file-table local-disk-table" id="local-disk-table">
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>类型</th>
+                <th>大小</th>
+                <th>修改时间</th>
+                <th class="file-actions-head">操作</th>
+              </tr>
+            </thead>
+            <tbody id="local-disk-list"></tbody>
+          </table>
+        </div>
+        <p id="local-disk-empty" class="empty">加载中...</p>
       </section>
 
       <section class="panel section" id="panel-admin">

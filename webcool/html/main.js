@@ -21,6 +21,8 @@
         del: '/api/v1/delete',
         restore: '/api/v1/restore',
         download: '/api/v1/download',
+        localDiskList: '/api/v1/local-disk/list',
+        localDiskDownload: '/api/v1/local-disk/download',
         reloadTpl: '/api/v1/admin/template/reload',
         convertVideo: '/api/v1/video/convert',
         convertCancel: '/api/v1/video/convert/cancel',
@@ -48,6 +50,12 @@
       const fileBulkAction = document.getElementById('file-bulk-action');
       const fileBulkDeleteAction = document.getElementById('file-bulk-delete-action');
       const fileViewContext = document.getElementById('file-view-context');
+      const localDiskContext = document.getElementById('local-disk-context');
+      const localDiskRootBtn = document.getElementById('local-disk-root-btn');
+      const localDiskUpBtn = document.getElementById('local-disk-up-btn');
+      const localDiskTable = document.getElementById('local-disk-table');
+      const localDiskList = document.getElementById('local-disk-list');
+      const localDiskEmpty = document.getElementById('local-disk-empty');
       const explorerShell = document.querySelector('.explorer-shell');
       const folderBrowser = document.querySelector('.folder-browser');
       const folderTree = document.getElementById('folder-tree');
@@ -90,6 +98,8 @@
       let currentFiles = [];
       let folderTreeData = [];
       let activeFolderPath = '';
+      let activeLocalDiskPath = '';
+      let activeLocalDiskParentPath = '/';
       let activeDropFolderPath = null;
       let activeFolderAutoExpandPath = '';
       let folderAutoExpandTimer = null;
@@ -244,6 +254,10 @@
         let url = api.download + '?' + (preview ? 'preview=1&' : '') + 'file=' + encoded;
         url = withFolderPassword(url, parentFolderPathFromFilePath(filePath));
         return url;
+      }
+
+      function localDiskDownloadUrl(path) {
+        return api.localDiskDownload + '?path=' + encodeURIComponent(path || '/');
       }
 
       async function ensureFolderUnlocked(path) {
@@ -427,6 +441,8 @@
 
         if (panelId === 'panel-files' && !(options && options.skipLoadFiles)) {
           loadFiles();
+        } else if (panelId === 'panel-local-disk') {
+          loadLocalDisk(activeLocalDiskPath || '');
         }
       }
 
@@ -2513,8 +2529,85 @@
         updateFileBulkActionButton();
       }
 
-      function openPreview(kind, file, name) {
-        const existed = openedPreviewWindows.get(file);
+      function renderLocalDiskItems(items) {
+        const list = Array.isArray(items) ? items : [];
+        if (localDiskContext) {
+          localDiskContext.textContent = '当前路径：' + activeLocalDiskPath;
+        }
+        if (!localDiskList || !localDiskTable || !localDiskEmpty) {
+          return;
+        }
+        if (!list.length) {
+          localDiskList.innerHTML = '';
+          localDiskTable.style.display = 'none';
+          localDiskEmpty.textContent = '当前目录没有可显示的内容。';
+          localDiskEmpty.style.display = 'block';
+          return;
+        }
+
+        localDiskEmpty.style.display = 'none';
+        localDiskTable.style.display = 'table';
+        localDiskList.innerHTML = list.map(function (item) {
+          const name = String((item && item.name) || '');
+          const path = String((item && item.path) || '');
+          const encodedPath = encodeURIComponent(path);
+          const isDir = !!(item && item.directory);
+          const displayName = isDir
+            ? '<button type="button" class="local-folder-link" data-local-folder="' + encodedPath + '">' + escapeHtml(name) + '</button>'
+            : '<a class="file-name" href="' + escapeHtml(localDiskDownloadUrl(path)) + '">' + escapeHtml(name) + '</a>';
+          const previewBtn = !isDir && isImageName(name)
+            ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
+            : '';
+          const videoBtn = !isDir && isVideoName(name)
+            ? '<button class="local-preview-btn video-btn" data-kind="video" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">观影</button>'
+            : '';
+          const audioBtn = !isDir && isAudioName(name)
+            ? '<button class="local-preview-btn audio-btn" data-kind="audio" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">听音</button>'
+            : '';
+          const textBtn = !isDir && isTextName(name)
+            ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">查看</button>'
+            : '';
+          return (
+            '<tr>' +
+              '<td>' + displayName + '</td>' +
+              '<td>' + (isDir ? '文件夹' : '文件') + '</td>' +
+              '<td>' + (isDir ? '-' : (formatNumber(Number(item.size || 0)) + ' 字节')) + '</td>' +
+              '<td>' + escapeHtml((item && item.modified_time) || '-') + '</td>' +
+              '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + '</div></td>' +
+            '</tr>'
+          );
+        }).join('');
+      }
+
+      async function loadLocalDisk(path) {
+        const target = typeof path === 'string' ? path : (activeLocalDiskPath || '');
+        try {
+          const url = target
+            ? (api.localDiskList + '?path=' + encodeURIComponent(target))
+            : api.localDiskList;
+          const data = await fetchJson(url);
+          activeLocalDiskPath = String(data.path || '/');
+          activeLocalDiskParentPath = String(data.parent_path || '/');
+          renderLocalDiskItems(Array.isArray(data.items) ? data.items : []);
+        } catch (err) {
+          if (localDiskList) {
+            localDiskList.innerHTML = '';
+          }
+          if (localDiskTable) {
+            localDiskTable.style.display = 'none';
+          }
+          if (localDiskEmpty) {
+            localDiskEmpty.textContent = '加载本地磁盘失败：' + err.message;
+            localDiskEmpty.style.display = 'block';
+          }
+          showStatus('加载本地磁盘失败：' + err.message, 'err');
+        }
+      }
+
+      function openPreview(kind, file, name, options) {
+        const opts = options || {};
+        const previewKey = (opts.previewKey || file);
+        const existed = openedPreviewWindows.get(previewKey);
         if (existed && existed.isConnected) {
           bringToFront(existed);
           const video = existed.querySelector('video');
@@ -2525,7 +2618,7 @@
         }
 
         const rawFileForUrl = decodeURIComponent(String(file || ''));
-        const url = downloadUrlForFile(rawFileForUrl, true) + '&v=' + Date.now();
+        const url = (opts.url || downloadUrlForFile(rawFileForUrl, true)) + '&v=' + Date.now();
         const win = document.createElement('div');
         win.className = 'floating-preview';
         previewZ += 1;
@@ -2540,7 +2633,7 @@
         if (kind === 'video') {
           const rawName = decodeURIComponent(String(file || '')) || String(name || '');
           const subtitleName = toVttSidecarName(rawName);
-          const subtitleUrl = downloadUrlForFile(subtitleName, true) + '&v=' + Date.now();
+          const subtitleUrl = (opts.local ? localDiskDownloadUrl(subtitleName) : downloadUrlForFile(subtitleName, true)) + '&v=' + Date.now();
           mediaHtml = '<video class="preview-video" controls preload="metadata">' +
             '<track kind="subtitles" srclang="zh-CN" label="中文字幕" default src="' + subtitleUrl + '">' +
             '</video>';
@@ -2561,16 +2654,19 @@
 
         previewLayer.appendChild(win);
         centerPreviewWindow(win);
-        openedPreviewWindows.set(file, win);
+        openedPreviewWindows.set(previewKey, win);
 
         const mediaVideo = win.querySelector('video');
         if (mediaVideo) {
           const rawVideoFile = decodeURIComponent(String(file || ''));
-          bindVideoResume(mediaVideo, rawVideoFile);
+          if (!opts.local) {
+            bindVideoResume(mediaVideo, rawVideoFile);
+          }
           mediaVideo.src = url;
           mediaVideo.play().catch(function () {});
 
           // Check if video has audio track
+          if (!opts.local) {
           checkVideoAudio(rawVideoFile).then(function (probeResult) {
             if (probeResult && probeResult.ok && (!probeResult.has_audio || probeResult.browser_audio_supported === false)) {
               // No audio or unsupported browser audio codec
@@ -2587,12 +2683,15 @@
               }
             }
           });
+          }
         }
 
         const mediaAudio = win.querySelector('audio');
         if (mediaAudio) {
           const rawAudioFile = decodeURIComponent(String(file || ''));
-          bindVideoResume(mediaAudio, rawAudioFile);
+          if (!opts.local) {
+            bindVideoResume(mediaAudio, rawAudioFile);
+          }
           mediaAudio.play().catch(function () {});
         }
 
@@ -2625,7 +2724,7 @@
         const head = win.querySelector('.preview-head');
 
         closeBtn.addEventListener('click', function () {
-          closePreviewWindow(win, file);
+          closePreviewWindow(win, previewKey);
         });
 
         win.addEventListener('mousedown', function () {
@@ -3004,6 +3103,43 @@
           setTimeout(hideUploadProgress, 900);
         }
       });
+
+      if (localDiskRootBtn) {
+        localDiskRootBtn.addEventListener('click', function () {
+          loadLocalDisk('/');
+        });
+      }
+
+      if (localDiskUpBtn) {
+        localDiskUpBtn.addEventListener('click', function () {
+          loadLocalDisk(activeLocalDiskParentPath || '/');
+        });
+      }
+
+      if (localDiskList) {
+        localDiskList.addEventListener('click', function (e) {
+          const folderBtn = e.target.closest('.local-folder-link[data-local-folder]');
+          if (folderBtn) {
+            const path = decodeURIComponent(folderBtn.getAttribute('data-local-folder') || '/');
+            loadLocalDisk(path);
+            return;
+          }
+          const previewBtn = e.target.closest('.local-preview-btn[data-local-file][data-kind]');
+          if (!previewBtn) {
+            return;
+          }
+          const path = decodeURIComponent(previewBtn.getAttribute('data-local-file') || '');
+          const kind = previewBtn.getAttribute('data-kind') || 'image';
+          if (!path) {
+            return;
+          }
+          openPreview(kind, encodeURIComponent(path), path, {
+            local: true,
+            url: localDiskDownloadUrl(path),
+            previewKey: 'local:' + path
+          });
+        });
+      }
 
       sortKey.addEventListener('change', function () {
         renderFiles(activeSourceFiles);
@@ -4004,6 +4140,8 @@
         btn.addEventListener('click', function () {
           const panelId = btn.getAttribute('data-panel');
           if (panelId === 'panel-files') {
+            activeFilterTagId = '';
+          } else if (panelId === 'panel-local-disk') {
             activeFilterTagId = '';
           }
           if (panelId) {

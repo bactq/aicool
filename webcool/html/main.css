@@ -1218,6 +1218,14 @@
       overflow-x: auto;
     }
 
+    .local-disk-toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin: 10px 0 12px;
+      flex-wrap: wrap;
+    }
+
     table.file-table {
       width: 100%;
       border-collapse: collapse;
@@ -1239,6 +1247,21 @@
       font-size: 13px;
       letter-spacing: 0.2px;
       background: rgba(245, 250, 255, 0.7);
+    }
+
+    .local-disk-table .local-folder-link {
+      border: none;
+      background: transparent;
+      color: #1e6fd9;
+      font: inherit;
+      font-weight: 700;
+      padding: 0;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .local-disk-table .local-folder-link:hover {
+      text-decoration: underline;
     }
 
     .file-actions-head {

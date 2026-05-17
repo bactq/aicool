@@ -81,6 +81,16 @@ public:
 		const std::string& upload_dir);
 };
 
+class LocalDiskListAction {
+public:
+	static bool run(request_t& req, response_t& res);
+};
+
+class LocalDiskDownloadAction {
+public:
+	static bool run(request_t& req, response_t& res);
+};
+
 class UploadAction {
 public:
 	static bool run(request_t& req, response_t& res,
