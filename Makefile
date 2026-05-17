@@ -13,8 +13,7 @@ tools:
 	for platform in linux mac; do \
 		archive="$(TOOLS_DIR)/$$platform/ffmpeg.tgz"; \
 		ffmpeg="$(TOOLS_DIR)/$$platform/ffmpeg"; \
-		ffprobe="$(TOOLS_DIR)/$$platform/ffprobe"; \
-		if [ ! -f "$$ffmpeg" ] || [ ! -f "$$ffprobe" ]; then \
+		if [ ! -f "$$ffmpeg" ] ]; then \
 			if [ -f "$$archive" ]; then \
 				echo "Extracting $$archive ..."; \
 				tar -xzf "$$archive" -C "$(TOOLS_DIR)/$$platform"; \
