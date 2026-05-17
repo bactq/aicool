@@ -3169,7 +3169,7 @@
 
         resetStatus();
         try {
-          await fetchJson(withFolderPassword(api.del + '?file=' + file, parentFolderPathFromFilePath(name)), { method: 'POST' });
+          await fetchJson(withFolderPassword(api.del + '?file=' + file, parentFolderPathFromFilePath(name)));
           showStatus(isRecycleMode ? ('已彻底删除：' + name) : ('已移入回收站：' + name), 'warn');
           await loadFiles();
         } catch (err) {
