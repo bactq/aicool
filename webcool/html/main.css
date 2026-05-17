@@ -1226,6 +1226,26 @@
       flex-wrap: wrap;
     }
 
+    .folder-action-btn.icon-only {
+      width: 34px;
+      padding-left: 0;
+      padding-right: 0;
+      text-align: center;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .local-hidden-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #345372;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      user-select: none;
+    }
+
     table.file-table {
       width: 100%;
       border-collapse: collapse;
@@ -1252,16 +1272,25 @@
     .local-disk-table .local-folder-link {
       border: none;
       background: transparent;
-      color: #1e6fd9;
+      color: #111827;
       font: inherit;
       font-weight: 700;
       padding: 0;
       cursor: pointer;
       text-align: left;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
 
     .local-disk-table .local-folder-link:hover {
       text-decoration: underline;
+    }
+
+    .local-folder-icon {
+      flex: 0 0 auto;
+      font-size: 14px;
+      line-height: 1;
     }
 
     .file-actions-head {

@@ -23,6 +23,7 @@
         download: '/api/v1/download',
         localDiskList: '/api/v1/local-disk/list',
         localDiskDownload: '/api/v1/local-disk/download',
+        localDiskDelete: '/api/v1/local-disk/delete',
         reloadTpl: '/api/v1/admin/template/reload',
         convertVideo: '/api/v1/video/convert',
         convertCancel: '/api/v1/video/convert/cancel',
@@ -51,11 +52,14 @@
       const fileBulkDeleteAction = document.getElementById('file-bulk-delete-action');
       const fileViewContext = document.getElementById('file-view-context');
       const localDiskContext = document.getElementById('local-disk-context');
+      const localDiskHomeBtn = document.getElementById('local-disk-home-btn');
       const localDiskRootBtn = document.getElementById('local-disk-root-btn');
       const localDiskUpBtn = document.getElementById('local-disk-up-btn');
+      const localDiskShowHidden = document.getElementById('local-disk-show-hidden');
       const localDiskTable = document.getElementById('local-disk-table');
       const localDiskList = document.getElementById('local-disk-list');
       const localDiskEmpty = document.getElementById('local-disk-empty');
+      const localSortButtons = Array.from(document.querySelectorAll('.local-sort-btn[data-local-sort-key]'));
       const explorerShell = document.querySelector('.explorer-shell');
       const folderBrowser = document.querySelector('.folder-browser');
       const folderTree = document.getElementById('folder-tree');
@@ -100,6 +104,10 @@
       let activeFolderPath = '';
       let activeLocalDiskPath = '';
       let activeLocalDiskParentPath = '/';
+      let activeLocalDiskHomePath = '';
+      let activeLocalDiskItems = [];
+      let localDiskSortKey = 'name';
+      let localDiskSortOrder = 'asc';
       let activeDropFolderPath = null;
       let activeFolderAutoExpandPath = '';
       let folderAutoExpandTimer = null;
@@ -2530,7 +2538,9 @@
       }
 
       function renderLocalDiskItems(items) {
-        const list = Array.isArray(items) ? items : [];
+        activeLocalDiskItems = Array.isArray(items) ? items.slice() : [];
+        const list = activeLocalDiskItems.slice().sort(compareLocalDiskItems);
+        updateLocalDiskSortIndicator();
         if (localDiskContext) {
           localDiskContext.textContent = '当前路径：' + activeLocalDiskPath;
         }
@@ -2553,7 +2563,7 @@
           const encodedPath = encodeURIComponent(path);
           const isDir = !!(item && item.directory);
           const displayName = isDir
-            ? '<button type="button" class="local-folder-link" data-local-folder="' + encodedPath + '">' + escapeHtml(name) + '</button>'
+            ? '<button type="button" class="local-folder-link" data-local-folder="' + encodedPath + '"><span class="local-folder-icon">📁</span><span>' + escapeHtml(name) + '</span></button>'
             : '<a class="file-name" href="' + escapeHtml(localDiskDownloadUrl(path)) + '">' + escapeHtml(name) + '</a>';
           const previewBtn = !isDir && isImageName(name)
             ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
@@ -2567,27 +2577,61 @@
           const textBtn = !isDir && isTextName(name)
             ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">查看</button>'
             : '';
+          const deleteBtn = isDir
+            ? '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">删除</button>'
+            : '';
           return (
             '<tr>' +
               '<td>' + displayName + '</td>' +
               '<td>' + (isDir ? '文件夹' : '文件') + '</td>' +
               '<td>' + (isDir ? '-' : (formatNumber(Number(item.size || 0)) + ' 字节')) + '</td>' +
               '<td>' + escapeHtml((item && item.modified_time) || '-') + '</td>' +
-              '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + '</div></td>' +
+              '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + deleteBtn + '</div></td>' +
             '</tr>'
           );
         }).join('');
       }
 
+      function compareLocalDiskItems(a, b) {
+        const left = a || {};
+        const right = b || {};
+        let res = 0;
+        if (localDiskSortKey === 'type') {
+          res = (left.directory === right.directory)
+            ? String(left.name || '').localeCompare(String(right.name || ''), 'zh-CN')
+            : (left.directory ? -1 : 1);
+        } else if (localDiskSortKey === 'size') {
+          res = Number(left.size || 0) - Number(right.size || 0);
+        } else if (localDiskSortKey === 'modified_at') {
+          res = Number(left.modified_at || 0) - Number(right.modified_at || 0);
+        } else {
+          res = String(left.name || '').localeCompare(String(right.name || ''), 'zh-CN');
+        }
+        return localDiskSortOrder === 'desc' ? -res : res;
+      }
+
+      function updateLocalDiskSortIndicator() {
+        localSortButtons.forEach(function (btn) {
+          const key = btn.getAttribute('data-local-sort-key') || '';
+          const arrow = btn.querySelector('.arrow');
+          btn.classList.toggle('active', key === localDiskSortKey);
+          if (arrow) {
+            arrow.textContent = key === localDiskSortKey ? (localDiskSortOrder === 'desc' ? '↓' : '↑') : '-';
+          }
+        });
+      }
+
       async function loadLocalDisk(path) {
         const target = typeof path === 'string' ? path : (activeLocalDiskPath || '');
         try {
+          const showHidden = localDiskShowHidden && localDiskShowHidden.checked;
           const url = target
-            ? (api.localDiskList + '?path=' + encodeURIComponent(target))
-            : api.localDiskList;
+            ? (api.localDiskList + '?path=' + encodeURIComponent(target) + (showHidden ? '&show_hidden=1' : ''))
+            : (api.localDiskList + (showHidden ? '?show_hidden=1' : ''));
           const data = await fetchJson(url);
           activeLocalDiskPath = String(data.path || '/');
           activeLocalDiskParentPath = String(data.parent_path || '/');
+          activeLocalDiskHomePath = String(data.home_path || activeLocalDiskHomePath || '');
           renderLocalDiskItems(Array.isArray(data.items) ? data.items : []);
         } catch (err) {
           if (localDiskList) {
@@ -3104,6 +3148,12 @@
         }
       });
 
+      if (localDiskHomeBtn) {
+        localDiskHomeBtn.addEventListener('click', function () {
+          loadLocalDisk(activeLocalDiskHomePath || '');
+        });
+      }
+
       if (localDiskRootBtn) {
         localDiskRootBtn.addEventListener('click', function () {
           loadLocalDisk('/');
@@ -3116,12 +3166,50 @@
         });
       }
 
+      if (localDiskShowHidden) {
+        localDiskShowHidden.addEventListener('change', function () {
+          loadLocalDisk(activeLocalDiskPath || '');
+        });
+      }
+
+      localSortButtons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const nextKey = btn.getAttribute('data-local-sort-key') || 'name';
+          if (localDiskSortKey === nextKey) {
+            localDiskSortOrder = localDiskSortOrder === 'asc' ? 'desc' : 'asc';
+          } else {
+            localDiskSortKey = nextKey;
+            localDiskSortOrder = 'asc';
+          }
+          renderLocalDiskItems(activeLocalDiskItems);
+        });
+      });
+
       if (localDiskList) {
         localDiskList.addEventListener('click', function (e) {
           const folderBtn = e.target.closest('.local-folder-link[data-local-folder]');
           if (folderBtn) {
             const path = decodeURIComponent(folderBtn.getAttribute('data-local-folder') || '/');
             loadLocalDisk(path);
+            return;
+          }
+          const deleteBtn = e.target.closest('.local-delete-btn[data-local-delete]');
+          if (deleteBtn) {
+            const path = decodeURIComponent(deleteBtn.getAttribute('data-local-delete') || '');
+            if (!path) {
+              return;
+            }
+            if (!confirm('确认删除本地目录：' + path + ' ？仅允许删除空目录。')) {
+              return;
+            }
+            fetchJson(api.localDiskDelete + '?path=' + encodeURIComponent(path), { method: 'POST' })
+              .then(function () {
+                showStatus('本地目录已删除：' + path, 'warn');
+                loadLocalDisk(activeLocalDiskPath || '');
+              })
+              .catch(function (err) {
+                showStatus('删除本地目录失败：' + err.message, 'err');
+              });
             return;
           }
           const previewBtn = e.target.closest('.local-preview-btn[data-local-file][data-kind]');

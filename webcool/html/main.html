@@ -132,17 +132,38 @@
         <p class="sub">浏览服务器本机磁盘目录，支持图片预览、视频观影、音频听音和文本查看。</p>
         <div id="local-disk-context" class="file-view-context">当前路径：/</div>
         <div class="local-disk-toolbar">
+          <button id="local-disk-home-btn" class="folder-action-btn icon-only" type="button" title="当前用户目录" aria-label="当前用户目录">⌂</button>
           <button id="local-disk-root-btn" class="folder-action-btn" type="button">根目录</button>
           <button id="local-disk-up-btn" class="folder-action-btn" type="button">上一级</button>
+          <label class="local-hidden-toggle">
+            <input id="local-disk-show-hidden" type="checkbox">
+            <span>显示隐藏项</span>
+          </label>
         </div>
         <div class="file-table-wrap">
           <table class="file-table local-disk-table" id="local-disk-table">
             <thead>
               <tr>
-                <th>名称</th>
-                <th>类型</th>
-                <th>大小</th>
-                <th>修改时间</th>
+                <th>
+                  <button class="sort-btn local-sort-btn active" data-local-sort-key="name" type="button">
+                    名称 <span class="arrow">↑</span>
+                  </button>
+                </th>
+                <th>
+                  <button class="sort-btn local-sort-btn" data-local-sort-key="type" type="button">
+                    类型 <span class="arrow">-</span>
+                  </button>
+                </th>
+                <th>
+                  <button class="sort-btn local-sort-btn" data-local-sort-key="size" type="button">
+                    大小 <span class="arrow">-</span>
+                  </button>
+                </th>
+                <th>
+                  <button class="sort-btn local-sort-btn" data-local-sort-key="modified_at" type="button">
+                    修改时间 <span class="arrow">-</span>
+                  </button>
+                </th>
                 <th class="file-actions-head">操作</th>
               </tr>
             </thead>

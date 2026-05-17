@@ -40,6 +40,7 @@ private:
 	bool routeDownload(request_t& req, response_t& res);
 	bool routeLocalDiskList(request_t& req, response_t& res);
 	bool routeLocalDiskDownload(request_t& req, response_t& res);
+	bool routeLocalDiskDelete(request_t& req, response_t& res);
 	bool routeVideoConvert(request_t& req, response_t& res);
 	bool routeVideoConvertProgress(request_t& req, response_t& res);
 	bool routeVideoConvertTasks(request_t& req, response_t& res);
