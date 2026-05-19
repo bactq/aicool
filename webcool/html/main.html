@@ -135,12 +135,14 @@
           <button id="local-disk-home-btn" class="folder-action-btn icon-only" type="button" title="当前用户目录" aria-label="当前用户目录">⌂</button>
           <button id="local-disk-root-btn" class="folder-action-btn" type="button">根目录</button>
           <button id="local-disk-up-btn" class="folder-action-btn" type="button">上一级</button>
+          <button id="local-disk-view-table-btn" class="folder-action-btn local-disk-view-btn active" type="button" title="列表视图" aria-label="列表视图">☰ 列表</button>
+          <button id="local-disk-view-split-btn" class="folder-action-btn local-disk-view-btn" type="button" title="分栏视图" aria-label="分栏视图">⊟ 分栏</button>
           <label class="local-hidden-toggle">
             <input id="local-disk-show-hidden" type="checkbox">
             <span>显示隐藏项</span>
           </label>
         </div>
-        <div class="file-table-wrap">
+        <div class="file-table-wrap" id="local-disk-table-wrap">
           <table class="file-table local-disk-table" id="local-disk-table">
             <thead>
               <tr>
@@ -169,6 +171,46 @@
             </thead>
             <tbody id="local-disk-list"></tbody>
           </table>
+        </div>
+        <div class="local-disk-explorer" id="local-disk-explorer" hidden>
+          <aside class="local-disk-dir-browser">
+            <div class="folder-browser-head">
+              <h2>子目录</h2>
+            </div>
+            <div id="local-disk-dir-list" class="local-disk-dir-list"></div>
+            <p id="local-disk-dir-empty" class="folder-tree-empty">无子目录</p>
+          </aside>
+          <div class="local-disk-file-browser">
+            <div class="folder-browser-head">
+              <h2>当前目录文件</h2>
+            </div>
+            <div class="file-table-wrap">
+              <table class="file-table" id="local-disk-split-table">
+                <thead>
+                  <tr>
+                    <th>
+                      <button class="sort-btn local-sort-btn" data-local-sort-key="name" type="button">
+                        文件名 <span class="arrow">-</span>
+                      </button>
+                    </th>
+                    <th>
+                      <button class="sort-btn local-sort-btn" data-local-sort-key="size" type="button">
+                        大小 <span class="arrow">-</span>
+                      </button>
+                    </th>
+                    <th>
+                      <button class="sort-btn local-sort-btn" data-local-sort-key="modified_at" type="button">
+                        修改时间 <span class="arrow">-</span>
+                      </button>
+                    </th>
+                    <th class="file-actions-head">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="local-disk-split-list"></tbody>
+              </table>
+            </div>
+            <p id="local-disk-split-empty" class="empty">当前目录没有文件。</p>
+          </div>
         </div>
         <p id="local-disk-empty" class="empty">加载中...</p>
       </section>

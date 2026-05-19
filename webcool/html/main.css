@@ -1226,6 +1226,86 @@
       flex-wrap: wrap;
     }
 
+    .local-disk-view-btn.active {
+      background: #ddeeff;
+      border-color: #7aaed8;
+      color: #1a3f62;
+    }
+
+    .local-disk-explorer {
+      display: grid;
+      grid-template-columns: minmax(220px, 270px) minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .local-disk-dir-browser {
+      border: 1px solid #d8e5f2;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.82);
+      padding: 14px;
+      position: sticky;
+      top: 0;
+    }
+
+    .local-disk-file-browser {
+      border: 1px solid #d8e5f2;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.82);
+      min-height: 0;
+    }
+
+    .local-disk-file-browser .folder-browser-head {
+      padding: 14px 14px 0;
+    }
+
+    .local-disk-file-browser .file-table-wrap {
+      padding: 0;
+    }
+
+    .local-disk-dir-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .local-disk-dir-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      color: #233e58;
+      border: none;
+      background: transparent;
+      text-align: left;
+      width: 100%;
+      font-weight: 600;
+    }
+
+    .local-disk-dir-item:hover {
+      background: #eaf4ff;
+    }
+
+    .local-disk-dir-item .local-folder-icon {
+      flex-shrink: 0;
+    }
+
+    .local-disk-dir-item-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .local-disk-dir-item .local-delete-btn {
+      margin-left: auto;
+      flex-shrink: 0;
+      padding: 3px 7px;
+      font-size: 11px;
+    }
+
     .folder-action-btn.icon-only {
       width: 34px;
       padding-left: 0;
@@ -1396,7 +1476,15 @@
         grid-template-columns: 1fr;
       }
 
+      .local-disk-explorer {
+        grid-template-columns: 1fr;
+      }
+
       .folder-browser {
+        position: static;
+      }
+
+      .local-disk-dir-browser {
         position: static;
       }
 

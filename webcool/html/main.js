@@ -55,9 +55,18 @@
       const localDiskHomeBtn = document.getElementById('local-disk-home-btn');
       const localDiskRootBtn = document.getElementById('local-disk-root-btn');
       const localDiskUpBtn = document.getElementById('local-disk-up-btn');
+      const localDiskViewTableBtn = document.getElementById('local-disk-view-table-btn');
+      const localDiskViewSplitBtn = document.getElementById('local-disk-view-split-btn');
       const localDiskShowHidden = document.getElementById('local-disk-show-hidden');
+      const localDiskTableWrap = document.getElementById('local-disk-table-wrap');
       const localDiskTable = document.getElementById('local-disk-table');
       const localDiskList = document.getElementById('local-disk-list');
+      const localDiskExplorer = document.getElementById('local-disk-explorer');
+      const localDiskDirList = document.getElementById('local-disk-dir-list');
+      const localDiskDirEmpty = document.getElementById('local-disk-dir-empty');
+      const localDiskSplitTable = document.getElementById('local-disk-split-table');
+      const localDiskSplitList = document.getElementById('local-disk-split-list');
+      const localDiskSplitEmpty = document.getElementById('local-disk-split-empty');
       const localDiskEmpty = document.getElementById('local-disk-empty');
       const localSortButtons = Array.from(document.querySelectorAll('.local-sort-btn[data-local-sort-key]'));
       const explorerShell = document.querySelector('.explorer-shell');
@@ -108,6 +117,7 @@
       let activeLocalDiskItems = [];
       let localDiskSortKey = 'name';
       let localDiskSortOrder = 'asc';
+      let localDiskViewMode = 'table';
       let activeDropFolderPath = null;
       let activeFolderAutoExpandPath = '';
       let folderAutoExpandTimer = null;
@@ -2537,6 +2547,34 @@
         updateFileBulkActionButton();
       }
 
+      function buildLocalDiskFileRowHtml(item) {
+        const name = String((item && item.name) || '');
+        const path = String((item && item.path) || '');
+        const encodedPath = encodeURIComponent(path);
+        const displayName = '<a class="file-name" href="' + escapeHtml(localDiskDownloadUrl(path)) + '">' + escapeHtml(name) + '</a>';
+        const previewBtn = isImageName(name)
+          ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
+          : '';
+        const videoBtn = isVideoName(name)
+          ? '<button class="local-preview-btn video-btn" data-kind="video" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">观影</button>'
+          : '';
+        const audioBtn = isAudioName(name)
+          ? '<button class="local-preview-btn audio-btn" data-kind="audio" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">听音</button>'
+          : '';
+        const textBtn = isTextName(name)
+          ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">查看</button>'
+          : '';
+        const deleteBtn = '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">删除</button>';
+        return (
+          '<tr>' +
+            '<td>' + displayName + '</td>' +
+            '<td>' + (formatNumber(Number(item.size || 0)) + ' 字节') + '</td>' +
+            '<td>' + escapeHtml((item && item.modified_time) || '-') + '</td>' +
+            '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + deleteBtn + '</div></td>' +
+          '</tr>'
+        );
+      }
+
       function renderLocalDiskItems(items) {
         activeLocalDiskItems = Array.isArray(items) ? items.slice() : [];
         const list = activeLocalDiskItems.slice().sort(compareLocalDiskItems);
@@ -2544,6 +2582,15 @@
         if (localDiskContext) {
           localDiskContext.textContent = '当前路径：' + activeLocalDiskPath;
         }
+
+        if (localDiskViewMode === 'split') {
+          renderLocalDiskSplitView(list);
+        } else {
+          renderLocalDiskTableView(list);
+        }
+      }
+
+      function renderLocalDiskTableView(list) {
         if (!localDiskList || !localDiskTable || !localDiskEmpty) {
           return;
         }
@@ -2577,9 +2624,7 @@
           const textBtn = !isDir && isTextName(name)
             ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">查看</button>'
             : '';
-          const deleteBtn = isDir
-            ? '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">删除</button>'
-            : '';
+          const deleteBtn = '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">删除</button>';
           return (
             '<tr>' +
               '<td>' + displayName + '</td>' +
@@ -2590,6 +2635,46 @@
             '</tr>'
           );
         }).join('');
+      }
+
+      function renderLocalDiskSplitView(list) {
+        if (!localDiskDirList || !localDiskDirEmpty || !localDiskSplitList || !localDiskSplitTable || !localDiskSplitEmpty) {
+          return;
+        }
+        const dirs = list.filter(function (item) { return !!(item && item.directory); });
+        const files = list.filter(function (item) { return !(item && item.directory); });
+
+        // Render directories
+        if (dirs.length) {
+          localDiskDirEmpty.style.display = 'none';
+          localDiskDirList.innerHTML = dirs.map(function (item) {
+            const name = String((item && item.name) || '');
+            const path = String((item && item.path) || '');
+            const encodedPath = encodeURIComponent(path);
+            const deleteBtn = '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">删除</button>';
+            return '<button type="button" class="local-disk-dir-item" data-local-folder="' + encodedPath + '">' +
+              '<span class="local-folder-icon">📁</span>' +
+              '<span class="local-disk-dir-item-name">' + escapeHtml(name) + '</span>' +
+              deleteBtn +
+              '</button>';
+          }).join('');
+        } else {
+          localDiskDirList.innerHTML = '';
+          localDiskDirEmpty.style.display = 'block';
+        }
+
+        // Render files
+        if (files.length) {
+          localDiskSplitEmpty.style.display = 'none';
+          localDiskSplitTable.style.display = 'table';
+          localDiskSplitList.innerHTML = files.map(buildLocalDiskFileRowHtml).join('');
+        } else {
+          localDiskSplitList.innerHTML = '';
+          localDiskSplitTable.style.display = 'none';
+          localDiskSplitEmpty.style.display = 'block';
+        }
+
+        localDiskEmpty.style.display = 'none';
       }
 
       function compareLocalDiskItems(a, b) {
@@ -3166,6 +3251,36 @@
         });
       }
 
+      function setLocalDiskViewMode(mode) {
+        localDiskViewMode = mode === 'split' ? 'split' : 'table';
+        const isTable = localDiskViewMode === 'table';
+        if (localDiskViewTableBtn) {
+          localDiskViewTableBtn.classList.toggle('active', isTable);
+        }
+        if (localDiskViewSplitBtn) {
+          localDiskViewSplitBtn.classList.toggle('active', !isTable);
+        }
+        if (localDiskTableWrap) {
+          localDiskTableWrap.hidden = !isTable;
+        }
+        if (localDiskExplorer) {
+          localDiskExplorer.hidden = isTable;
+        }
+        renderLocalDiskItems(activeLocalDiskItems);
+      }
+
+      if (localDiskViewTableBtn) {
+        localDiskViewTableBtn.addEventListener('click', function () {
+          setLocalDiskViewMode('table');
+        });
+      }
+
+      if (localDiskViewSplitBtn) {
+        localDiskViewSplitBtn.addEventListener('click', function () {
+          setLocalDiskViewMode('split');
+        });
+      }
+
       if (localDiskShowHidden) {
         localDiskShowHidden.addEventListener('change', function () {
           loadLocalDisk(activeLocalDiskPath || '');
@@ -3186,47 +3301,53 @@
       });
 
       if (localDiskList) {
-        localDiskList.addEventListener('click', function (e) {
-          const folderBtn = e.target.closest('.local-folder-link[data-local-folder]');
-          if (folderBtn) {
-            const path = decodeURIComponent(folderBtn.getAttribute('data-local-folder') || '/');
-            loadLocalDisk(path);
-            return;
-          }
-          const deleteBtn = e.target.closest('.local-delete-btn[data-local-delete]');
-          if (deleteBtn) {
-            const path = decodeURIComponent(deleteBtn.getAttribute('data-local-delete') || '');
-            if (!path) {
-              return;
-            }
-            if (!confirm('确认删除本地目录：' + path + ' ？仅允许删除空目录。')) {
-              return;
-            }
-            fetchJson(api.localDiskDelete + '?path=' + encodeURIComponent(path), { method: 'POST' })
-              .then(function () {
-                showStatus('本地目录已删除：' + path, 'warn');
-                loadLocalDisk(activeLocalDiskPath || '');
-              })
-              .catch(function (err) {
-                showStatus('删除本地目录失败：' + err.message, 'err');
-              });
-            return;
-          }
-          const previewBtn = e.target.closest('.local-preview-btn[data-local-file][data-kind]');
-          if (!previewBtn) {
-            return;
-          }
-          const path = decodeURIComponent(previewBtn.getAttribute('data-local-file') || '');
-          const kind = previewBtn.getAttribute('data-kind') || 'image';
-          if (!path) {
-            return;
-          }
-          openPreview(kind, encodeURIComponent(path), path, {
-            local: true,
-            url: localDiskDownloadUrl(path),
-            previewKey: 'local:' + path
-          });
+        localDiskList.addEventListener('click', handleLocalDiskClickEvent);
+      }
+
+      function handleLocalDiskClickEvent(e) {
+        const folderBtn = e.target.closest('[data-local-folder]');
+        if (folderBtn && !e.target.closest('.local-delete-btn')) {
+          const path = decodeURIComponent(folderBtn.getAttribute('data-local-folder') || '/');
+          loadLocalDisk(path);
+          return;
+        }
+        const deleteBtn = e.target.closest('.local-delete-btn[data-local-delete]');
+        if (deleteBtn) {
+          e.stopPropagation();
+          const path = decodeURIComponent(deleteBtn.getAttribute('data-local-delete') || '');
+          if (!path) { return; }
+          const parentRow = deleteBtn.closest('tr');
+          const isDir = parentRow
+            ? (parentRow.querySelector('td:nth-child(2)') && parentRow.querySelector('td:nth-child(2)').textContent === '文件夹')
+            : deleteBtn.closest('.local-disk-dir-item') !== null;
+          const confirmMsg = isDir
+            ? '确认删除本地目录：' + path + ' ？仅允许删除空目录。'
+            : '确认删除本地文件：' + path + ' ？';
+          if (!confirm(confirmMsg)) { return; }
+          fetchJson(api.localDiskDelete + '?path=' + encodeURIComponent(path), { method: 'POST' })
+            .then(function () {
+              showStatus((isDir ? '本地目录已删除：' : '本地文件已删除：') + path, 'warn');
+              loadLocalDisk(activeLocalDiskPath || '');
+            })
+            .catch(function (err) {
+              showStatus('删除失败：' + err.message, 'err');
+            });
+          return;
+        }
+        const previewBtn = e.target.closest('.local-preview-btn[data-local-file][data-kind]');
+        if (!previewBtn) { return; }
+        const path = decodeURIComponent(previewBtn.getAttribute('data-local-file') || '');
+        const kind = previewBtn.getAttribute('data-kind') || 'image';
+        if (!path) { return; }
+        openPreview(kind, encodeURIComponent(path), path, {
+          local: true,
+          url: localDiskDownloadUrl(path),
+          previewKey: 'local:' + path
         });
+      }
+
+      if (localDiskExplorer) {
+        localDiskExplorer.addEventListener('click', handleLocalDiskClickEvent);
       }
 
       sortKey.addEventListener('change', function () {

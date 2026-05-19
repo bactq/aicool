@@ -296,8 +296,14 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res)
 	}
 
 	struct stat st;
-	if (stat(path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
-		json_error(res, 404, "directory not found", req.isKeepAlive());
+	if (stat(path.c_str(), &st) != 0) {
+		json_error(res, 404, "path not found", req.isKeepAlive());
+		return true;
+	}
+	const bool is_dir = S_ISDIR(st.st_mode);
+	const bool is_file = S_ISREG(st.st_mode);
+	if (!is_dir && !is_file) {
+		json_error(res, 400, "only files and directories can be deleted", req.isKeepAlive());
 		return true;
 	}
 	if (path == "/") {
@@ -305,18 +311,25 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res)
 		return true;
 	}
 
-	if (::rmdir(path.c_str()) != 0) {
-		json_error(res, errno == ENOTEMPTY ? 409 : 500,
-			errno == ENOTEMPTY ? "directory is not empty" : strerror(errno),
-			req.isKeepAlive());
-		return true;
+	if (is_dir) {
+		if (::rmdir(path.c_str()) != 0) {
+			json_error(res, errno == ENOTEMPTY ? 409 : 500,
+				errno == ENOTEMPTY ? "directory is not empty" : strerror(errno),
+				req.isKeepAlive());
+			return true;
+		}
+	} else {
+		if (::unlink(path.c_str()) != 0) {
+			json_error(res, 500, strerror(errno), req.isKeepAlive());
+			return true;
+		}
 	}
 
 	acl::json json;
 	acl::json_node& root = json.create_node();
 	root.add_bool("ok", true);
 	root.add_text("path", path.c_str());
-	root.add_text("message", "directory deleted");
+	root.add_text("message", is_dir ? "directory deleted" : "file deleted");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
