@@ -710,19 +710,20 @@ bool VideoConvertAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
-	const char* basename = acl_safe_basename(file);
-	if (basename == NULL || *basename == '\0' || strcmp(basename, file) != 0) {
-		json_error(res, 400, "invalid file name", req.isKeepAlive());
+	std::string file_path;
+	std::string path_err;
+	if (!normalize_relative_path(file, file_path, path_err, false)) {
+		json_error(res, 400, path_err.c_str(), req.isKeepAlive());
 		return true;
 	}
 
-	if (!is_video_name(basename)) {
+	const std::string basename = base_name_from_relative_path(file_path);
+	if (!is_video_name(basename.c_str())) {
 		json_error(res, 400, "file is not a supported video", req.isKeepAlive());
 		return true;
 	}
 
-	acl::string in_path;
-	in_path.format("%s/%s", upload_dir.c_str(), basename);
+	const std::string in_path = join_upload_path(upload_dir, file_path);
 	if (file_size_of(in_path.c_str()) <= 0) {
 		json_error(res, 404, "source video not found", req.isKeepAlive());
 		return true;
@@ -742,7 +743,7 @@ bool VideoConvertAction::run(request_t& req, response_t& res,
 		root.add_bool("started", false);
 		root.add_bool("completed", true);
 		root.add_bool("playable", true);
-		root.add_text("name", basename);
+		root.add_text("name", file_path.c_str());
 		root.add_text("message", "video already playable");
 		return sendJson(res, 200, root, req.isKeepAlive());
 	}
@@ -750,7 +751,7 @@ bool VideoConvertAction::run(request_t& req, response_t& res,
 	{
 		std::lock_guard<std::mutex> guard(g_transcode_mutex);
 		std::map<std::string, std::string>::iterator it =
-			g_running_task_by_file.find(basename);
+			g_running_task_by_file.find(file_path);
 		if (it != g_running_task_by_file.end()) {
 			std::map<std::string, std::shared_ptr<transcode_task_t> >::iterator task_it =
 				g_transcode_tasks.find(it->second);
@@ -770,9 +771,8 @@ bool VideoConvertAction::run(request_t& req, response_t& res,
 		}
 	}
 
-	std::string output_name = make_unique_transcoded_name(upload_dir, basename);
-	acl::string out_path;
-	out_path.format("%s/%s", upload_dir.c_str(), output_name.c_str());
+	std::string output_name = make_unique_transcoded_name(upload_dir, file_path);
+	const std::string out_path = join_upload_path(upload_dir, output_name);
 
 	acl::string tmp_path;
 	tmp_path.format("%s/.transcoding_tmp.%u.%lu.mp4", upload_dir.c_str(),
@@ -780,7 +780,7 @@ bool VideoConvertAction::run(request_t& req, response_t& res,
 
 	std::shared_ptr<transcode_task_t> task(new transcode_task_t);
 	task->id = make_task_id();
-	task->file_name = basename;
+	task->file_name = file_path;
 	task->output_name = output_name;
 	task->message = "等待后台转码";
 
@@ -790,9 +790,9 @@ bool VideoConvertAction::run(request_t& req, response_t& res,
 		g_running_task_by_file[task->file_name] = task->id;
 	}
 
-	const std::string input_path(in_path.c_str());
+	const std::string input_path(in_path);
 	const std::string temp_path(tmp_path.c_str());
-	const std::string output_path(out_path.c_str());
+	const std::string output_path(out_path);
 
 	// Probe transcode strategy before starting
 	transcode_strategy_t strategy;

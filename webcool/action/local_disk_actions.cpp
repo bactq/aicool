@@ -44,6 +44,7 @@ struct local_import_task_t {
 	std::string message;
 	std::string error;
 	std::vector<std::string> names;
+	std::vector<std::string> remote_paths;
 	std::vector<long long> sizes;
 	std::vector<long long> copied_sizes;
 	std::vector<std::string> file_states;
@@ -500,6 +501,7 @@ static void run_local_import_task(const std::string& task_id,
 	for (size_t i = 0; i < files.size(); ++i) {
 		task.total_bytes += files[i].size;
 		task.names.push_back(files[i].name);
+		task.remote_paths.push_back("");
 		task.sizes.push_back(files[i].size);
 		task.copied_sizes.push_back(0);
 		task.file_states.push_back("pending");
@@ -520,6 +522,8 @@ static void run_local_import_task(const std::string& task_id,
 			update_local_import_task(task_id, task);
 			return;
 		}
+		task.remote_paths[i] = relative_path;
+		update_local_import_task(task_id, task);
 
 		std::string err;
 		if (!copy_regular_file_with_progress(files[i].source, dest,
@@ -1137,11 +1141,15 @@ bool LocalDiskImportProgressAction::run(request_t& req, response_t& res)
 		const long long size = i < task.sizes.size() ? task.sizes[i] : 0;
 		const long long copied = i < task.copied_sizes.size() ? task.copied_sizes[i] : 0;
 		const std::string state = i < task.file_states.size() ? task.file_states[i] : "";
+		const std::string remote_path = i < task.remote_paths.size() ? task.remote_paths[i] : "";
 		const double file_progress = size > 0
 			? ((double) copied * 100.0 / (double) size)
 			: (state == "done" ? 100.0 : 0.0);
 		item.add_text("name", task.names[i].c_str());
+		item.add_text("path", remote_path.c_str());
+		item.add_text("remote_path", remote_path.c_str());
 		item.add_text("state", state.c_str());
+		item.add_bool("saved", state == "done");
 		item.add_number("size", size);
 		item.add_number("copied", copied);
 		item.add_number("progress", file_progress);

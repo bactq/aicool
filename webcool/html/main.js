@@ -2583,6 +2583,10 @@
           clearLocalDiskSelection();
           await loadFiles();
           showStatus('已上传 ' + Number(data.saved_count || 0) + ' 个本地文件到远程磁盘', 'ok');
+          const videoProbeFails = await verifyUploadedVideos(data.files);
+          if (videoProbeFails.length) {
+            showManualTranscodePrompt(videoProbeFails);
+          }
         } catch (err) {
           failLocalImportProgress('上传失败：' + err.message);
           showStatus('上传本地文件失败：' + err.message, 'err');
