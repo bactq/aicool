@@ -1251,6 +1251,21 @@
       cursor: not-allowed;
     }
 
+    .transcode-confirm-btn {
+      border: 1px solid #0d8b74;
+      background: #e5f7f3;
+      color: #0d6f5d;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .transcode-confirm-btn:hover {
+      background: #d4f0ea;
+    }
+
     .transcode-progress {
       width: 180px;
       height: 8px;

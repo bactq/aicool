@@ -1709,6 +1709,7 @@
                   '<div class="transcode-actions">' +
                     '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '">确认转码</button>' +
                     '<button type="button" class="transcode-cancel-btn" data-cancel-file="' + encoded + '" disabled>取消转码</button>' +
+                    '<button type="button" class="transcode-confirm-btn" data-confirm-transcode="' + encoded + '" hidden>确认</button>' +
                     '<div class="transcode-progress"><div class="transcode-progress-fill" data-progress-fill="' + encoded + '"></div></div>' +
                     '<span class="transcode-progress-text" data-progress-text="' + encoded + '">等待确认</span>' +
                   '</div>' +
@@ -1768,11 +1769,27 @@
         const opts = options || {};
         const startBtn = statusBox.querySelector('[data-transcode-file="' + encodedName + '"]');
         const cancelBtn = statusBox.querySelector('[data-cancel-file="' + encodedName + '"]');
+        const confirmBtn = statusBox.querySelector('[data-confirm-transcode="' + encodedName + '"]');
         if (startBtn && typeof opts.startDisabled === 'boolean') {
           startBtn.disabled = opts.startDisabled;
         }
         if (cancelBtn && typeof opts.cancelDisabled === 'boolean') {
           cancelBtn.disabled = opts.cancelDisabled;
+        }
+        if (confirmBtn && typeof opts.confirmVisible === 'boolean') {
+          confirmBtn.hidden = !opts.confirmVisible;
+        }
+      }
+
+      function dismissTranscodeItem(encodedName) {
+        stopTranscodePolling(encodedName);
+        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
+        if (item && item.parentNode) {
+          item.parentNode.removeChild(item);
+        }
+        if (!statusBox.querySelector('[data-transcode-item]')) {
+          statusBox.className = 'status';
+          statusBox.textContent = '';
         }
       }
 
@@ -1808,6 +1825,7 @@
               '<div class="transcode-actions">' +
                 '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '" disabled>确认转码</button>' +
                 '<button type="button" class="transcode-cancel-btn" data-cancel-file="' + encoded + '">取消转码</button>' +
+                '<button type="button" class="transcode-confirm-btn" data-confirm-transcode="' + encoded + '" hidden>确认</button>' +
                 '<div class="transcode-progress"><div class="transcode-progress-fill" data-progress-fill="' + encoded + '"></div></div>' +
                 '<span class="transcode-progress-text" data-progress-text="' + encoded + '"></span>' +
               '</div>' +
@@ -1885,7 +1903,7 @@
               setTranscodeVisualState(encodedName, 'done');
               updateTranscodeProgress(encodedName, 100, '已完成');
               setTranscodeReason(encodedName, '状态：已完成，输出文件 ' + String(data.name || decodeURIComponent(encodedName)));
-              setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true });
+              setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true, confirmVisible: true });
               await loadFiles();
             } else {
               const cancelled = data.cancel_requested || String(data.message || '').indexOf('取消') >= 0;
@@ -1945,7 +1963,7 @@
             setTranscodeVisualState(encodedName, 'done');
             updateTranscodeProgress(encodedName, 100, '无需转码');
             setTranscodeReason(encodedName, '状态：文件已经可直接播放');
-            setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true });
+            setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true, confirmVisible: true });
             return;
           }
 
@@ -4195,6 +4213,15 @@
           const encoded = cancelBtn.getAttribute('data-cancel-file');
           if (encoded) {
             cancelManualTranscode(encoded);
+          }
+          return;
+        }
+
+        const confirmBtn = e.target.closest('.transcode-confirm-btn[data-confirm-transcode]');
+        if (confirmBtn && !confirmBtn.hidden) {
+          const encoded = confirmBtn.getAttribute('data-confirm-transcode');
+          if (encoded) {
+            dismissTranscodeItem(encoded);
           }
         }
       });
