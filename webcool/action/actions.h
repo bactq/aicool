@@ -106,6 +106,11 @@ public:
 	static bool run(request_t& req, response_t& res);
 };
 
+class LocalDiskOpenTrashAction {
+public:
+	static bool run(request_t& req, response_t& res);
+};
+
 class UploadAction {
 public:
 	static bool run(request_t& req, response_t& res,

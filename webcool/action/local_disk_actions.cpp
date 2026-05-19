@@ -4,8 +4,10 @@
 #include <dirent.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -158,6 +160,197 @@ static bool is_system_level_directory_path(const std::string& path)
 	return false;
 }
 
+static void format_time(time_t ts, char* buf, size_t size);
+
+static bool ensure_directory(const std::string& path, std::string& err)
+{
+	struct stat st;
+	if (stat(path.c_str(), &st) == 0) {
+		if (S_ISDIR(st.st_mode)) {
+			return true;
+		}
+		err = "trash path exists but is not a directory";
+		return false;
+	}
+	if (::mkdir(path.c_str(), 0700) != 0 && errno != EEXIST) {
+		err = strerror(errno);
+		return false;
+	}
+	return true;
+}
+
+static bool current_trash_files_path(std::string& path, std::string& err)
+{
+	err.clear();
+	path.clear();
+	const std::string home = current_home_path();
+	if (home.empty() || home == "/") {
+		err = "user home directory not found";
+		return false;
+	}
+
+#ifdef __APPLE__
+	path = join_local_path(home, ".Trash");
+	return ensure_directory(path, err);
+#else
+	const std::string trash_root = join_local_path(home, ".local");
+	const std::string share_dir = join_local_path(trash_root, "share");
+	const std::string trash_dir = join_local_path(share_dir, "Trash");
+	const std::string files_dir = join_local_path(trash_dir, "files");
+	const std::string info_dir = join_local_path(trash_dir, "info");
+	if (!ensure_directory(trash_root, err)
+		|| !ensure_directory(share_dir, err)
+		|| !ensure_directory(trash_dir, err)
+		|| !ensure_directory(files_dir, err)
+		|| !ensure_directory(info_dir, err))
+	{
+		return false;
+	}
+	path = files_dir;
+	return true;
+#endif
+}
+
+static bool is_current_trash_files_path(const std::string& path)
+{
+	std::string trash_path;
+	std::string err;
+	return current_trash_files_path(trash_path, err) && path == trash_path;
+}
+
+static std::string unique_child_path(const std::string& parent,
+	const std::string& name)
+{
+	std::string dest = join_local_path(parent, name.c_str());
+	struct stat st;
+	if (stat(dest.c_str(), &st) != 0 && errno == ENOENT) {
+		return dest;
+	}
+	for (int i = 1; i < 10000; ++i) {
+		const std::string candidate = join_local_path(parent,
+			(name + "." + std::to_string(i)).c_str());
+		if (stat(candidate.c_str(), &st) != 0 && errno == ENOENT) {
+			return candidate;
+		}
+	}
+	return "";
+}
+
+static bool move_file_to_trash(const std::string& path, std::string& trash_path,
+	std::string& err)
+{
+	err.clear();
+	trash_path.clear();
+	const std::string home = current_home_path();
+	if (home.empty() || home == "/") {
+		err = "user home directory not found";
+		return false;
+	}
+
+#ifdef __APPLE__
+	std::string trash_dir;
+	if (!current_trash_files_path(trash_dir, err)) {
+		return false;
+	}
+	trash_path = unique_child_path(trash_dir, local_base_name(path));
+	if (trash_path.empty()) {
+		err = "cannot create unique trash file name";
+		return false;
+	}
+	if (::rename(path.c_str(), trash_path.c_str()) != 0) {
+		err = errno == EXDEV
+			? "cannot move file to Trash across different file systems"
+			: strerror(errno);
+		return false;
+	}
+	return true;
+#else
+	const auto write_trash_info_file = [](const std::string& info_path,
+		const std::string& original_path, std::string& info_err) -> bool
+	{
+		FILE* fp = fopen(info_path.c_str(), "w");
+		if (fp == NULL) {
+			info_err = strerror(errno);
+			return false;
+		}
+
+		char time_buf[32];
+		format_time(time(NULL), time_buf, sizeof(time_buf));
+		if (fprintf(fp, "[Trash Info]\nPath=%s\nDeletionDate=%s\n",
+			original_path.c_str(), time_buf) < 0)
+		{
+			info_err = strerror(errno);
+			fclose(fp);
+			return false;
+		}
+		if (fclose(fp) != 0) {
+			info_err = strerror(errno);
+			return false;
+		}
+		return true;
+	};
+
+	std::string files_dir;
+	if (!current_trash_files_path(files_dir, err)) {
+		return false;
+	}
+	const std::string info_dir = join_local_path(parent_path(files_dir), "info");
+	trash_path = unique_child_path(files_dir, local_base_name(path));
+	if (trash_path.empty()) {
+		err = "cannot create unique trash file name";
+		return false;
+	}
+	if (::rename(path.c_str(), trash_path.c_str()) != 0) {
+		err = errno == EXDEV
+			? "cannot move file to Trash across different file systems"
+			: strerror(errno);
+		return false;
+	}
+	const std::string info_name = local_base_name(trash_path) + ".trashinfo";
+	if (!write_trash_info_file(join_local_path(info_dir, info_name.c_str()),
+		path, err))
+	{
+		return false;
+	}
+	return true;
+#endif
+}
+
+static bool run_open_command(std::string& err)
+{
+	err.clear();
+	pid_t pid = fork();
+	if (pid < 0) {
+		err = strerror(errno);
+		return false;
+	}
+	if (pid == 0) {
+#ifdef __APPLE__
+		std::string trash_path;
+		std::string trash_err;
+		if (!current_trash_files_path(trash_path, trash_err)) {
+			_exit(127);
+		}
+		execlp("open", "open", trash_path.c_str(), (char*) NULL);
+#else
+		execlp("gio", "gio", "open", "trash:///", (char*) NULL);
+		execlp("xdg-open", "xdg-open", "trash:///", (char*) NULL);
+#endif
+		_exit(127);
+	}
+
+	int status = 0;
+	if (waitpid(pid, &status, 0) < 0) {
+		err = strerror(errno);
+		return false;
+	}
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+		err = "failed to open system Trash";
+		return false;
+	}
+	return true;
+}
+
 static bool validate_local_name(const std::string& name, std::string& err) {
 	err.clear();
 	if (name.empty()) {
@@ -281,6 +474,16 @@ bool LocalDiskListAction::run(request_t& req, response_t& res)
 
 	DIR* dir = opendir(path.c_str());
 	if (dir == NULL) {
+#ifdef __APPLE__
+		if ((errno == EPERM || errno == EACCES)
+			&& is_current_trash_files_path(path))
+		{
+			json_error(res, 403,
+				"macOS blocked access to Trash. Please grant Full Disk Access to the program or terminal that starts webcool, then restart webcool.",
+				req.isKeepAlive());
+			return true;
+		}
+#endif
 		json_error(res, 403, strerror(errno), req.isKeepAlive());
 		return true;
 	}
@@ -336,6 +539,10 @@ bool LocalDiskListAction::run(request_t& req, response_t& res)
 	root.add_text("path", path.c_str());
 	root.add_text("parent_path", parent_path(path).c_str());
 	root.add_text("home_path", current_home_path().c_str());
+	std::string trash_path;
+	if (current_trash_files_path(trash_path, err)) {
+		root.add_text("trash_path", trash_path.c_str());
+	}
 	acl::json_node& items = json.create_array();
 	root.add_child("items", items);
 	for (size_t i = 0; i < entries.size(); ++i) {
@@ -423,6 +630,7 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res)
 		return true;
 	}
 
+	std::string trash_path;
 	if (is_dir) {
 		if (::rmdir(path.c_str()) != 0) {
 			json_error(res, errno == ENOTEMPTY ? 409 : 500,
@@ -431,8 +639,8 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res)
 			return true;
 		}
 	} else {
-		if (::unlink(path.c_str()) != 0) {
-			json_error(res, 500, strerror(errno), req.isKeepAlive());
+		if (!move_file_to_trash(path, trash_path, err)) {
+			json_error(res, 500, err.c_str(), req.isKeepAlive());
 			return true;
 		}
 	}
@@ -441,7 +649,10 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res)
 	acl::json_node& root = json.create_node();
 	root.add_bool("ok", true);
 	root.add_text("path", path.c_str());
-	root.add_text("message", is_dir ? "directory deleted" : "file deleted");
+	if (!is_dir) {
+		root.add_text("trash_path", trash_path.c_str());
+	}
+	root.add_text("message", is_dir ? "directory deleted" : "file moved to trash");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
@@ -581,6 +792,21 @@ bool LocalDiskMoveAction::run(request_t& req, response_t& res)
 	root.add_text("old_path", source.c_str());
 	root.add_text("target", target.c_str());
 	root.add_text("message", source_is_dir ? "directory moved" : "file moved");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool LocalDiskOpenTrashAction::run(request_t& req, response_t& res)
+{
+	std::string err;
+	if (!run_open_command(err)) {
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("message", "system Trash opened");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 

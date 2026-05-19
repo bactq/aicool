@@ -1394,6 +1394,13 @@
       vertical-align: middle;
     }
 
+    .local-disk-name-head {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+
     .local-disk-dir-item .local-folder-icon {
       flex-shrink: 0;
     }
