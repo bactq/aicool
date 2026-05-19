@@ -2,6 +2,7 @@
 #include "action_util.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -68,6 +69,60 @@ static const char* g_default_image_tag_id = "builtin_image";
 static const char* g_default_video_tag_name = "视频";
 static const char* g_default_audio_tag_name = "音频";
 static const char* g_default_image_tag_name = "图片";
+static const char* g_local_tag_file_prefix = "local:";
+
+static bool is_local_tag_file_name(const std::string& file_name)
+{
+	return file_name.compare(0, strlen(g_local_tag_file_prefix),
+		g_local_tag_file_prefix) == 0;
+}
+
+static std::string local_tag_storage_name(const std::string& path)
+{
+	return std::string(g_local_tag_file_prefix) + path;
+}
+
+static std::string local_tag_path_from_storage_name(const std::string& name)
+{
+	return is_local_tag_file_name(name)
+		? name.substr(strlen(g_local_tag_file_prefix))
+		: name;
+}
+
+static bool normalize_existing_local_file_path(const char* input,
+	std::string& out, std::string& err)
+{
+	err.clear();
+	if (input == NULL || *input == '\0') {
+		err = "missing local file";
+		return false;
+	}
+	if (input[0] != '/') {
+		err = "absolute path is required";
+		return false;
+	}
+	char resolved[PATH_MAX];
+	if (realpath(input, resolved) == NULL) {
+		err = strerror(errno);
+		return false;
+	}
+	struct stat st;
+	if (stat(resolved, &st) != 0 || !S_ISREG(st.st_mode)) {
+		err = "file not found";
+		return false;
+	}
+	out = resolved;
+	return true;
+}
+
+static std::string local_parent_path(const std::string& path)
+{
+	std::string::size_type pos = path.rfind('/');
+	if (pos == std::string::npos || pos == 0) {
+		return "/";
+	}
+	return path.substr(0, pos);
+}
 
 static void json_error(response_t& res, int status, const char* msg,
 	bool keep_alive)
@@ -1117,15 +1172,27 @@ bool TagBindAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
+	const bool is_local_file = req.getParameter("local") != NULL
+		&& strcmp(req.getParameter("local"), "1") == 0;
 	std::string file_path;
-	if (!normalize_relative_path(file, file_path, db_err, false)) {
-		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
-		return true;
-	}
+	std::string stored_file_name;
+	if (is_local_file) {
+		if (!normalize_existing_local_file_path(file, file_path, db_err)) {
+			json_error(res, 400, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+		stored_file_name = local_tag_storage_name(file_path);
+	} else {
+		if (!normalize_relative_path(file, file_path, db_err, false)) {
+			json_error(res, 400, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
 
-	if (!file_exists_in_upload_dir(upload_dir, file_path.c_str())) {
-		json_error(res, 404, "file not found", req.isKeepAlive());
-		return true;
+		if (!file_exists_in_upload_dir(upload_dir, file_path.c_str())) {
+			json_error(res, 404, "file not found", req.isKeepAlive());
+			return true;
+		}
+		stored_file_name = file_path;
 	}
 
 	{
@@ -1180,7 +1247,7 @@ bool TagBindAction::run(request_t& req, response_t& res,
 			" ON CONFLICT(tag_id, file_name) DO UPDATE SET"
 			" updated_at=excluded.updated_at")
 			.set_parameter("tag_id", tag_id.c_str())
-			.set_parameter("file_name", file_path.c_str());
+			.set_parameter("file_name", stored_file_name.c_str());
 		if (!db.exec_update(query)) {
 			json_error(res, 500, db.get_error(), req.isKeepAlive());
 			return true;
@@ -1192,6 +1259,7 @@ bool TagBindAction::run(request_t& req, response_t& res,
 	root.add_bool("ok", true);
 	root.add_text("tag_id", tag_id.c_str());
 	root.add_text("file", file_path.c_str());
+	root.add_bool("local", is_local_file);
 	root.add_text("message", "file bound to tag");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
@@ -1217,10 +1285,22 @@ bool TagUnbindAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
+	const bool is_local_file = req.getParameter("local") != NULL
+		&& strcmp(req.getParameter("local"), "1") == 0;
 	std::string file_path;
-	if (!normalize_relative_path(file, file_path, db_err, false)) {
-		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
-		return true;
+	std::string stored_file_name;
+	if (is_local_file) {
+		if (!normalize_existing_local_file_path(file, file_path, db_err)) {
+			json_error(res, 400, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+		stored_file_name = local_tag_storage_name(file_path);
+	} else {
+		if (!normalize_relative_path(file, file_path, db_err, false)) {
+			json_error(res, 400, db_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+		stored_file_name = file_path;
 	}
 
 	{
@@ -1234,7 +1314,7 @@ bool TagUnbindAction::run(request_t& req, response_t& res,
 		acl::query query;
 		query.create("DELETE FROM file_tag_rel WHERE tag_id=:tag_id AND file_name=:file_name")
 			.set_parameter("tag_id", tag_id.c_str())
-			.set_parameter("file_name", file_path.c_str());
+			.set_parameter("file_name", stored_file_name.c_str());
 		if (!db.exec_update(query)) {
 			json_error(res, 500, db.get_error(), req.isKeepAlive());
 			return true;
@@ -1246,6 +1326,7 @@ bool TagUnbindAction::run(request_t& req, response_t& res,
 	root.add_bool("ok", true);
 	root.add_text("tag_id", tag_id.c_str());
 	root.add_text("file", file_path.c_str());
+	root.add_bool("local", is_local_file);
 	root.add_text("message", "file unbound from tag");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
@@ -1316,11 +1397,14 @@ bool TagFilesAction::run(request_t& req, response_t& res,
 
 	for (size_t i = 0; i < file_names.size(); ++i) {
 		std::string file_path;
-		if (!normalize_relative_path(file_names[i].c_str(), file_path, db_err, false)) {
+		const bool is_local_file = is_local_tag_file_name(file_names[i]);
+		if (is_local_file) {
+			file_path = local_tag_path_from_storage_name(file_names[i]);
+		} else if (!normalize_relative_path(file_names[i].c_str(), file_path, db_err, false)) {
 			continue;
 		}
 
-		const std::string full = join_upload_path(upload_dir, file_path);
+		const std::string full = is_local_file ? file_path : join_upload_path(upload_dir, file_path);
 		struct stat st;
 		if (stat(full.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
 			continue;
@@ -1340,7 +1424,8 @@ bool TagFilesAction::run(request_t& req, response_t& res,
 		acl::json_node& item = files.add_child(false, true);
 		item.add_text("name", base_name_from_relative_path(file_path).c_str());
 		item.add_text("path", file_path.c_str());
-		item.add_text("folder_path", parent_relative_path(file_path).c_str());
+		item.add_text("folder_path", (is_local_file ? local_parent_path(file_path) : parent_relative_path(file_path)).c_str());
+		item.add_bool("local", is_local_file);
 		item.add_number("size", fsize);
 		item.add_number("uploaded_at", (long long) st.st_mtime);
 		item.add_text("uploaded_time", uploaded_time);

@@ -79,7 +79,9 @@
       const localDiskSplitList = document.getElementById('local-disk-split-list');
       const localDiskSplitEmpty = document.getElementById('local-disk-split-empty');
       const localDiskSelectAll = document.getElementById('local-disk-select-all');
+      const localDiskBulkTagBtn = document.getElementById('local-disk-bulk-tag-btn');
       const localDiskBulkRemoveBtn = document.getElementById('local-disk-bulk-remove-btn');
+      const localDiskTableBulkTagBtn = document.getElementById('local-disk-table-bulk-tag-btn');
       const localDiskEmpty = document.getElementById('local-disk-empty');
       const localSortButtons = Array.from(document.querySelectorAll('.local-sort-btn[data-local-sort-key]'));
       const explorerShell = document.querySelector('.explorer-shell');
@@ -1644,11 +1646,12 @@
       }
 
       async function openFileTagMenu(button, fileName) {
-        return openFilesTagMenu(button, [fileName]);
+        return openFilesTagMenu(button, [fileName], {});
       }
 
-      async function openFilesTagMenu(button, fileNames) {
+      async function openFilesTagMenu(button, fileNames, options) {
         closeFileTagMenu();
+        const opts = options || {};
         const targetFiles = (Array.isArray(fileNames) ? fileNames : [])
           .map(function (name) { return String(name || ''); })
           .filter(Boolean);
@@ -1661,6 +1664,7 @@
         const menu = document.createElement('div');
         menu.className = 'quick-tag-menu';
         menu.setAttribute('data-quick-tag-files', targetFiles.join('\n'));
+        menu.setAttribute('data-quick-tag-local', opts.local ? '1' : '0');
         menu.innerHTML = tagTree.length
           ? '<div class="quick-tag-title">' + (targetFiles.length > 1 ? ('给 ' + targetFiles.length + ' 个文件加入标签') : '加入标签') + '</div>' + buildQuickTagTreeHtml(tagTree, targetFiles, 1)
           : '<div class="quick-tag-empty">当前没有标签</div>';
@@ -1959,15 +1963,17 @@
         return set;
       }
 
-      async function bindFileToTag(tagId, fileName) {
+      async function bindFileToTag(tagId, fileName, options) {
         const cleanName = String(fileName || '');
         if (!cleanName) {
           return { ok: false, message: '请选择要引用的文件' };
         }
+        const opts = options || {};
 
         try {
           await fetchJson(
-            api.tagBind + '?tag_id=' + encodeURIComponent(tagId) + '&file=' + encodeURIComponent(cleanName),
+            api.tagBind + '?tag_id=' + encodeURIComponent(tagId) + '&file=' + encodeURIComponent(cleanName)
+              + (opts.local ? '&local=1' : ''),
             { method: 'POST' }
           );
           return { ok: true };
@@ -1976,10 +1982,12 @@
         }
       }
 
-      async function unbindFileFromTag(tagId, fileName) {
+      async function unbindFileFromTag(tagId, fileName, options) {
+        const opts = options || {};
         try {
           await fetchJson(
-            api.tagUnbind + '?tag_id=' + encodeURIComponent(tagId) + '&file=' + encodeURIComponent(fileName),
+            api.tagUnbind + '?tag_id=' + encodeURIComponent(tagId) + '&file=' + encodeURIComponent(fileName)
+              + (opts.local ? '&local=1' : ''),
             { method: 'POST' }
           );
           return true;
@@ -3036,6 +3044,14 @@
         return names;
       }
 
+      function isCurrentFileLocal(fileName) {
+        const target = String(fileName || '');
+        const found = (Array.isArray(currentFiles) ? currentFiles : []).find(function (file) {
+          return getFilePath(file) === target;
+        });
+        return !!(found && found.local);
+      }
+
       function updateFileSelectAllState() {
         if (!fileSelectAll) {
           return;
@@ -3081,15 +3097,16 @@
         }
       }
 
-      async function bindFilesToTag(tagId, fileNames) {
+      async function bindFilesToTag(tagId, fileNames, options) {
         const names = Array.isArray(fileNames) ? fileNames : [];
+        const opts = options || {};
         let boundCount = 0;
         for (let i = 0; i < names.length; i += 1) {
           const fileName = String(names[i] || '');
           if (!fileName) {
             continue;
           }
-          const result = await bindFileToTag(tagId, fileName);
+          const result = await bindFileToTag(tagId, fileName, opts);
           if (!result.ok) {
             return {
               ok: false,
@@ -3142,6 +3159,7 @@
           const name = escapeHtml(file.name || '');
           const rawName = getFilePath(file);
           const encodedPath = encodeURIComponent(rawName);
+          const isLocalTaggedFile = !!file.local;
           const pathMeta = file.folder_path
             ? '<div class="file-path-meta">' + escapeHtml(file.folder_path) + '</div>'
             : '';
@@ -3149,19 +3167,27 @@
           const uploaded = escapeHtml(file.uploaded_time || '-');
           const checked = selectedFileNames.has(rawName) ? ' checked' : '';
           const previewBtn = isImageName(file.name)
-            ? '<button class="preview-btn" data-preview-file="' + encodedPath + '" data-preview-name="' + escapeHtml(rawName) + '">预览</button>'
+            ? (isLocalTaggedFile
+              ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">预览</button>'
+              : '<button class="preview-btn" data-preview-file="' + encodedPath + '" data-preview-name="' + escapeHtml(rawName) + '">预览</button>')
             : '';
           const videoBtn = isVideoName(file.name)
-            ? '<button class="video-btn" data-video-file="' + encodedPath + '" data-video-name="' + escapeHtml(rawName) + '">观影</button>'
+            ? (isLocalTaggedFile
+              ? '<button class="local-preview-btn video-btn" data-kind="video" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">观影</button>'
+              : '<button class="video-btn" data-video-file="' + encodedPath + '" data-video-name="' + escapeHtml(rawName) + '">观影</button>')
             : '';
           const audioBtn = isAudioName(file.name)
-            ? '<button class="audio-btn" data-audio-file="' + encodedPath + '" data-audio-name="' + escapeHtml(rawName) + '">听音</button>'
+            ? (isLocalTaggedFile
+              ? '<button class="local-preview-btn audio-btn" data-kind="audio" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">听音</button>'
+              : '<button class="audio-btn" data-audio-file="' + encodedPath + '" data-audio-name="' + escapeHtml(rawName) + '">听音</button>')
             : '';
           const textBtn = isTextName(file.name)
-            ? '<button class="text-btn" data-text-file="' + encodedPath + '" data-text-name="' + escapeHtml(rawName) + '">查看</button>'
+            ? (isLocalTaggedFile
+              ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">查看</button>'
+              : '<button class="text-btn" data-text-file="' + encodedPath + '" data-text-name="' + escapeHtml(rawName) + '">查看</button>')
             : '';
           const primaryActionBtn = isTagFilterMode
-            ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">移除</button>'
+            ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '"' + (isLocalTaggedFile ? ' data-local-tag-file="1"' : '') + '>移除</button>'
             : (isRecycleMode
               ? ('<button class="restore-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">恢复</button>')
               : '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">删除</button>');
@@ -3171,7 +3197,7 @@
           return (
             '<tr class="draggable-file-row" draggable="true" data-drag-file="' + encodedPath + '">' +
               '<td class="file-select-cell"><div class="file-select-tools"><input class="file-select-input" type="checkbox" data-select-file="' + encodedPath + '" aria-label="选择文件 ' + escapeHtml(rawName) + '"' + checked + '><button class="file-tag-quick-btn" type="button" data-tag-file="' + encodedPath + '" title="加入标签" aria-label="加入标签">🏷</button></div></td>' +
-              '<td><a class="file-name" draggable="false" href="' + escapeHtml(downloadUrlForFile(rawName, false)) + '">' + name + '</a>' + pathMeta + '</td>' +
+              '<td><a class="file-name" draggable="false" href="' + escapeHtml(isLocalTaggedFile ? localDiskDownloadUrl(rawName) : downloadUrlForFile(rawName, false)) + '">' + name + '</a>' + pathMeta + '</td>' +
               '<td>' + formatNumber(size) + ' 字节</td>' +
               '<td>' + uploaded + '</td>' +
               '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + '</div></td>' +
@@ -3189,7 +3215,7 @@
         const path = String((item && item.path) || '');
         const encodedPath = encodeURIComponent(path);
         const checked = selectedLocalDiskPaths.has(path) ? ' checked' : '';
-        const selectBox = '<input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="选择 ' + escapeHtml(name) + '"' + checked + '>';
+        const selectBox = '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="选择 ' + escapeHtml(name) + '"' + checked + '><button class="file-tag-quick-btn local-file-tag-btn" type="button" data-local-tag-file="' + encodedPath + '" title="加入标签" aria-label="加入标签">🏷</button></span>';
         const displayName = selectBox + '<a class="file-name local-disk-draggable-name" draggable="false" href="' + escapeHtml(localDiskDownloadUrl(path)) + '">' + escapeHtml(name) + '</a>';
         const previewBtn = isImageName(name)
           ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
@@ -3275,7 +3301,7 @@
 
       function updateLocalDiskBulkRemoveButton() {
         const disabled = getSelectedLocalDiskFilePaths().length === 0;
-        [localDiskBulkRemoveBtn, localDiskTableBulkRemoveBtn].forEach(function (btn) {
+        [localDiskBulkRemoveBtn, localDiskTableBulkRemoveBtn, localDiskBulkTagBtn, localDiskTableBulkTagBtn].forEach(function (btn) {
           if (btn) {
             btn.disabled = disabled;
           }
@@ -3486,7 +3512,7 @@
           const checked = !isDir && selectedLocalDiskPaths.has(path) ? ' checked' : '';
           const selectBox = isDir
             ? '<span class="local-disk-select-placeholder"></span>'
-            : '<input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="选择 ' + escapeHtml(name) + '"' + checked + '>';
+            : '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="选择 ' + escapeHtml(name) + '"' + checked + '><button class="file-tag-quick-btn local-file-tag-btn" type="button" data-local-tag-file="' + encodedPath + '" title="加入标签" aria-label="加入标签">🏷</button></span>';
           const nameHtml = isDir
             ? '<button type="button" class="local-folder-link" data-local-folder="' + encodedPath + '"><span class="local-folder-icon">📁</span><span>' + escapeHtml(name) + '</span></button>'
             : '<a class="file-name" href="' + escapeHtml(localDiskDownloadUrl(path)) + '">' + escapeHtml(name) + '</a>';
@@ -4284,6 +4310,29 @@
         });
       }
 
+      function openSelectedLocalDiskTagMenu(anchor) {
+        const paths = getSelectedLocalDiskFilePaths();
+        if (!paths.length) {
+          showStatus('请先选择要加标签的本地文件', 'err');
+          return;
+        }
+        openFilesTagMenu(anchor, paths, { local: true }).catch(function (err) {
+          showStatus('打开标签选择失败：' + err.message, 'err');
+        });
+      }
+
+      if (localDiskBulkTagBtn) {
+        localDiskBulkTagBtn.addEventListener('click', function () {
+          openSelectedLocalDiskTagMenu(localDiskBulkTagBtn);
+        });
+      }
+
+      if (localDiskTableBulkTagBtn) {
+        localDiskTableBulkTagBtn.addEventListener('click', function () {
+          openSelectedLocalDiskTagMenu(localDiskTableBulkTagBtn);
+        });
+      }
+
       if (localDiskSelectAll) {
         localDiskSelectAll.addEventListener('change', function () {
           setVisibleLocalDiskFilesSelected(localDiskSelectAll.checked);
@@ -4327,8 +4376,21 @@
           updateLocalDiskSelection(path, selectInput.checked);
           return;
         }
+        const localTagBtn = e.target.closest('.local-file-tag-btn[data-local-tag-file]');
+        if (localTagBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const path = decodeURIComponent(localTagBtn.getAttribute('data-local-tag-file') || '');
+          if (!path) {
+            return;
+          }
+          openFilesTagMenu(localTagBtn, [path], { local: true }).catch(function (err) {
+            showStatus('打开标签选择失败：' + err.message, 'err');
+          });
+          return;
+        }
         const folderBtn = e.target.closest('[data-local-folder]');
-        if (folderBtn && !e.target.closest('.local-delete-btn') && !e.target.closest('.local-disk-select')) {
+        if (folderBtn && !e.target.closest('.local-delete-btn') && !e.target.closest('.local-disk-select') && !e.target.closest('.local-file-tag-btn')) {
           const path = decodeURIComponent(folderBtn.getAttribute('data-local-folder') || '/');
           loadLocalDisk(path, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, path) });
           return;
@@ -4426,7 +4488,7 @@
         if (!dragItem || !localDiskExplorer || !localDiskExplorer.contains(dragItem)) {
           return;
         }
-        if (e.target.closest('.local-disk-select, .local-mkdir-btn, .local-delete-btn, .local-preview-btn')) {
+        if (e.target.closest('.local-disk-select, .local-mkdir-btn, .local-delete-btn, .local-preview-btn, .local-file-tag-btn')) {
           e.preventDefault();
           return;
         }
@@ -4596,6 +4658,19 @@
           return;
         }
 
+        const localPreview = e.target.closest('.local-preview-btn[data-local-file][data-kind]');
+        if (localPreview) {
+          const path = decodeURIComponent(localPreview.getAttribute('data-local-file') || '');
+          const kind = localPreview.getAttribute('data-kind') || 'image';
+          const name = localPreview.getAttribute('data-local-name') || path;
+          openPreview(kind, encodeURIComponent(path), name, {
+            local: true,
+            url: localDiskDownloadUrl(path),
+            previewKey: 'local:' + path
+          });
+          return;
+        }
+
         const preview = e.target.closest('.preview-btn');
         if (preview) {
           const pfile = preview.getAttribute('data-preview-file');
@@ -4677,7 +4752,7 @@
 
           resetStatus();
           try {
-            const ok = await unbindFileFromTag(activeTagId, name);
+            const ok = await unbindFileFromTag(activeTagId, name, { local: btn.getAttribute('data-local-tag-file') === '1' });
             if (!ok) {
               showStatus('移除引用失败：关联不存在', 'err');
               return;
@@ -4790,7 +4865,7 @@
           try {
             if (activeTagId) {
               for (let i = 0; i < fileNames.length; i += 1) {
-                const ok = await unbindFileFromTag(activeTagId, fileNames[i]);
+                const ok = await unbindFileFromTag(activeTagId, fileNames[i], { local: isCurrentFileLocal(fileNames[i]) });
                 if (!ok) {
                   throw new Error('关联不存在');
                 }
@@ -5427,6 +5502,7 @@
         const quickTagItem = e.target.closest('.quick-tag-item[data-quick-tag-id]');
         if (quickTagItem && activeFileTagMenu && activeFileTagMenu.contains(quickTagItem)) {
           const tagId = quickTagItem.getAttribute('data-quick-tag-id') || '';
+          const isLocalTagFiles = activeFileTagMenu.getAttribute('data-quick-tag-local') === '1';
           const fileNames = String(activeFileTagMenu.getAttribute('data-quick-tag-files') || '')
             .split('\n')
             .map(function (name) { return String(name || ''); })
@@ -5437,7 +5513,7 @@
             showStatus('加入标签失败：' + check.message, 'err');
             return;
           }
-          bindFilesToTag(tagId, fileNames).then(async function (result) {
+          bindFilesToTag(tagId, fileNames, { local: isLocalTagFiles }).then(async function (result) {
             if (!result.ok) {
               showStatus('加入标签失败：' + result.message, 'err');
               return;
