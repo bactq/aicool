@@ -52,6 +52,7 @@
       const fileTable = document.getElementById('file-table');
       const fileEmpty = document.getElementById('file-empty');
       const fileCounter = document.getElementById('file-counter');
+      const fileListTitle = document.getElementById('file-list-title');
       const fileSelectAll = document.getElementById('file-select-all');
       const fileBulkAction = document.getElementById('file-bulk-action');
       const fileBulkDeleteAction = document.getElementById('file-bulk-delete-action');
@@ -2647,6 +2648,9 @@
 
       function updateExplorerLayout() {
         const isTagFilterMode = !!activeFilterTagId;
+        if (fileListTitle) {
+          fileListTitle.textContent = isTagFilterMode ? '当前标签文件' : '当前目录文件';
+        }
         if (explorerShell) {
           explorerShell.classList.toggle('tag-filter-mode', isTagFilterMode);
         }
