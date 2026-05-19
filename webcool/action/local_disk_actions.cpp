@@ -94,6 +94,32 @@ static std::string join_local_path(const std::string& parent,
 	return parent + "/" + name;
 }
 
+static std::string local_base_name(const std::string& path) {
+	if (path.empty() || path == "/") {
+		return "";
+	}
+	std::string text = path;
+	while (text.size() > 1 && text[text.size() - 1] == '/') {
+		text.erase(text.size() - 1);
+	}
+	std::string::size_type pos = text.rfind('/');
+	return pos == std::string::npos ? text : text.substr(pos + 1);
+}
+
+static bool is_same_or_child_path(const std::string& base,
+	const std::string& candidate)
+{
+	if (base == candidate) {
+		return true;
+	}
+	if (base == "/") {
+		return !candidate.empty() && candidate[0] == '/';
+	}
+	return candidate.size() > base.size()
+		&& candidate.compare(0, base.size(), base) == 0
+		&& candidate[base.size()] == '/';
+}
+
 static bool validate_local_name(const std::string& name, std::string& err) {
 	err.clear();
 	if (name.empty()) {
@@ -423,6 +449,95 @@ bool LocalDiskCreateDirAction::run(request_t& req, response_t& res)
 	root.add_text("path", new_path.c_str());
 	root.add_text("name", name.c_str());
 	root.add_text("message", "directory created");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool LocalDiskMoveAction::run(request_t& req, response_t& res)
+{
+	std::string source;
+	std::string target;
+	std::string err;
+	const char* source_param = req.getParameter("path");
+	const char* target_param = req.getParameter("target");
+	if (source_param == NULL || *source_param == '\0'
+		|| target_param == NULL || *target_param == '\0')
+	{
+		json_error(res, 400, "source path and target directory are required",
+			req.isKeepAlive());
+		return true;
+	}
+	if (!normalize_local_path(source_param, source, err)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!normalize_local_path(target_param, target, err)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	struct stat source_st;
+	if (stat(source.c_str(), &source_st) != 0) {
+		json_error(res, 404, "source path not found", req.isKeepAlive());
+		return true;
+	}
+	const bool source_is_dir = S_ISDIR(source_st.st_mode);
+	if (!source_is_dir && !S_ISREG(source_st.st_mode)) {
+		json_error(res, 400, "only files and directories can be moved",
+			req.isKeepAlive());
+		return true;
+	}
+	if (source == "/") {
+		json_error(res, 409, "root directory cannot be moved", req.isKeepAlive());
+		return true;
+	}
+
+	struct stat target_st;
+	if (stat(target.c_str(), &target_st) != 0 || !S_ISDIR(target_st.st_mode)) {
+		json_error(res, 404, "target directory not found", req.isKeepAlive());
+		return true;
+	}
+	if (source_is_dir && is_same_or_child_path(source, target)) {
+		json_error(res, 409, "directory cannot be moved into itself",
+			req.isKeepAlive());
+		return true;
+	}
+	if (parent_path(source) == target) {
+		json_error(res, 409, "source is already in target directory",
+			req.isKeepAlive());
+		return true;
+	}
+
+	const std::string name = local_base_name(source);
+	if (name.empty()) {
+		json_error(res, 400, "invalid source path", req.isKeepAlive());
+		return true;
+	}
+	const std::string dest = join_local_path(target, name.c_str());
+	struct stat dest_st;
+	if (stat(dest.c_str(), &dest_st) == 0) {
+		json_error(res, 409, "target already contains a path with same name",
+			req.isKeepAlive());
+		return true;
+	}
+	if (errno != ENOENT) {
+		json_error(res, 500, strerror(errno), req.isKeepAlive());
+		return true;
+	}
+
+	if (::rename(source.c_str(), dest.c_str()) != 0) {
+		json_error(res, errno == EXDEV ? 409 : 500,
+			errno == EXDEV ? "cannot move across different file systems" : strerror(errno),
+			req.isKeepAlive());
+		return true;
+	}
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("path", dest.c_str());
+	root.add_text("old_path", source.c_str());
+	root.add_text("target", target.c_str());
+	root.add_text("message", source_is_dir ? "directory moved" : "file moved");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 

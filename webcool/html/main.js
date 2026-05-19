@@ -25,6 +25,7 @@
         localDiskDownload: '/api/v1/local-disk/download',
         localDiskDelete: '/api/v1/local-disk/delete',
         localDiskMkdir: '/api/v1/local-disk/mkdir',
+        localDiskMove: '/api/v1/local-disk/move',
         reloadTpl: '/api/v1/admin/template/reload',
         convertVideo: '/api/v1/video/convert',
         convertCancel: '/api/v1/video/convert/cancel',
@@ -119,6 +120,11 @@
       let localDiskSortKey = 'name';
       let localDiskSortOrder = 'asc';
       let localDiskViewMode = 'split';
+      const selectedLocalDiskPaths = new Set();
+      let activeLocalDiskDragPaths = [];
+      let activeLocalDiskTreeRootPath = '';
+      const localDiskTreeCache = new Map();
+      const expandedLocalDiskTreePaths = new Set();
       let activeDropFolderPath = null;
       let activeFolderAutoExpandPath = '';
       let folderAutoExpandTimer = null;
@@ -2552,7 +2558,9 @@
         const name = String((item && item.name) || '');
         const path = String((item && item.path) || '');
         const encodedPath = encodeURIComponent(path);
-        const displayName = '<a class="file-name" href="' + escapeHtml(localDiskDownloadUrl(path)) + '">' + escapeHtml(name) + '</a>';
+        const checked = selectedLocalDiskPaths.has(path) ? ' checked' : '';
+        const selectBox = '<input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="选择 ' + escapeHtml(name) + '"' + checked + '>';
+        const displayName = selectBox + '<a class="file-name local-disk-draggable-name" draggable="false" href="' + escapeHtml(localDiskDownloadUrl(path)) + '">' + escapeHtml(name) + '</a>';
         const previewBtn = isImageName(name)
           ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
           : '';
@@ -2567,13 +2575,159 @@
           : '';
         const deleteBtn = '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">删除</button>';
         return (
-          '<tr>' +
+          '<tr class="local-disk-draggable" draggable="true" data-local-drag="' + encodedPath + '">' +
             '<td>' + displayName + '</td>' +
             '<td>' + (formatNumber(Number(item.size || 0)) + ' 字节') + '</td>' +
             '<td>' + escapeHtml((item && item.modified_time) || '-') + '</td>' +
             '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + deleteBtn + '</div></td>' +
           '</tr>'
         );
+      }
+
+      function getVisibleLocalDiskPathSet() {
+        const visible = new Set();
+        activeLocalDiskItems.forEach(function (item) {
+          if (item && item.path) {
+            visible.add(String(item.path));
+          }
+        });
+        if (activeLocalDiskTreeRootPath) {
+          visible.add(activeLocalDiskTreeRootPath);
+        }
+        localDiskTreeCache.forEach(function (dirs) {
+          dirs.forEach(function (item) {
+            if (item && item.path) {
+              visible.add(String(item.path));
+            }
+          });
+        });
+        return visible;
+      }
+
+      function getSelectedLocalDiskPaths() {
+        const visible = getVisibleLocalDiskPathSet();
+        return Array.from(selectedLocalDiskPaths).filter(function (path) {
+          return visible.has(path);
+        });
+      }
+
+      function updateLocalDiskSelection(path, checked) {
+        if (!path) {
+          return;
+        }
+        if (checked) {
+          selectedLocalDiskPaths.add(path);
+        } else {
+          selectedLocalDiskPaths.delete(path);
+        }
+      }
+
+      function clearLocalDiskSelection() {
+        selectedLocalDiskPaths.clear();
+      }
+
+      function removeLocalDiskTreePaths(paths) {
+        const moved = new Set((Array.isArray(paths) ? paths : []).map(function (path) {
+          return String(path || '');
+        }).filter(Boolean));
+        if (!moved.size) {
+          return;
+        }
+        localDiskTreeCache.forEach(function (dirs, key) {
+          localDiskTreeCache.set(key, dirs.filter(function (item) {
+            return !moved.has(String((item && item.path) || ''));
+          }));
+        });
+        moved.forEach(function (path) {
+          localDiskTreeCache.delete(path);
+          expandedLocalDiskTreePaths.delete(path);
+        });
+      }
+
+      function localDiskBaseName(path) {
+        const text = String(path || '/').replace(/\/+$/, '') || '/';
+        if (text === '/') {
+          return '/';
+        }
+        const pos = text.lastIndexOf('/');
+        return pos >= 0 ? text.slice(pos + 1) : text;
+      }
+
+      function localDiskPathContains(base, path) {
+        const left = String(base || '/');
+        const right = String(path || '/');
+        return left === '/'
+          ? right.charAt(0) === '/'
+          : (right === left || right.indexOf(left + '/') === 0);
+      }
+
+      function localDiskParentPath(path) {
+        const text = String(path || '/').replace(/\/+$/, '') || '/';
+        if (text === '/') {
+          return '/';
+        }
+        const pos = text.lastIndexOf('/');
+        return pos <= 0 ? '/' : text.slice(0, pos);
+      }
+
+      function cacheLocalDiskTreeNode(path, items) {
+        const dirs = (Array.isArray(items) ? items : []).filter(function (item) {
+          return !!(item && item.directory);
+        }).sort(function (a, b) {
+          return String((a && a.name) || '').localeCompare(String((b && b.name) || ''), 'zh-CN');
+        });
+        localDiskTreeCache.set(String(path || '/'), dirs);
+      }
+
+      function resetLocalDiskTreeRoot(path) {
+        activeLocalDiskTreeRootPath = String(path || '/');
+        localDiskTreeCache.clear();
+        expandedLocalDiskTreePaths.clear();
+        expandedLocalDiskTreePaths.add(activeLocalDiskTreeRootPath);
+      }
+
+      function ensureLocalDiskTreeRoot(path) {
+        if (!activeLocalDiskTreeRootPath) {
+          activeLocalDiskTreeRootPath = String(path || '/');
+          expandedLocalDiskTreePaths.add(activeLocalDiskTreeRootPath);
+        }
+      }
+
+      function renderLocalDiskTreeNode(path, level, itemMeta) {
+        const textPath = String(path || '/');
+        const encodedPath = encodeURIComponent(textPath);
+        const name = localDiskBaseName(textPath);
+        const checked = selectedLocalDiskPaths.has(textPath) ? ' checked' : '';
+        const isActive = textPath === activeLocalDiskPath;
+        const isExpanded = expandedLocalDiskTreePaths.has(textPath);
+        const hasCache = localDiskTreeCache.has(textPath);
+        const dirs = localDiskTreeCache.get(textPath) || [];
+        const canMove = level > 0;
+        const createBtn = '<button type="button" class="local-mkdir-btn local-disk-dir-create-inline" data-local-mkdir="' + encodedPath + '" data-local-name="' + escapeHtml(textPath) + '" title="新建子目录" aria-label="新建子目录">+</button>';
+        const deleteBtn = level > 0 && itemMeta && itemMeta.empty_directory
+          ? '<button type="button" class="local-delete-btn local-disk-dir-delete-inline" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(textPath) + '" title="删除空目录" aria-label="删除空目录">-</button>'
+          : '';
+        const selectBox = canMove
+          ? '<input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="选择 ' + escapeHtml(name) + '"' + checked + '>'
+          : '<span class="local-disk-select-placeholder"></span>';
+        let html = '<div class="local-disk-tree-row local-disk-dir-item' + (canMove ? ' local-disk-draggable' : '') + (isActive ? ' active' : '') + '" ' + (canMove ? 'draggable="true" data-local-drag="' + encodedPath + '" ' : '') + 'data-local-drop-target="' + encodedPath + '" style="--tree-level:' + level + '">' +
+          '<button type="button" class="local-disk-tree-caret" data-local-toggle="' + encodedPath + '" title="展开或收起目录" aria-label="展开或收起目录">' + (isExpanded && dirs.length ? '▾' : (hasCache && !dirs.length ? '' : '▸')) + '</button>' +
+          selectBox +
+          '<button type="button" class="local-disk-dir-link" data-local-folder="' + encodedPath + '">' +
+            '<span class="local-folder-icon">📁</span>' +
+            '<span class="local-disk-dir-item-name">' + escapeHtml(name) + '</span>' +
+          '</button>' +
+          createBtn +
+          deleteBtn +
+          '</div>';
+        if (isExpanded && dirs.length) {
+          html += '<div class="local-disk-tree-children">';
+          html += dirs.map(function (item) {
+            return renderLocalDiskTreeNode(String(item.path || ''), level + 1, item);
+          }).join('');
+          html += '</div>';
+        }
+        return html;
       }
 
       function renderLocalDiskItems(items) {
@@ -2656,29 +2810,12 @@
         if (localDiskExplorer) {
           localDiskExplorer.hidden = false;
         }
-        const dirs = list.filter(function (item) { return !!(item && item.directory); });
         const files = list.filter(function (item) { return !(item && item.directory); });
 
         // Render directories
-        if (dirs.length) {
+        if (activeLocalDiskTreeRootPath) {
           localDiskDirEmpty.style.display = 'none';
-          localDiskDirList.innerHTML = dirs.map(function (item) {
-            const name = String((item && item.name) || '');
-            const path = String((item && item.path) || '');
-            const encodedPath = encodeURIComponent(path);
-            const createBtn = '<button type="button" class="local-mkdir-btn local-disk-dir-create-inline" data-local-mkdir="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '" title="新建子目录" aria-label="新建子目录">+</button>';
-            const deleteBtn = item.empty_directory
-              ? '<button type="button" class="local-delete-btn local-disk-dir-delete-inline" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '" title="删除空目录" aria-label="删除空目录">-</button>'
-              : '';
-            return '<div class="local-disk-dir-item">' +
-              '<button type="button" class="local-disk-dir-link" data-local-folder="' + encodedPath + '">' +
-                '<span class="local-folder-icon">📁</span>' +
-                '<span class="local-disk-dir-item-name">' + escapeHtml(name) + '</span>' +
-              '</button>' +
-              createBtn +
-              deleteBtn +
-              '</div>';
-          }).join('');
+          localDiskDirList.innerHTML = renderLocalDiskTreeNode(activeLocalDiskTreeRootPath, 0, null);
         } else {
           localDiskDirList.innerHTML = '';
           localDiskDirEmpty.style.display = 'block';
@@ -2727,7 +2864,8 @@
         });
       }
 
-      async function loadLocalDisk(path) {
+      async function loadLocalDisk(path, options) {
+        const opts = options || {};
         const target = typeof path === 'string' ? path : (activeLocalDiskPath || '');
         try {
           const showHidden = localDiskShowHidden && localDiskShowHidden.checked;
@@ -2738,6 +2876,14 @@
           activeLocalDiskPath = String(data.path || '/');
           activeLocalDiskParentPath = String(data.parent_path || '/');
           activeLocalDiskHomePath = String(data.home_path || activeLocalDiskHomePath || '');
+          if (opts.resetTreeRoot) {
+            resetLocalDiskTreeRoot(activeLocalDiskPath);
+          } else {
+            ensureLocalDiskTreeRoot(activeLocalDiskPath);
+          }
+          cacheLocalDiskTreeNode(activeLocalDiskPath, Array.isArray(data.items) ? data.items : []);
+          expandedLocalDiskTreePaths.add(activeLocalDiskPath);
+          clearLocalDiskSelection();
           renderLocalDiskItems(Array.isArray(data.items) ? data.items : []);
         } catch (err) {
           if (localDiskList) {
@@ -2751,6 +2897,31 @@
             localDiskEmpty.style.display = 'block';
           }
           showStatus('加载本地磁盘失败：' + err.message, 'err');
+        }
+      }
+
+      async function toggleLocalDiskTreePath(path) {
+        const target = String(path || '');
+        if (!target) {
+          return;
+        }
+        if (expandedLocalDiskTreePaths.has(target) && localDiskTreeCache.has(target)) {
+          expandedLocalDiskTreePaths.delete(target);
+          renderLocalDiskItems(activeLocalDiskItems);
+          return;
+        }
+
+        try {
+          const showHidden = localDiskShowHidden && localDiskShowHidden.checked;
+          const url = api.localDiskList
+            + '?path=' + encodeURIComponent(target)
+            + (showHidden ? '&show_hidden=1' : '');
+          const data = await fetchJson(url);
+          cacheLocalDiskTreeNode(String(data.path || target), Array.isArray(data.items) ? data.items : []);
+          expandedLocalDiskTreePaths.add(String(data.path || target));
+          renderLocalDiskItems(activeLocalDiskItems);
+        } catch (err) {
+          showStatus('展开目录失败：' + err.message, 'err');
         }
       }
 
@@ -3256,19 +3427,20 @@
 
       if (localDiskHomeBtn) {
         localDiskHomeBtn.addEventListener('click', function () {
-          loadLocalDisk(activeLocalDiskHomePath || '');
+          loadLocalDisk(activeLocalDiskHomePath || '', { resetTreeRoot: true });
         });
       }
 
       if (localDiskRootBtn) {
         localDiskRootBtn.addEventListener('click', function () {
-          loadLocalDisk('/');
+          loadLocalDisk('/', { resetTreeRoot: true });
         });
       }
 
       if (localDiskUpBtn) {
         localDiskUpBtn.addEventListener('click', function () {
-          loadLocalDisk(activeLocalDiskParentPath || '/');
+          const parent = activeLocalDiskParentPath || '/';
+          loadLocalDisk(parent, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, parent) });
         });
       }
 
@@ -3304,7 +3476,7 @@
 
       if (localDiskShowHidden) {
         localDiskShowHidden.addEventListener('change', function () {
-          loadLocalDisk(activeLocalDiskPath || '');
+          loadLocalDisk(activeLocalDiskPath || '', { resetTreeRoot: true });
         });
       }
 
@@ -3326,10 +3498,23 @@
       }
 
       function handleLocalDiskClickEvent(e) {
+        const toggleBtn = e.target.closest('.local-disk-tree-caret[data-local-toggle]');
+        if (toggleBtn) {
+          e.stopPropagation();
+          const path = decodeURIComponent(toggleBtn.getAttribute('data-local-toggle') || '');
+          toggleLocalDiskTreePath(path);
+          return;
+        }
+        const selectInput = e.target.closest('.local-disk-select[data-local-select]');
+        if (selectInput) {
+          const path = decodeURIComponent(selectInput.getAttribute('data-local-select') || '');
+          updateLocalDiskSelection(path, selectInput.checked);
+          return;
+        }
         const folderBtn = e.target.closest('[data-local-folder]');
-        if (folderBtn && !e.target.closest('.local-delete-btn')) {
+        if (folderBtn && !e.target.closest('.local-delete-btn') && !e.target.closest('.local-disk-select')) {
           const path = decodeURIComponent(folderBtn.getAttribute('data-local-folder') || '/');
-          loadLocalDisk(path);
+          loadLocalDisk(path, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, path) });
           return;
         }
         const mkdirBtn = e.target.closest('.local-mkdir-btn[data-local-mkdir]');
@@ -3347,7 +3532,7 @@
           fetchJson(api.localDiskMkdir + '?path=' + encodeURIComponent(path) + '&name=' + encodeURIComponent(cleanName), { method: 'POST' })
             .then(function () {
               showStatus('子目录已创建：' + cleanName, 'ok');
-              loadLocalDisk(activeLocalDiskPath || '');
+              loadLocalDisk(path, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, path) });
             })
             .catch(function (err) {
               showStatus('创建子目录失败：' + err.message, 'err');
@@ -3370,7 +3555,12 @@
           fetchJson(api.localDiskDelete + '?path=' + encodeURIComponent(path), { method: 'POST' })
             .then(function () {
               showStatus((isDir ? '本地目录已删除：' : '本地文件已删除：') + path, 'warn');
-              loadLocalDisk(activeLocalDiskPath || '');
+              const nextPath = isDir ? localDiskParentPath(path) : (activeLocalDiskPath || '');
+              if (isDir) {
+                localDiskTreeCache.delete(path);
+                expandedLocalDiskTreePaths.delete(path);
+              }
+              loadLocalDisk(nextPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, nextPath) });
             })
             .catch(function (err) {
               showStatus('删除失败：' + err.message, 'err');
@@ -3389,8 +3579,123 @@
         });
       }
 
+      function clearLocalDiskDropTarget() {
+        if (!localDiskExplorer) {
+          return;
+        }
+        localDiskExplorer.querySelectorAll('.local-disk-drop-target').forEach(function (node) {
+          node.classList.remove('local-disk-drop-target');
+        });
+      }
+
+      function getLocalDiskDropTarget(e) {
+        const item = e.target.closest('[data-local-drop-target]');
+        if (!item || !localDiskExplorer || !localDiskExplorer.contains(item)) {
+          return null;
+        }
+        const path = decodeURIComponent(item.getAttribute('data-local-drop-target') || '');
+        return path ? { element: item, path: path } : null;
+      }
+
+      function localDiskDragPathsFor(sourcePath) {
+        const selected = getSelectedLocalDiskPaths();
+        if (selected.indexOf(sourcePath) >= 0) {
+          return selected;
+        }
+        return sourcePath ? [sourcePath] : [];
+      }
+
+      function handleLocalDiskDragStart(e) {
+        const dragItem = e.target.closest('[data-local-drag]');
+        if (!dragItem || !localDiskExplorer || !localDiskExplorer.contains(dragItem)) {
+          return;
+        }
+        if (e.target.closest('.local-disk-select, .local-mkdir-btn, .local-delete-btn, .local-preview-btn')) {
+          e.preventDefault();
+          return;
+        }
+        const sourcePath = decodeURIComponent(dragItem.getAttribute('data-local-drag') || '');
+        const paths = localDiskDragPathsFor(sourcePath);
+        if (!paths.length) {
+          e.preventDefault();
+          return;
+        }
+        activeLocalDiskDragPaths = paths;
+        dragItem.classList.add('local-disk-dragging');
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('application/webcool-local-disk-paths', JSON.stringify(paths));
+          e.dataTransfer.setData('text/plain', paths.join('\n'));
+        }
+      }
+
+      function handleLocalDiskDragOver(e) {
+        const target = getLocalDiskDropTarget(e);
+        if (!target || !activeLocalDiskDragPaths.length || activeLocalDiskDragPaths.indexOf(target.path) >= 0) {
+          return;
+        }
+        e.preventDefault();
+        if (e.dataTransfer) {
+          e.dataTransfer.dropEffect = 'move';
+        }
+        clearLocalDiskDropTarget();
+        target.element.classList.add('local-disk-drop-target');
+      }
+
+      function handleLocalDiskDragLeave(e) {
+        if (!localDiskExplorer || localDiskExplorer.contains(e.relatedTarget)) {
+          return;
+        }
+        clearLocalDiskDropTarget();
+      }
+
+      async function handleLocalDiskDrop(e) {
+        const target = getLocalDiskDropTarget(e);
+        if (!target || !activeLocalDiskDragPaths.length || activeLocalDiskDragPaths.indexOf(target.path) >= 0) {
+          return;
+        }
+        e.preventDefault();
+        clearLocalDiskDropTarget();
+        const movePaths = activeLocalDiskDragPaths.slice();
+        activeLocalDiskDragPaths = [];
+        try {
+          await Promise.all(movePaths.map(function (path) {
+            return fetchJson(
+              api.localDiskMove
+                + '?path=' + encodeURIComponent(path)
+                + '&target=' + encodeURIComponent(target.path),
+              { method: 'POST' }
+            );
+          }));
+          showStatus('已移动 ' + movePaths.length + ' 个项目到：' + target.path, 'ok');
+          clearLocalDiskSelection();
+          removeLocalDiskTreePaths(movePaths);
+          localDiskTreeCache.delete(target.path);
+          loadLocalDisk(target.path, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, target.path) });
+        } catch (err) {
+          showStatus('移动失败：' + err.message, 'err');
+          loadLocalDisk(activeLocalDiskPath || '', { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, activeLocalDiskPath || '') });
+        }
+      }
+
+      function handleLocalDiskDragEnd() {
+        activeLocalDiskDragPaths = [];
+        clearLocalDiskDropTarget();
+        if (!localDiskExplorer) {
+          return;
+        }
+        localDiskExplorer.querySelectorAll('.local-disk-dragging').forEach(function (node) {
+          node.classList.remove('local-disk-dragging');
+        });
+      }
+
       if (localDiskExplorer) {
         localDiskExplorer.addEventListener('click', handleLocalDiskClickEvent);
+        localDiskExplorer.addEventListener('dragstart', handleLocalDiskDragStart);
+        localDiskExplorer.addEventListener('dragover', handleLocalDiskDragOver);
+        localDiskExplorer.addEventListener('dragleave', handleLocalDiskDragLeave);
+        localDiskExplorer.addEventListener('drop', handleLocalDiskDrop);
+        localDiskExplorer.addEventListener('dragend', handleLocalDiskDragEnd);
       }
 
       sortKey.addEventListener('change', function () {

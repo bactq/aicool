@@ -1271,6 +1271,8 @@
       display: flex;
       flex-direction: column;
       gap: 2px;
+      max-height: 68vh;
+      overflow: auto;
     }
 
     .local-disk-dir-item {
@@ -1285,8 +1287,76 @@
       font-weight: 600;
     }
 
+    .local-disk-tree-row {
+      padding-left: calc(8px + var(--tree-level, 0) * 18px);
+    }
+
+    .local-disk-tree-row.active {
+      background: #ddeeff;
+      color: #153a5a;
+    }
+
+    .local-disk-tree-children {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .local-disk-select-placeholder {
+      width: 15px;
+      flex-shrink: 0;
+      text-align: center;
+      color: #7b8fa3;
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    .local-disk-tree-caret {
+      width: 15px;
+      height: 18px;
+      flex-shrink: 0;
+      border: none;
+      background: transparent;
+      color: #7b8fa3;
+      text-align: center;
+      font-size: 12px;
+      line-height: 1;
+      padding: 0;
+      cursor: pointer;
+    }
+
+    .local-disk-tree-caret:empty {
+      cursor: default;
+    }
+
+    .local-disk-tree-caret:not(:empty):hover {
+      color: #1f6fa6;
+    }
+
     .local-disk-dir-item:hover {
       background: #eaf4ff;
+    }
+
+    .local-disk-draggable {
+      cursor: grab;
+    }
+
+    .local-disk-draggable.local-disk-dragging {
+      opacity: 0.58;
+    }
+
+    .local-disk-dir-item.local-disk-drop-target {
+      background: #dff3ff;
+      box-shadow: inset 0 0 0 2px #4aa3df;
+    }
+
+    .local-disk-select {
+      width: 15px;
+      height: 15px;
+      margin: 0;
+      flex-shrink: 0;
+      accent-color: #2d7fb8;
+      cursor: pointer;
     }
 
     .local-disk-dir-link {
@@ -1304,6 +1374,12 @@
       cursor: pointer;
       font: inherit;
       font-weight: inherit;
+    }
+
+    .local-disk-split-table .file-name,
+    #local-disk-split-table .file-name {
+      margin-left: 8px;
+      vertical-align: middle;
     }
 
     .local-disk-dir-item .local-folder-icon {
