@@ -260,6 +260,25 @@
     </div>
   </div>
 
+  <div id="lock-dialog" class="tag-dialog" hidden>
+    <div class="tag-dialog-backdrop" data-lock-dialog-close="1"></div>
+    <div class="tag-dialog-card lock-dialog-card" role="dialog" aria-modal="true" aria-labelledby="lock-dialog-title">
+      <form id="lock-dialog-form" class="tag-dialog-form">
+        <div class="tag-dialog-head">
+          <h2 id="lock-dialog-title">解锁目录</h2>
+          <p id="lock-dialog-desc">请输入目录锁密码。</p>
+        </div>
+        <label class="tag-dialog-label" for="lock-dialog-input">锁密码</label>
+        <input id="lock-dialog-input" class="tag-dialog-input" type="password" autocomplete="current-password">
+        <div id="lock-dialog-error" class="lock-dialog-error" role="alert" hidden></div>
+        <div class="tag-dialog-actions">
+          <button type="button" id="lock-dialog-cancel" class="tag-dialog-btn secondary">取消</button>
+          <button type="submit" id="lock-dialog-confirm" class="tag-dialog-btn">确认</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="local-import-dialog" class="tag-dialog" hidden>
     <div class="tag-dialog-backdrop" data-local-import-close="1"></div>
     <div class="tag-dialog-card local-import-dialog-card" role="dialog" aria-modal="true" aria-labelledby="local-import-title">

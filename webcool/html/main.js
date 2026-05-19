@@ -101,6 +101,14 @@
       const tagDialogDesc = document.getElementById('tag-dialog-desc');
       const tagDialogInput = document.getElementById('tag-dialog-input');
       const tagDialogCancelBtn = document.getElementById('tag-dialog-cancel');
+      const lockDialog = document.getElementById('lock-dialog');
+      const lockDialogForm = document.getElementById('lock-dialog-form');
+      const lockDialogTitle = document.getElementById('lock-dialog-title');
+      const lockDialogDesc = document.getElementById('lock-dialog-desc');
+      const lockDialogInput = document.getElementById('lock-dialog-input');
+      const lockDialogError = document.getElementById('lock-dialog-error');
+      const lockDialogCancelBtn = document.getElementById('lock-dialog-cancel');
+      const lockDialogConfirmBtn = document.getElementById('lock-dialog-confirm');
       const localImportDialog = document.getElementById('local-import-dialog');
       const localImportTree = document.getElementById('local-import-tree');
       const localImportEmpty = document.getElementById('local-import-empty');
@@ -167,6 +175,7 @@
       let previewZ = 900;
       let activeDrag = null;
       let activeTagDialogResolver = null;
+      let activeLockDialogState = null;
       let activeAudioTagContextMenu = null;
       const openedPreviewWindows = new Map();
       const transcodeProgressTimers = new Map();
@@ -289,6 +298,11 @@
         return unlockedFolderPasswords.get(lockedPath) || '';
       }
 
+      function isFolderUnlockedInSession(path) {
+        const lockedPath = getFolderLockAncestorPath(path);
+        return !lockedPath || unlockedFolderPasswords.has(lockedPath);
+      }
+
       function withFolderPassword(url, path, paramName) {
         const password = getFolderPasswordForPath(path);
         if (!password) {
@@ -316,16 +330,32 @@
         if (unlockedFolderPasswords.has(lockedPath)) {
           return true;
         }
-        const password = window.prompt('请输入目录「' + lockedPath + '」的解锁密码');
+        const password = await askLockPassword({
+          title: '解锁目录',
+          description: '请输入目录「' + lockedPath + '」的锁密码。',
+          onSubmit: async function (passwordText) {
+            await fetchJson(
+              api.folderLockVerify + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(passwordText),
+              { method: 'POST' }
+            );
+          }
+        });
         if (password === null) {
           return false;
         }
-        await fetchJson(
-          api.folderLockVerify + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(password),
-          { method: 'POST' }
-        );
         unlockedFolderPasswords.set(lockedPath, password);
         return true;
+      }
+
+      function folderLockIconHtml(node) {
+        if (!node || !node.locked) {
+          return '';
+        }
+        const path = String(node.path || '');
+        if (unlockedFolderPasswords.has(path)) {
+          return '<span class="folder-lock-icon unlocked" title="当前会话已解锁" aria-label="当前会话已解锁"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>';
+        }
+        return '<span class="folder-lock-icon" title="已加锁" aria-label="已加锁"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>';
       }
 
       function closeFolderContextMenu() {
@@ -344,11 +374,15 @@
         const menu = document.createElement('div');
         menu.className = 'folder-context-menu';
         menu.setAttribute('data-folder-path', path);
+        const lockActionsHtml = node.locked
+          ? '<button type="button" class="folder-context-item" data-folder-menu-action="' + (unlockedFolderPasswords.has(path) ? 'session-lock' : 'session-unlock') + '">' + (unlockedFolderPasswords.has(path) ? '加锁' : '解锁') + '</button>' +
+            '<button type="button" class="folder-context-item" data-folder-menu-action="remove-lock">去锁</button>'
+          : '<button type="button" class="folder-context-item" data-folder-menu-action="lock">加锁</button>';
         menu.innerHTML =
           '<button type="button" class="folder-context-item" data-folder-menu-action="create">新建子目录</button>' +
           '<button type="button" class="folder-context-item" data-folder-menu-action="delete">删除</button>' +
           '<button type="button" class="folder-context-item" data-folder-menu-action="rename">改名</button>' +
-          '<button type="button" class="folder-context-item" data-folder-menu-action="' + (node.locked ? 'unlock' : 'lock') + '">' + (node.locked ? '解锁' : '加锁') + '</button>';
+          lockActionsHtml;
         document.body.appendChild(menu);
         menu.style.left = Math.round(clientX) + 'px';
         menu.style.top = Math.round(clientY) + 'px';
@@ -369,20 +403,55 @@
             return;
           }
           await fetchJson(api.folderLock + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(password), { method: 'POST' });
+          setFolderNodeLockedState(path, true);
           unlockedFolderPasswords.set(path, password);
           await loadFiles();
           showStatus('目录已加锁：' + path, 'ok');
           return;
         }
-        if (action === 'unlock') {
-          const password = window.prompt('请输入目录「' + path + '」的解锁密码');
+        if (action === 'session-unlock') {
+          const password = await askLockPassword({
+            title: '解锁目录',
+            description: '请输入目录「' + path + '」的锁密码。',
+            onSubmit: async function (passwordText) {
+              return fetchJson(api.folderLockVerify + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
+            }
+          });
           if (password === null) {
             return;
           }
-          await fetchJson(api.folderUnlock + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(password), { method: 'POST' });
+          unlockedFolderPasswords.set(path, password);
+          activeFolderPath = path;
+          ensureFolderPathExpanded(activeFolderPath);
+          await loadFiles();
+          showStatus('目录已解锁（当前会话）：' + path, 'ok');
+          return;
+        }
+        if (action === 'session-lock') {
+          unlockedFolderPasswords.delete(path);
+          renderFolderTree();
+          if (isSameOrChildFolderPath(path, activeFolderPath)) {
+            renderFiles([]);
+          } else {
+            renderFiles(activeSourceFiles);
+          }
+          showStatus('目录已重新加锁：' + path, 'ok');
+          return;
+        }
+        if (action === 'remove-lock') {
+          const password = window.prompt('请输入目录「' + path + '」的去锁密码');
+          if (password === null) {
+            return;
+          }
+          try {
+            await fetchJson(api.folderUnlock + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(password), { method: 'POST' });
+          } catch (err) {
+            showStatus('去锁失败：密码错误或验证失败', 'err');
+            return;
+          }
           unlockedFolderPasswords.delete(path);
           await loadFiles();
-          showStatus('目录已解锁：' + path, 'ok');
+          showStatus('目录已去锁：' + path, 'ok');
           return;
         }
         if (!(await ensureFolderUnlocked(path))) {
@@ -1156,6 +1225,59 @@
 
         return new Promise(function (resolve) {
           activeTagDialogResolver = resolve;
+        });
+      }
+
+      function setLockDialogError(message) {
+        if (!lockDialogError) {
+          return;
+        }
+        const text = String(message || '');
+        lockDialogError.textContent = text;
+        lockDialogError.hidden = !text;
+      }
+
+      function closeLockDialog(value) {
+        if (!lockDialog) {
+          return;
+        }
+        lockDialog.hidden = true;
+        document.body.style.overflow = '';
+        setLockDialogError('');
+        const state = activeLockDialogState;
+        activeLockDialogState = null;
+        if (state && state.resolve) {
+          state.resolve(value);
+        }
+      }
+
+      function askLockPassword(options) {
+        if (!lockDialog || !lockDialogTitle || !lockDialogDesc || !lockDialogInput) {
+          return Promise.resolve(null);
+        }
+        if (activeLockDialogState) {
+          closeLockDialog(null);
+        }
+
+        const opts = options || {};
+        lockDialogTitle.textContent = String(opts.title || '解锁目录');
+        lockDialogDesc.textContent = String(opts.description || '请输入目录锁密码。');
+        lockDialogInput.value = '';
+        lockDialogInput.placeholder = String(opts.placeholder || '请输入锁密码');
+        setLockDialogError('');
+        lockDialog.hidden = false;
+        document.body.style.overflow = 'hidden';
+
+        requestAnimationFrame(function () {
+          lockDialogInput.focus();
+          lockDialogInput.select();
+        });
+
+        return new Promise(function (resolve) {
+          activeLockDialogState = {
+            resolve: resolve,
+            onSubmit: typeof opts.onSubmit === 'function' ? opts.onSubmit : null
+          };
         });
       }
 
@@ -2071,6 +2193,13 @@
         return null;
       }
 
+      function setFolderNodeLockedState(path, locked) {
+        const node = findFolderNodeByPath(path);
+        if (node) {
+          node.locked = !!locked;
+        }
+      }
+
       function findFolderTreeNodeElement(path) {
         if (!folderTree) {
           return null;
@@ -2167,7 +2296,7 @@
           const nameHtml = isRenaming
             ? '<input class="folder-rename-input" data-folder-rename-input="' + escapeHtml(path) + '" value="' + escapeHtml(node.name || '') + '" maxlength="120">'
             : '<span class="folder-tree-name">' + escapeHtml(node.name || '') + '</span>';
-          const lockHtml = node.locked ? '<span class="folder-lock-icon" title="已加锁" aria-label="已加锁">🔒</span>' : '';
+          const lockHtml = folderLockIconHtml(node);
           return (
             '<div class="folder-tree-node' + (isActive ? ' active' : '') + (activeDropFolderPath === path ? ' drop-target' : '') + '" data-folder-path="' + escapeHtml(path) + '">' +
               '<div class="folder-tree-line" style="padding-left:' + padding + 'px;">' +
@@ -2403,7 +2532,7 @@
           const childHtml = hasChildren && expanded
             ? '<div class="folder-tree-children">' + buildLocalImportFolderTreeHtml(node.children, (level || 0) + 1) + '</div>'
             : '';
-          const lockHtml = node.locked ? '<span class="folder-lock-icon" title="已加锁" aria-label="已加锁">🔒</span>' : '';
+          const lockHtml = folderLockIconHtml(node);
           return (
             '<div class="folder-tree-node' + (isActive ? ' active' : '') + '" data-local-import-folder="' + escapeHtml(path) + '">' +
               '<div class="folder-tree-line" style="padding-left:' + padding + 'px;">' +
@@ -3694,9 +3823,11 @@
         try {
           let filesUrl = api.files;
           const activePassword = getFolderPasswordForPath(activeFolderPath);
-          if (activeFolderPath && activePassword) {
-            filesUrl += '?folder=' + encodeURIComponent(activeFolderPath)
-              + '&folder_password=' + encodeURIComponent(activePassword);
+          if (activeFolderPath) {
+            filesUrl += '?folder=' + encodeURIComponent(activeFolderPath);
+            if (activePassword) {
+              filesUrl += '&folder_password=' + encodeURIComponent(activePassword);
+            }
           }
           const results = await Promise.all([
             fetchJson(filesUrl),
@@ -4570,10 +4701,15 @@
           const path = entry.getAttribute('data-folder-select') || '';
           if (e.detail >= 2 && canRenameFolderPath(path)) {
             e.preventDefault();
+            const wasUnlocked = isFolderUnlockedInSession(path);
             if (!(await ensureFolderUnlocked(path))) {
               return;
             }
             activeFolderPath = path;
+            ensureFolderPathExpanded(activeFolderPath);
+            if (!wasUnlocked && getFolderPasswordForPath(path)) {
+              await loadFiles();
+            }
             startFolderRename(path);
             renderFiles(activeSourceFiles);
             return;
@@ -4583,8 +4719,7 @@
           }
           activeFolderPath = path;
           ensureFolderPathExpanded(activeFolderPath);
-          renderFolderTree();
-          renderFiles(activeSourceFiles);
+          await loadFiles();
         });
 
         folderTree.addEventListener('contextmenu', function (e) {
@@ -5059,6 +5194,14 @@
             return;
           }
         }
+
+        if (lockDialog && !lockDialog.hidden) {
+          const closeTarget = e.target.closest('[data-lock-dialog-close="1"]');
+          if (closeTarget) {
+            closeLockDialog(null);
+            return;
+          }
+        }
       });
 
       if (tagDialogForm) {
@@ -5074,7 +5217,58 @@
         });
       }
 
+      if (lockDialogForm) {
+        lockDialogForm.addEventListener('submit', async function (e) {
+          e.preventDefault();
+          if (!activeLockDialogState) {
+            return;
+          }
+          const password = lockDialogInput ? lockDialogInput.value : '';
+          if (!password) {
+            setLockDialogError('请输入锁密码');
+            if (lockDialogInput) {
+              lockDialogInput.focus();
+            }
+            return;
+          }
+          setLockDialogError('');
+          if (lockDialogConfirmBtn) {
+            lockDialogConfirmBtn.disabled = true;
+            lockDialogConfirmBtn.textContent = '验证中...';
+          }
+          try {
+            if (activeLockDialogState.onSubmit) {
+              await activeLockDialogState.onSubmit(password);
+            }
+            closeLockDialog(password);
+          } catch (err) {
+            showStatus('解锁失败：密码错误或验证失败', 'err');
+            setLockDialogError('密码错误或验证失败，请重新输入。');
+            if (lockDialogInput) {
+              lockDialogInput.focus();
+              lockDialogInput.select();
+            }
+          } finally {
+            if (lockDialogConfirmBtn) {
+              lockDialogConfirmBtn.disabled = false;
+              lockDialogConfirmBtn.textContent = '确认';
+            }
+          }
+        });
+      }
+
+      if (lockDialogCancelBtn) {
+        lockDialogCancelBtn.addEventListener('click', function () {
+          closeLockDialog(null);
+        });
+      }
+
       document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && lockDialog && !lockDialog.hidden) {
+          e.preventDefault();
+          closeLockDialog(null);
+          return;
+        }
         if (e.key === 'Escape' && activeAudioTagContextMenu) {
           e.preventDefault();
           closeAudioTagContextMenu();

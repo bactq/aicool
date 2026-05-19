@@ -242,6 +242,21 @@
       box-shadow: 0 0 0 4px rgba(30, 111, 217, 0.12);
     }
 
+    .lock-dialog-card {
+      width: min(440px, calc(100vw - 40px));
+    }
+
+    .lock-dialog-error {
+      border: 1px solid #f0b8b8;
+      border-radius: 10px;
+      background: #fff2f2;
+      color: #a33c3c;
+      padding: 9px 11px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+
     .tag-dialog-actions {
       display: flex;
       justify-content: flex-end;
@@ -641,9 +656,65 @@
 
     .folder-lock-icon {
       flex: 0 0 auto;
-      font-size: 12px;
-      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border: 1px solid #bfd1df;
+      border-radius: 999px;
+      background: rgba(242, 247, 251, 0.72);
       color: #536c84;
+      position: relative;
+    }
+
+    .folder-lock-icon.unlocked {
+      border-color: rgba(139, 196, 159, 0.7);
+      background: rgba(234, 248, 239, 0.5);
+      color: #1f8a4c;
+    }
+
+    .folder-lock-shackle {
+      position: absolute;
+      left: 7px;
+      top: 4px;
+      width: 9px;
+      height: 8px;
+      border: 2px solid currentColor;
+      border-bottom: 0;
+      border-radius: 8px 8px 0 0;
+      box-sizing: border-box;
+    }
+
+    .folder-lock-icon.unlocked .folder-lock-shackle {
+      left: 11px;
+      top: 2px;
+      width: 9px;
+      height: 8px;
+      transform: rotate(12deg);
+      transform-origin: left bottom;
+    }
+
+    .folder-lock-body {
+      position: absolute;
+      left: 6px;
+      top: 11px;
+      width: 11px;
+      height: 8px;
+      border-radius: 2px;
+      background: currentColor;
+    }
+
+    .folder-lock-body::after {
+      content: "";
+      position: absolute;
+      left: 4px;
+      top: 2px;
+      width: 2px;
+      height: 3px;
+      border-radius: 2px;
+      background: #fff;
+      opacity: 0.78;
     }
 
     .folder-context-menu {

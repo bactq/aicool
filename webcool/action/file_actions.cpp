@@ -736,7 +736,7 @@ bool FilesAction::run(request_t& req, response_t& res,
 	}
 
 	std::vector<file_entry_t> entries;
-	if (!collect_files_recursive(upload_dir, std::string(), folder_password, entries, err)) {
+	if (!collect_files_recursive(upload_dir, filter_folder, folder_password, entries, err)) {
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
 	}
