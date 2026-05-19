@@ -1395,6 +1395,25 @@
       vertical-align: middle;
     }
 
+    .local-disk-table-name-cell {
+      display: inline-grid;
+      grid-template-columns: 16px max-content;
+      align-items: center;
+      column-gap: 8px;
+      white-space: nowrap;
+    }
+
+    .local-disk-table-name-cell .local-disk-select,
+    .local-disk-table-name-cell .local-disk-select-placeholder {
+      justify-self: center;
+    }
+
+    .local-disk-table-name-cell .file-name,
+    .local-disk-table-name-cell .local-folder-link {
+      margin-left: 0;
+      vertical-align: middle;
+    }
+
     .local-disk-name-head {
       display: inline-flex;
       align-items: center;

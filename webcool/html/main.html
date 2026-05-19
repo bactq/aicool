@@ -148,9 +148,12 @@
             <thead>
               <tr>
                 <th>
-                  <button class="sort-btn local-sort-btn active" data-local-sort-key="name" type="button">
-                    名称 <span class="arrow">↑</span>
-                  </button>
+                  <span class="local-disk-name-head">
+                    <input id="local-disk-table-select-all" class="local-disk-select" type="checkbox" aria-label="全选当前目录文件">
+                    <button class="sort-btn local-sort-btn active" data-local-sort-key="name" type="button">
+                      名称 <span class="arrow">↑</span>
+                    </button>
+                  </span>
                 </th>
                 <th>
                   <button class="sort-btn local-sort-btn" data-local-sort-key="type" type="button">
@@ -168,6 +171,9 @@
                   </button>
                 </th>
                 <th class="file-actions-head">操作</th>
+                <th class="file-bulk-head">
+                  <button id="local-disk-table-bulk-remove-btn" class="file-bulk-action-btn" type="button" title="移至回收站" aria-label="移至回收站" disabled>移除</button>
+                </th>
               </tr>
             </thead>
             <tbody id="local-disk-list"></tbody>
