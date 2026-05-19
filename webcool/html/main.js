@@ -440,7 +440,7 @@
           btn.classList.toggle('active', btn.getAttribute('data-panel') === panelId);
         });
         if (leftTagTreeSection) {
-          leftTagTreeSection.hidden = panelId !== 'panel-files';
+          leftTagTreeSection.hidden = false;
         }
       }
 
