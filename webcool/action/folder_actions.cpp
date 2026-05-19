@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <mutex>
@@ -133,21 +134,39 @@ static bool list_folder_tree(const std::string& upload_dir,
 	return true;
 }
 
-static void append_folder_json(acl::json& json, acl::json_node& arr,
-	const folder_node_t& node, const std::map<std::string, std::string>& locks)
+static bool folder_lock_unlocked(
+	const std::string& path,
+	const std::map<std::string, std::string>& locks,
+	const std::map<std::string, std::string>& unlocked_locks)
 {
+	std::map<std::string, std::string>::const_iterator lock_it = locks.find(path);
+	if (lock_it == locks.end()) {
+		return true;
+	}
+	std::map<std::string, std::string>::const_iterator unlocked_it = unlocked_locks.find(path);
+	return unlocked_it != unlocked_locks.end() && unlocked_it->second == lock_it->second;
+}
+
+static void append_folder_json(acl::json& json, acl::json_node& arr,
+	const folder_node_t& node, const std::map<std::string, std::string>& locks,
+	const std::map<std::string, std::string>& unlocked_locks)
+{
+	const bool locked = locks.find(node.path) != locks.end();
+	const bool unlocked = folder_lock_unlocked(node.path, locks, unlocked_locks);
 	acl::json_node& item = arr.add_child(false, true);
 	item.add_text("name", node.name.c_str());
 	item.add_text("path", node.path.c_str());
 	item.add_text("parent_path", parent_relative_path(node.path).c_str());
-	item.add_bool("locked", locks.find(node.path) != locks.end());
-	item.add_number("file_count", node.direct_file_count);
+	item.add_bool("locked", locked);
+	item.add_number("file_count", locked && !unlocked ? 0 : node.direct_file_count);
 	acl::json_node& children = json.create_array();
 	item.add_child("children", children);
-	for (size_t i = 0; i < node.children.size(); ++i) {
-		append_folder_json(json, children, node.children[i], locks);
+	if (!locked || unlocked) {
+		for (size_t i = 0; i < node.children.size(); ++i) {
+			append_folder_json(json, children, node.children[i], locks, unlocked_locks);
+		}
 	}
-	item.add_number("folder_count", (long long) node.children.size());
+	item.add_number("folder_count", locked && !unlocked ? 0 : (long long) node.children.size());
 }
 
 static bool folder_is_empty(const std::string& full_path, bool& empty,
@@ -424,6 +443,33 @@ bool FolderListAction::run(request_t& req, response_t& res,
 			return true;
 		}
 	}
+	std::map<std::string, std::string> unlocked_locks;
+	long long unlock_count = 0;
+	const char* unlock_count_text = req.getParameter("unlock_count");
+	if (unlock_count_text != NULL && *unlock_count_text != '\0') {
+		unlock_count = atoll(unlock_count_text);
+		if (unlock_count < 0 || unlock_count > 100) {
+			json_error(res, 400, "invalid unlock count", req.isKeepAlive());
+			return true;
+		}
+	}
+	for (long long i = 0; i < unlock_count; ++i) {
+		std::ostringstream path_key;
+		path_key << "unlock_path_" << i;
+		std::ostringstream password_key;
+		password_key << "unlock_password_" << i;
+		const char* path_text = req.getParameter(path_key.str().c_str());
+		const char* password_text = req.getParameter(password_key.str().c_str());
+		if (path_text == NULL || password_text == NULL) {
+			continue;
+		}
+		std::string unlock_path;
+		if (!normalize_relative_path(path_text, unlock_path, err, false)) {
+			json_error(res, 400, err.c_str(), req.isKeepAlive());
+			return true;
+		}
+		unlocked_locks[unlock_path] = password_text;
+	}
 
 	acl::json json;
 	acl::json_node& root = json.create_node();
@@ -435,7 +481,7 @@ bool FolderListAction::run(request_t& req, response_t& res,
 	acl::json_node& folders = json.create_array();
 	root.add_child("folders", folders);
 	for (size_t i = 0; i < root_node.children.size(); ++i) {
-		append_folder_json(json, folders, root_node.children[i], locks);
+		append_folder_json(json, folders, root_node.children[i], locks, unlocked_locks);
 	}
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
@@ -674,6 +720,19 @@ bool FolderLockAction::run(request_t& req, response_t& res,
 	}
 	if (!upload_directory_exists(upload_dir, path)) {
 		json_error(res, 404, "folder not found", req.isKeepAlive());
+		return true;
+	}
+	bool lock_allowed = false;
+	std::string locked_path;
+	if (!folder_lock_path_allows(upload_dir, path,
+		req.getParameter("folder_password") ? req.getParameter("folder_password") : "",
+		lock_allowed, locked_path, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!lock_allowed) {
+		json_error(res, 403, "folder is locked", req.isKeepAlive());
 		return true;
 	}
 

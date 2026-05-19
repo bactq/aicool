@@ -311,6 +311,21 @@
         return url + '&' + encodeURIComponent(paramName || 'folder_password') + '=' + encodeURIComponent(password);
       }
 
+      function folderListUrl() {
+        const entries = Array.from(unlockedFolderPasswords.entries()).filter(function (entry) {
+          return entry[0] && entry[1];
+        });
+        if (!entries.length) {
+          return api.folders;
+        }
+        let url = api.folders + '?unlock_count=' + encodeURIComponent(String(entries.length));
+        entries.forEach(function (entry, index) {
+          url += '&unlock_path_' + index + '=' + encodeURIComponent(entry[0]);
+          url += '&unlock_password_' + index + '=' + encodeURIComponent(entry[1]);
+        });
+        return url;
+      }
+
       function downloadUrlForFile(filePath, preview) {
         const encoded = encodeURIComponent(filePath || '');
         let url = api.download + '?' + (preview ? 'preview=1&' : '') + 'file=' + encoded;
@@ -402,7 +417,7 @@
           if (password === null) {
             return;
           }
-          await fetchJson(api.folderLock + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(password), { method: 'POST' });
+          await fetchJson(withFolderPassword(api.folderLock + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(password), path), { method: 'POST' });
           setFolderNodeLockedState(path, true);
           unlockedFolderPasswords.set(path, password);
           await loadFiles();
@@ -429,7 +444,7 @@
         }
         if (action === 'session-lock') {
           unlockedFolderPasswords.delete(path);
-          renderFolderTree();
+          await loadFolderTreeState();
           if (isSameOrChildFolderPath(path, activeFolderPath)) {
             renderFiles([]);
           } else {
@@ -2437,7 +2452,7 @@
       }
 
       async function loadFolderTreeState() {
-        const data = await fetchJson(api.folders);
+        const data = await fetchJson(folderListUrl());
         folderTreeData = Array.isArray(data.folders) ? data.folders.map(normalizeFolderNode) : [];
         ensureFolderPathExpanded(activeFolderPath);
         renderFolderTree();
@@ -3831,7 +3846,7 @@
           }
           const results = await Promise.all([
             fetchJson(filesUrl),
-            fetchJson(api.folders)
+            fetchJson(folderListUrl())
           ]);
           allFiles = Array.isArray(results[0].files) ? results[0].files.map(normalizeFileRecord) : [];
           folderTreeData = Array.isArray(results[1].folders) ? results[1].folders.map(normalizeFolderNode) : [];
