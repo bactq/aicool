@@ -368,7 +368,7 @@
         }
         const path = String(node.path || '');
         if (unlockedFolderPasswords.has(path)) {
-          return '<span class="folder-lock-icon unlocked" title="当前会话已解锁" aria-label="当前会话已解锁"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>';
+          return '<span class="folder-lock-icon unlocked" title="点击重新加锁" aria-label="点击重新加锁" data-folder-lock-toggle="' + escapeHtml(path) + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>';
         }
         return '<span class="folder-lock-icon" title="已加锁" aria-label="已加锁"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>';
       }
@@ -403,6 +403,21 @@
         menu.style.top = Math.round(clientY) + 'px';
         clampFloatingMenuPosition(menu, clientX, clientY);
         activeFolderContextMenu = menu;
+      }
+
+      async function relockFolderInSession(path) {
+        const target = String(path || '');
+        if (!target || !unlockedFolderPasswords.has(target)) {
+          return;
+        }
+        unlockedFolderPasswords.delete(target);
+        await loadFolderTreeState();
+        if (isSameOrChildFolderPath(target, activeFolderPath)) {
+          renderFiles([]);
+        } else {
+          renderFiles(activeSourceFiles);
+        }
+        showStatus('目录已重新加锁：' + target, 'ok');
       }
 
       async function handleFolderContextAction(action, path) {
@@ -443,14 +458,7 @@
           return;
         }
         if (action === 'session-lock') {
-          unlockedFolderPasswords.delete(path);
-          await loadFolderTreeState();
-          if (isSameOrChildFolderPath(path, activeFolderPath)) {
-            renderFiles([]);
-          } else {
-            renderFiles(activeSourceFiles);
-          }
-          showStatus('目录已重新加锁：' + path, 'ok');
+          await relockFolderInSession(path);
           return;
         }
         if (action === 'remove-lock') {
@@ -4695,6 +4703,17 @@
       if (folderTree) {
         folderTree.addEventListener('click', async function (e) {
           if (e.target.closest('.folder-rename-input')) {
+            return;
+          }
+          const lockToggle = e.target.closest('.folder-lock-icon.unlocked[data-folder-lock-toggle]');
+          if (lockToggle) {
+            e.preventDefault();
+            e.stopPropagation();
+            try {
+              await relockFolderInSession(lockToggle.getAttribute('data-folder-lock-toggle') || '');
+            } catch (err) {
+              showStatus('重新加锁失败：' + err.message, 'err');
+            }
             return;
           }
           const toggle = e.target.closest('.folder-tree-toggle[data-folder-toggle]');
