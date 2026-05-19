@@ -1250,6 +1250,10 @@
       padding: 14px;
       position: sticky;
       top: 0;
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 170px);
+      min-height: 0;
     }
 
     .local-disk-file-browser {
@@ -1271,8 +1275,10 @@
       display: flex;
       flex-direction: column;
       gap: 2px;
-      max-height: 68vh;
+      max-height: calc(100vh - 250px);
       overflow: auto;
+      min-height: 0;
+      padding-right: 2px;
     }
 
     .local-disk-dir-item {
@@ -1289,6 +1295,8 @@
 
     .local-disk-tree-row {
       padding-left: calc(8px + var(--tree-level, 0) * 18px);
+      width: max-content;
+      min-width: 100%;
     }
 
     .local-disk-tree-row.active {
@@ -1300,6 +1308,8 @@
       display: flex;
       flex-direction: column;
       gap: 2px;
+      width: max-content;
+      min-width: 100%;
     }
 
     .local-disk-select-placeholder {
@@ -1312,14 +1322,16 @@
     }
 
     .local-disk-tree-caret {
-      width: 15px;
-      height: 18px;
+      width: 24px;
+      height: 24px;
       flex-shrink: 0;
+      flex-basis: 24px;
       border: none;
       background: transparent;
-      color: #7b8fa3;
+      color: #64809d;
       text-align: center;
-      font-size: 12px;
+      font-size: 16px;
+      font-weight: 700;
       line-height: 1;
       padding: 0;
       cursor: pointer;
@@ -1364,12 +1376,12 @@
       align-items: center;
       gap: 8px;
       min-width: 0;
-      flex: 1 1 auto;
+      flex: 0 0 auto;
       border: none;
       background: transparent;
       color: inherit;
       text-align: left;
-      width: auto;
+      width: max-content;
       padding: 0;
       cursor: pointer;
       font: inherit;
