@@ -138,6 +138,7 @@
           <button id="local-disk-up-btn" class="folder-action-btn" type="button">上一级</button>
           <button id="local-disk-view-split-btn" class="folder-action-btn local-disk-view-btn active" type="button" title="分栏视图" aria-label="分栏视图">⊟ 分栏</button>
           <button id="local-disk-view-table-btn" class="folder-action-btn local-disk-view-btn" type="button" title="列表视图" aria-label="列表视图">☰ 列表</button>
+          <button id="local-disk-import-btn" class="folder-action-btn" type="button" disabled>上传</button>
           <label class="local-hidden-toggle">
             <input id="local-disk-show-hidden" type="checkbox">
             <span>显示隐藏项</span>
@@ -256,6 +257,43 @@
           <button type="submit" class="tag-dialog-btn">确认</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <div id="local-import-dialog" class="tag-dialog" hidden>
+    <div class="tag-dialog-backdrop" data-local-import-close="1"></div>
+    <div class="tag-dialog-card local-import-dialog-card" role="dialog" aria-modal="true" aria-labelledby="local-import-title">
+      <div class="tag-dialog-form">
+        <div class="tag-dialog-head">
+          <h2 id="local-import-title">上传到远程磁盘</h2>
+          <p id="local-import-desc">选择远程目标目录。</p>
+        </div>
+        <div id="local-import-tree" class="local-import-tree"></div>
+        <p id="local-import-empty" class="folder-tree-empty">当前没有文件夹。</p>
+        <div class="tag-dialog-actions">
+          <button type="button" id="local-import-cancel" class="tag-dialog-btn secondary">取消</button>
+          <button type="button" id="local-import-confirm" class="tag-dialog-btn">确定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="local-import-progress-dialog" class="tag-dialog" hidden>
+    <div class="tag-dialog-backdrop"></div>
+    <div class="tag-dialog-card local-import-progress-card" role="dialog" aria-modal="true" aria-labelledby="local-import-progress-title">
+      <div class="tag-dialog-form">
+        <div class="tag-dialog-head">
+          <h2 id="local-import-progress-title">上传中</h2>
+          <p id="local-import-progress-desc">正在上传本地文件到远程磁盘。</p>
+        </div>
+        <div class="local-import-progress-track">
+          <div id="local-import-progress-fill" class="local-import-progress-fill"></div>
+        </div>
+        <div id="local-import-progress-text" class="local-import-progress-text">准备上传...</div>
+        <div class="tag-dialog-actions">
+          <button type="button" id="local-import-progress-close" class="tag-dialog-btn secondary" hidden>关闭</button>
+        </div>
+      </div>
     </div>
   </div>
 

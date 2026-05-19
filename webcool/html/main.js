@@ -27,6 +27,8 @@
         localDiskMkdir: '/api/v1/local-disk/mkdir',
         localDiskMove: '/api/v1/local-disk/move',
         localDiskOpenTrash: '/api/v1/local-disk/open-trash',
+        localDiskImport: '/api/v1/local-disk/import',
+        localDiskImportProgress: '/api/v1/local-disk/import/progress',
         reloadTpl: '/api/v1/admin/template/reload',
         convertVideo: '/api/v1/video/convert',
         convertCancel: '/api/v1/video/convert/cancel',
@@ -61,6 +63,7 @@
       const localDiskUpBtn = document.getElementById('local-disk-up-btn');
       const localDiskViewTableBtn = document.getElementById('local-disk-view-table-btn');
       const localDiskViewSplitBtn = document.getElementById('local-disk-view-split-btn');
+      const localDiskImportBtn = document.getElementById('local-disk-import-btn');
       const localDiskShowHidden = document.getElementById('local-disk-show-hidden');
       const localDiskTableWrap = document.getElementById('local-disk-table-wrap');
       const localDiskTable = document.getElementById('local-disk-table');
@@ -97,6 +100,15 @@
       const tagDialogDesc = document.getElementById('tag-dialog-desc');
       const tagDialogInput = document.getElementById('tag-dialog-input');
       const tagDialogCancelBtn = document.getElementById('tag-dialog-cancel');
+      const localImportDialog = document.getElementById('local-import-dialog');
+      const localImportTree = document.getElementById('local-import-tree');
+      const localImportEmpty = document.getElementById('local-import-empty');
+      const localImportCancelBtn = document.getElementById('local-import-cancel');
+      const localImportConfirmBtn = document.getElementById('local-import-confirm');
+      const localImportProgressDialog = document.getElementById('local-import-progress-dialog');
+      const localImportProgressFill = document.getElementById('local-import-progress-fill');
+      const localImportProgressText = document.getElementById('local-import-progress-text');
+      const localImportProgressClose = document.getElementById('local-import-progress-close');
       const previewLayer = document.getElementById('preview-layer');
       const menuButtons = Array.from(document.querySelectorAll('.menu-btn[data-panel]'));
       const panels = Array.from(document.querySelectorAll('.panel'));
@@ -130,6 +142,8 @@
       const selectedLocalDiskPaths = new Set();
       let activeLocalDiskDragPaths = [];
       let activeLocalDiskTreeRootPath = '';
+      let localImportTargetFolderPath = '';
+      const localImportExpandedFolderPaths = new Set(['']);
       const localDiskTreeCache = new Map();
       const expandedLocalDiskTreePaths = new Set();
       let activeDropFolderPath = null;
@@ -2342,6 +2356,205 @@
         showStatus(list.length > 1 ? ('已移动 ' + list.length + ' 个文件') : '文件已移动', 'ok');
       }
 
+      function ensureLocalImportFolderPathExpanded(path) {
+        const text = String(path || '');
+        localImportExpandedFolderPaths.add('');
+        if (!text) {
+          return;
+        }
+        const parts = text.split('/');
+        let current = '';
+        for (let i = 0; i < parts.length; i += 1) {
+          current = current ? (current + '/' + parts[i]) : parts[i];
+          localImportExpandedFolderPaths.add(current);
+        }
+      }
+
+      function buildLocalImportFolderTreeHtml(nodes, level) {
+        const list = Array.isArray(nodes) ? nodes : [];
+        return list.filter(function (node) {
+          return node && !isRecycleFolderPath(node.path);
+        }).map(function (node) {
+          const path = String(node.path || '');
+          const expanded = localImportExpandedFolderPaths.has(path);
+          const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+          const isActive = localImportTargetFolderPath === path;
+          const padding = 10 + (Math.max(0, Number(level) || 0) * 18);
+          const childHtml = hasChildren && expanded
+            ? '<div class="folder-tree-children">' + buildLocalImportFolderTreeHtml(node.children, (level || 0) + 1) + '</div>'
+            : '';
+          const lockHtml = node.locked ? '<span class="folder-lock-icon" title="已加锁" aria-label="已加锁">🔒</span>' : '';
+          return (
+            '<div class="folder-tree-node' + (isActive ? ' active' : '') + '" data-local-import-folder="' + escapeHtml(path) + '">' +
+              '<div class="folder-tree-line" style="padding-left:' + padding + 'px;">' +
+                (hasChildren
+                  ? '<button type="button" class="folder-tree-toggle" data-local-import-toggle="' + escapeHtml(path) + '">' + (expanded ? '▾' : '▸') + '</button>'
+                  : '<span class="folder-tree-toggle placeholder">•</span>') +
+                '<div class="folder-tree-entry" data-local-import-select="' + escapeHtml(path) + '">' +
+                  '<span class="folder-tree-name">' + escapeHtml(node.name || '') + '</span>' +
+                  lockHtml +
+                '</div>' +
+              '</div>' +
+              childHtml +
+            '</div>'
+          );
+        }).join('');
+      }
+
+      function renderLocalImportTree() {
+        if (!localImportTree || !localImportEmpty) {
+          return;
+        }
+        const rootActive = localImportTargetFolderPath === '';
+        const body = buildLocalImportFolderTreeHtml(getRootFolderTreeNodesForRender(), 0);
+        localImportTree.innerHTML =
+          '<div class="folder-tree-node' + (rootActive ? ' active' : '') + '" data-local-import-folder="">' +
+            '<div class="folder-tree-line" style="padding-left:10px;">' +
+              '<span class="folder-tree-toggle placeholder">•</span>' +
+              '<div class="folder-tree-entry" data-local-import-select="">' +
+                '<span class="folder-tree-name">根目录</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          body;
+        localImportEmpty.style.display = body ? 'none' : 'block';
+      }
+
+      async function openLocalImportDialog() {
+        const files = getSelectedLocalDiskFilePaths();
+        if (!files.length) {
+          showStatus('请先选择要上传的本地文件', 'err');
+          return;
+        }
+        try {
+          await loadFolderTreeState();
+        } catch (err) {
+          showStatus('加载远程目录失败：' + err.message, 'err');
+          return;
+        }
+        localImportTargetFolderPath = activeFolderPath || '';
+        ensureLocalImportFolderPathExpanded(localImportTargetFolderPath);
+        renderLocalImportTree();
+        if (localImportDialog) {
+          localImportDialog.hidden = false;
+        }
+      }
+
+      function closeLocalImportDialog() {
+        if (localImportDialog) {
+          localImportDialog.hidden = true;
+        }
+      }
+
+      function setLocalImportProgress(percent, text) {
+        const p = Math.max(0, Math.min(100, Number(percent) || 0));
+        if (localImportProgressDialog) {
+          localImportProgressDialog.hidden = false;
+        }
+        if (localImportProgressFill) {
+          localImportProgressFill.style.width = p + '%';
+        }
+        if (localImportProgressText) {
+          localImportProgressText.textContent = text || ('上传中 ' + Math.round(p) + '%');
+        }
+        if (localImportProgressClose) {
+          localImportProgressClose.hidden = true;
+        }
+      }
+
+      function finishLocalImportProgress(text) {
+        setLocalImportProgress(100, text || '上传完成 100%');
+        if (localImportProgressClose) {
+          localImportProgressClose.hidden = false;
+        }
+      }
+
+      function failLocalImportProgress(text) {
+        setLocalImportProgress(0, text || '上传失败');
+        if (localImportProgressClose) {
+          localImportProgressClose.hidden = false;
+        }
+      }
+
+      function closeLocalImportProgressDialog() {
+        if (localImportProgressDialog) {
+          localImportProgressDialog.hidden = true;
+        }
+        if (localImportProgressFill) {
+          localImportProgressFill.style.width = '0%';
+        }
+        if (localImportProgressText) {
+          localImportProgressText.textContent = '准备上传...';
+        }
+      }
+
+      function pollLocalImportProgress(taskId) {
+        return new Promise(function (resolve, reject) {
+          if (!taskId) {
+            reject(new Error('缺少上传任务编号'));
+            return;
+          }
+          const timer = setInterval(function () {
+            fetchJson(api.localDiskImportProgress + '?task_id=' + encodeURIComponent(taskId))
+              .then(function (data) {
+                const progress = Math.max(0, Math.min(100, Number(data.progress || 0)));
+                const state = String(data.state || '');
+                setLocalImportProgress(progress, (data.message || '上传中') + ' ' + Math.round(progress) + '%');
+                if (state === 'done') {
+                  clearInterval(timer);
+                  finishLocalImportProgress('上传完成 100%');
+                  resolve(data);
+                } else if (state === 'failed') {
+                  clearInterval(timer);
+                  reject(new Error(data.error || '上传失败'));
+                }
+              })
+              .catch(function (err) {
+                clearInterval(timer);
+                reject(err);
+              });
+          }, 400);
+        });
+      }
+
+      async function confirmLocalImport() {
+        const files = getSelectedLocalDiskFilePaths();
+        if (!files.length) {
+          closeLocalImportDialog();
+          return;
+        }
+        if (!(await ensureFolderUnlocked(localImportTargetFolderPath))) {
+          return;
+        }
+        const password = getFolderPasswordForPath(localImportTargetFolderPath);
+        let url = api.localDiskImport
+          + '?folder=' + encodeURIComponent(localImportTargetFolderPath || '')
+          + '&paths=' + encodeURIComponent(files.join('\n'));
+        if (password) {
+          url += '&folder_password=' + encodeURIComponent(password);
+        }
+        if (localImportConfirmBtn) {
+          localImportConfirmBtn.disabled = true;
+        }
+        try {
+          resetStatus();
+          const started = await fetchJson(url, { method: 'POST' });
+          closeLocalImportDialog();
+          setLocalImportProgress(0, '准备上传...');
+          const data = await pollLocalImportProgress(String(started.task_id || ''));
+          clearLocalDiskSelection();
+          await loadFiles();
+          showStatus('已上传 ' + Number(data.saved_count || 0) + ' 个本地文件到远程磁盘', 'ok');
+        } catch (err) {
+          failLocalImportProgress('上传失败：' + err.message);
+          showStatus('上传本地文件失败：' + err.message, 'err');
+        } finally {
+          if (localImportConfirmBtn) {
+            localImportConfirmBtn.disabled = false;
+          }
+        }
+      }
+
       async function showFilesForTag(tagId) {
         activeFilterTagId = tagId;
         setActivePanel('panel-files');
@@ -2657,6 +2870,9 @@
             btn.disabled = disabled;
           }
         });
+        if (localDiskImportBtn) {
+          localDiskImportBtn.disabled = disabled;
+        }
         updateLocalDiskSelectAllState();
       }
 
@@ -3590,6 +3806,57 @@
       if (localDiskShowHidden) {
         localDiskShowHidden.addEventListener('change', function () {
           loadLocalDisk(activeLocalDiskPath || '', { resetTreeRoot: true });
+        });
+      }
+
+      if (localDiskImportBtn) {
+        localDiskImportBtn.addEventListener('click', function () {
+          openLocalImportDialog();
+        });
+      }
+
+      if (localImportCancelBtn) {
+        localImportCancelBtn.addEventListener('click', closeLocalImportDialog);
+      }
+
+      if (localImportConfirmBtn) {
+        localImportConfirmBtn.addEventListener('click', function () {
+          confirmLocalImport();
+        });
+      }
+
+      if (localImportProgressClose) {
+        localImportProgressClose.addEventListener('click', closeLocalImportProgressDialog);
+      }
+
+      if (localImportDialog) {
+        localImportDialog.addEventListener('click', function (e) {
+          if (e.target.closest('[data-local-import-close]')) {
+            closeLocalImportDialog();
+          }
+        });
+      }
+
+      if (localImportTree) {
+        localImportTree.addEventListener('click', function (e) {
+          const toggle = e.target.closest('[data-local-import-toggle]');
+          if (toggle) {
+            const path = toggle.getAttribute('data-local-import-toggle') || '';
+            if (localImportExpandedFolderPaths.has(path)) {
+              localImportExpandedFolderPaths.delete(path);
+            } else {
+              localImportExpandedFolderPaths.add(path);
+            }
+            renderLocalImportTree();
+            return;
+          }
+          const entry = e.target.closest('[data-local-import-select]');
+          if (!entry) {
+            return;
+          }
+          localImportTargetFolderPath = entry.getAttribute('data-local-import-select') || '';
+          ensureLocalImportFolderPathExpanded(localImportTargetFolderPath);
+          renderLocalImportTree();
         });
       }
 

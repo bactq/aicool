@@ -111,6 +111,17 @@ public:
 	static bool run(request_t& req, response_t& res);
 };
 
+class LocalDiskImportAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class LocalDiskImportProgressAction {
+public:
+	static bool run(request_t& req, response_t& res);
+};
+
 class UploadAction {
 public:
 	static bool run(request_t& req, response_t& res,

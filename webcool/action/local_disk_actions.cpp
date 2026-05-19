@@ -12,8 +12,11 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <map>
+#include <mutex>
 #include <stdlib.h>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace action {
@@ -29,6 +32,26 @@ struct local_entry_t {
 	long long modified_at;
 	std::string modified_time;
 };
+
+struct local_import_file_t {
+	std::string source;
+	std::string name;
+	long long size;
+};
+
+struct local_import_task_t {
+	std::string state;
+	std::string message;
+	std::string error;
+	long long total_bytes;
+	long long copied_bytes;
+	int total_files;
+	int saved_count;
+};
+
+static std::mutex g_local_import_mutex;
+static std::map<std::string, local_import_task_t> g_local_import_tasks;
+static unsigned long long g_local_import_seq = 0;
 
 static void json_error(response_t& res, int status, const char* msg,
 	bool keep_alive)
@@ -349,6 +372,160 @@ static bool run_open_command(std::string& err)
 		return false;
 	}
 	return true;
+}
+
+static void split_local_paths(const char* input, std::vector<std::string>& paths)
+{
+	paths.clear();
+	std::string text = input ? input : "";
+	std::string item;
+	for (size_t i = 0; i <= text.size(); ++i) {
+		if (i < text.size() && text[i] != '\n') {
+			item.push_back(text[i]);
+			continue;
+		}
+		if (!item.empty()) {
+			paths.push_back(item);
+		}
+		item.clear();
+	}
+}
+
+static std::string unique_upload_path(const std::string& upload_dir,
+	const std::string& folder_path, const std::string& name,
+	std::string& relative_path)
+{
+	std::string candidate = folder_path.empty() ? name : (folder_path + "/" + name);
+	std::string full = join_upload_path(upload_dir, candidate);
+	struct stat st;
+	if (stat(full.c_str(), &st) != 0 && errno == ENOENT) {
+		relative_path = candidate;
+		return full;
+	}
+	for (int i = 1; i < 10000; ++i) {
+		const std::string next_name = name + "." + std::to_string(i);
+		candidate = folder_path.empty() ? next_name : (folder_path + "/" + next_name);
+		full = join_upload_path(upload_dir, candidate);
+		if (stat(full.c_str(), &st) != 0 && errno == ENOENT) {
+			relative_path = candidate;
+			return full;
+		}
+	}
+	relative_path.clear();
+	return "";
+}
+
+static std::string create_local_import_task_id()
+{
+	std::lock_guard<std::mutex> guard(g_local_import_mutex);
+	g_local_import_seq++;
+	return std::string("local-import-") + std::to_string((long long) time(NULL))
+		+ "-" + std::to_string((long long) getpid())
+		+ "-" + std::to_string((long long) g_local_import_seq);
+}
+
+static void update_local_import_task(const std::string& task_id,
+	const local_import_task_t& task)
+{
+	std::lock_guard<std::mutex> guard(g_local_import_mutex);
+	g_local_import_tasks[task_id] = task;
+}
+
+static bool copy_regular_file_with_progress(const std::string& source,
+	const std::string& dest, const std::string& task_id,
+	local_import_task_t& task, std::string& err)
+{
+	FILE* in = fopen(source.c_str(), "rb");
+	if (in == NULL) {
+		err = strerror(errno);
+		return false;
+	}
+	FILE* out = fopen(dest.c_str(), "wb");
+	if (out == NULL) {
+		err = strerror(errno);
+		fclose(in);
+		return false;
+	}
+
+	char buf[1024 * 64];
+	bool ok = true;
+	while (true) {
+		const size_t n = fread(buf, 1, sizeof(buf), in);
+		if (n > 0 && fwrite(buf, 1, n, out) != n) {
+			err = strerror(errno);
+			ok = false;
+			break;
+		}
+		if (n > 0) {
+			task.copied_bytes += (long long) n;
+			update_local_import_task(task_id, task);
+		}
+		if (n < sizeof(buf)) {
+			if (ferror(in)) {
+				err = strerror(errno);
+				ok = false;
+			}
+			break;
+		}
+	}
+	if (fclose(out) != 0 && ok) {
+		err = strerror(errno);
+		ok = false;
+	}
+	fclose(in);
+	if (!ok) {
+		::unlink(dest.c_str());
+	}
+	return ok;
+}
+
+static void run_local_import_task(const std::string& task_id,
+	const std::string& upload_dir, const std::string& folder_path,
+	const std::vector<local_import_file_t>& files)
+{
+	local_import_task_t task;
+	task.state = "running";
+	task.message = "准备上传";
+	task.total_bytes = 0;
+	task.copied_bytes = 0;
+	task.total_files = (int) files.size();
+	task.saved_count = 0;
+	for (size_t i = 0; i < files.size(); ++i) {
+		task.total_bytes += files[i].size;
+	}
+	update_local_import_task(task_id, task);
+
+	for (size_t i = 0; i < files.size(); ++i) {
+		task.message = std::string("上传中：") + files[i].name;
+		update_local_import_task(task_id, task);
+
+		std::string relative_path;
+		const std::string dest = unique_upload_path(upload_dir,
+			folder_path, files[i].name, relative_path);
+		if (dest.empty()) {
+			task.state = "failed";
+			task.error = "cannot create unique target file name";
+			update_local_import_task(task_id, task);
+			return;
+		}
+
+		std::string err;
+		if (!copy_regular_file_with_progress(files[i].source, dest,
+			task_id, task, err))
+		{
+			task.state = "failed";
+			task.error = err;
+			update_local_import_task(task_id, task);
+			return;
+		}
+		task.saved_count++;
+		update_local_import_task(task_id, task);
+	}
+
+	task.state = "done";
+	task.message = "上传完成";
+	task.copied_bytes = task.total_bytes;
+	update_local_import_task(task_id, task);
 }
 
 static bool validate_local_name(const std::string& name, std::string& err) {
@@ -807,6 +984,133 @@ bool LocalDiskOpenTrashAction::run(request_t& req, response_t& res)
 	acl::json_node& root = json.create_node();
 	root.add_bool("ok", true);
 	root.add_text("message", "system Trash opened");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool LocalDiskImportAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string folder_path;
+	std::string err;
+	if (!normalize_relative_path(req.getParameter("folder"), folder_path, err, true)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!folder_path.empty() && !upload_directory_exists(upload_dir, folder_path)) {
+		json_error(res, 404, "target folder not found", req.isKeepAlive());
+		return true;
+	}
+	if (!make_dir_recursive(upload_dir.c_str())) {
+		json_error(res, 500, "cannot access upload dir", req.isKeepAlive());
+		return true;
+	}
+
+	bool lock_allowed = false;
+	std::string locked_path;
+	std::string lock_err;
+	if (!folder_lock_path_allows(upload_dir, folder_path,
+		req.getParameter("folder_password") ? req.getParameter("folder_password") : "",
+		lock_allowed, locked_path, lock_err))
+	{
+		json_error(res, 500, lock_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!lock_allowed) {
+		json_error(res, 403, "folder is locked", req.isKeepAlive());
+		return true;
+	}
+
+	std::vector<std::string> raw_paths;
+	split_local_paths(req.getParameter("paths"), raw_paths);
+	if (raw_paths.empty()) {
+		json_error(res, 400, "no local files selected", req.isKeepAlive());
+		return true;
+	}
+
+	std::vector<local_import_file_t> files;
+	for (size_t i = 0; i < raw_paths.size(); ++i) {
+		std::string source;
+		if (!normalize_local_path(raw_paths[i].c_str(), source, err)) {
+			json_error(res, 400, err.c_str(), req.isKeepAlive());
+			return true;
+		}
+
+		struct stat st;
+		if (stat(source.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+			json_error(res, 400, "local file not found", req.isKeepAlive());
+			return true;
+		}
+
+		local_import_file_t file;
+		file.source = source;
+		file.name = local_base_name(source);
+		file.size = (long long) st.st_size;
+		files.push_back(file);
+	}
+
+	const std::string task_id = create_local_import_task_id();
+	local_import_task_t task;
+	task.state = "queued";
+	task.message = "等待上传";
+	task.total_bytes = 0;
+	task.copied_bytes = 0;
+	task.total_files = (int) files.size();
+	task.saved_count = 0;
+	for (size_t i = 0; i < files.size(); ++i) {
+		task.total_bytes += files[i].size;
+	}
+	update_local_import_task(task_id, task);
+	std::thread(run_local_import_task, task_id, upload_dir, folder_path, files).detach();
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("task_id", task_id.c_str());
+	root.add_number("count", 0);
+	root.add_number("total_files", (long long) files.size());
+	root.add_number("total_bytes", task.total_bytes);
+	root.add_text("folder_path", folder_path.c_str());
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool LocalDiskImportProgressAction::run(request_t& req, response_t& res)
+{
+	const char* task_id_param = req.getParameter("task_id");
+	std::string task_id = task_id_param ? task_id_param : "";
+	if (task_id.empty()) {
+		json_error(res, 400, "task_id is required", req.isKeepAlive());
+		return true;
+	}
+
+	local_import_task_t task;
+	{
+		std::lock_guard<std::mutex> guard(g_local_import_mutex);
+		std::map<std::string, local_import_task_t>::const_iterator it =
+			g_local_import_tasks.find(task_id);
+		if (it == g_local_import_tasks.end()) {
+			json_error(res, 404, "task not found", req.isKeepAlive());
+			return true;
+		}
+		task = it->second;
+	}
+
+	const double progress = task.total_bytes > 0
+		? ((double) task.copied_bytes * 100.0 / (double) task.total_bytes)
+		: (task.state == "done" ? 100.0 : 0.0);
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("task_id", task_id.c_str());
+	root.add_text("state", task.state.c_str());
+	root.add_text("message", task.message.c_str());
+	root.add_text("error", task.error.c_str());
+	root.add_number("progress", progress);
+	root.add_number("copied_bytes", task.copied_bytes);
+	root.add_number("total_bytes", task.total_bytes);
+	root.add_number("count", (long long) task.saved_count);
+	root.add_number("saved_count", (long long) task.saved_count);
+	root.add_number("total_files", (long long) task.total_files);
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 

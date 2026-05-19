@@ -115,6 +115,8 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/local-disk/mkdir", &http_servlet::routeLocalDiskCreateDir },
 		{ "/api/v1/local-disk/move", &http_servlet::routeLocalDiskMove },
 		{ "/api/v1/local-disk/open-trash", &http_servlet::routeLocalDiskOpenTrash },
+		{ "/api/v1/local-disk/import", &http_servlet::routeLocalDiskImport },
+		{ "/api/v1/local-disk/import/progress", &http_servlet::routeLocalDiskImportProgress },
 		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },
 		{ "/api/v1/video/convert/cancel", &http_servlet::routeVideoConvertCancel },
 		{ "/api/v1/video/convert/progress", &http_servlet::routeVideoConvertProgress },
@@ -189,6 +191,14 @@ bool http_servlet::routeLocalDiskMove(request_t& req, response_t& res) {
 
 bool http_servlet::routeLocalDiskOpenTrash(request_t& req, response_t& res) {
 	return action::LocalDiskOpenTrashAction::run(req, res);
+}
+
+bool http_servlet::routeLocalDiskImport(request_t& req, response_t& res) {
+	return action::LocalDiskImportAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeLocalDiskImportProgress(request_t& req, response_t& res) {
+	return action::LocalDiskImportProgressAction::run(req, res);
 }
 
 bool http_servlet::routeUpload(request_t& req, response_t& res) {
@@ -309,6 +319,8 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/local-disk/mkdir", &http_servlet::routeLocalDiskCreateDir },
 		{ "/api/v1/local-disk/move", &http_servlet::routeLocalDiskMove },
 		{ "/api/v1/local-disk/open-trash", &http_servlet::routeLocalDiskOpenTrash },
+		{ "/api/v1/local-disk/import", &http_servlet::routeLocalDiskImport },
+		{ "/api/v1/local-disk/import/progress", &http_servlet::routeLocalDiskImportProgress },
 		{ "/api/v1/tags/create", &http_servlet::routeTagCreate },
 		{ "/api/v1/tags/rename", &http_servlet::routeTagRename },
 		{ "/api/v1/tags/delete", &http_servlet::routeTagDelete },
