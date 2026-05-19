@@ -314,6 +314,74 @@
       text-align: right;
     }
 
+    .local-import-progress-files {
+      display: grid;
+      gap: 8px;
+      max-height: 260px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .local-import-progress-file {
+      border: 1px solid #d8e5f2;
+      border-radius: 8px;
+      background: #f8fbff;
+      padding: 8px;
+    }
+
+    .local-import-progress-file-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .local-import-progress-file-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #20324a;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .local-import-progress-file-state {
+      flex-shrink: 0;
+      color: #647a94;
+      font-size: 12px;
+    }
+
+    .local-import-progress-file-track {
+      height: 6px;
+      border-radius: 999px;
+      background: #e8f0fb;
+      overflow: hidden;
+    }
+
+    .local-import-progress-file-fill {
+      height: 100%;
+      width: 0%;
+      background: #1e6fd9;
+      transition: width .12s linear;
+    }
+
+    .local-import-progress-file.state-done .local-import-progress-file-fill {
+      background: #0d8b74;
+    }
+
+    .local-import-progress-file.state-failed .local-import-progress-file-fill {
+      background: #c0392b;
+    }
+
+    .local-import-progress-file-meta {
+      margin-top: 5px;
+      color: #6f8196;
+      font-size: 11px;
+      text-align: right;
+    }
+
     .menu-btn {
       text-align: left;
       border: 1px solid #d5e3f3;

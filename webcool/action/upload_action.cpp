@@ -68,6 +68,8 @@ bool UploadAction::run(request_t& req, response_t& res,
 		return sendJson(res, 500, root, req.isKeepAlive());
 	}
 
+    printf(">>Begin write to %s\r\n", tmp_path.c_str());
+
 	mime->set_saved_path(tmp_path.c_str());
 
 	if (!readBody(req, content_length, fp, *mime)) {

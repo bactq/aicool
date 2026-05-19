@@ -108,6 +108,7 @@
       const localImportProgressDialog = document.getElementById('local-import-progress-dialog');
       const localImportProgressFill = document.getElementById('local-import-progress-fill');
       const localImportProgressText = document.getElementById('local-import-progress-text');
+      const localImportProgressFiles = document.getElementById('local-import-progress-files');
       const localImportProgressClose = document.getElementById('local-import-progress-close');
       const previewLayer = document.getElementById('preview-layer');
       const menuButtons = Array.from(document.querySelectorAll('.menu-btn[data-panel]'));
@@ -2462,6 +2463,39 @@
         }
       }
 
+      function localImportFileStateText(state) {
+        if (state === 'done') { return '完成'; }
+        if (state === 'running') { return '上传中'; }
+        if (state === 'failed') { return '失败'; }
+        return '等待';
+      }
+
+      function renderLocalImportProgressFiles(files) {
+        if (!localImportProgressFiles) {
+          return;
+        }
+        const list = Array.isArray(files) ? files : [];
+        if (!list.length) {
+          localImportProgressFiles.innerHTML = '';
+          return;
+        }
+        localImportProgressFiles.innerHTML = list.map(function (file) {
+          const name = String((file && file.name) || '');
+          const state = String((file && file.state) || 'pending');
+          const progress = Math.max(0, Math.min(100, Number((file && file.progress) || 0)));
+          const size = Number((file && file.size) || 0);
+          const copied = Number((file && file.copied) || 0);
+          return '<div class="local-import-progress-file state-' + escapeHtml(state) + '">' +
+            '<div class="local-import-progress-file-main">' +
+              '<span class="local-import-progress-file-name">' + escapeHtml(name) + '</span>' +
+              '<span class="local-import-progress-file-state">' + localImportFileStateText(state) + '</span>' +
+            '</div>' +
+            '<div class="local-import-progress-file-track"><div class="local-import-progress-file-fill" style="width:' + progress + '%"></div></div>' +
+            '<div class="local-import-progress-file-meta">' + formatNumber(copied) + ' / ' + formatNumber(size) + ' 字节</div>' +
+          '</div>';
+        }).join('');
+      }
+
       function finishLocalImportProgress(text) {
         setLocalImportProgress(100, text || '上传完成 100%');
         if (localImportProgressClose) {
@@ -2486,6 +2520,9 @@
         if (localImportProgressText) {
           localImportProgressText.textContent = '准备上传...';
         }
+        if (localImportProgressFiles) {
+          localImportProgressFiles.innerHTML = '';
+        }
       }
 
       function pollLocalImportProgress(taskId) {
@@ -2500,6 +2537,7 @@
                 const progress = Math.max(0, Math.min(100, Number(data.progress || 0)));
                 const state = String(data.state || '');
                 setLocalImportProgress(progress, (data.message || '上传中') + ' ' + Math.round(progress) + '%');
+                renderLocalImportProgressFiles(data.files);
                 if (state === 'done') {
                   clearInterval(timer);
                   finishLocalImportProgress('上传完成 100%');

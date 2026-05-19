@@ -43,6 +43,10 @@ struct local_import_task_t {
 	std::string state;
 	std::string message;
 	std::string error;
+	std::vector<std::string> names;
+	std::vector<long long> sizes;
+	std::vector<long long> copied_sizes;
+	std::vector<std::string> file_states;
 	long long total_bytes;
 	long long copied_bytes;
 	int total_files;
@@ -432,7 +436,7 @@ static void update_local_import_task(const std::string& task_id,
 }
 
 static bool copy_regular_file_with_progress(const std::string& source,
-	const std::string& dest, const std::string& task_id,
+	const std::string& dest, const std::string& task_id, size_t file_index,
 	local_import_task_t& task, std::string& err)
 {
 	FILE* in = fopen(source.c_str(), "rb");
@@ -458,6 +462,9 @@ static bool copy_regular_file_with_progress(const std::string& source,
 		}
 		if (n > 0) {
 			task.copied_bytes += (long long) n;
+			if (file_index < task.copied_sizes.size()) {
+				task.copied_sizes[file_index] += (long long) n;
+			}
 			update_local_import_task(task_id, task);
 		}
 		if (n < sizeof(buf)) {
@@ -492,11 +499,16 @@ static void run_local_import_task(const std::string& task_id,
 	task.saved_count = 0;
 	for (size_t i = 0; i < files.size(); ++i) {
 		task.total_bytes += files[i].size;
+		task.names.push_back(files[i].name);
+		task.sizes.push_back(files[i].size);
+		task.copied_sizes.push_back(0);
+		task.file_states.push_back("pending");
 	}
 	update_local_import_task(task_id, task);
 
 	for (size_t i = 0; i < files.size(); ++i) {
 		task.message = std::string("上传中：") + files[i].name;
+		task.file_states[i] = "running";
 		update_local_import_task(task_id, task);
 
 		std::string relative_path;
@@ -511,13 +523,16 @@ static void run_local_import_task(const std::string& task_id,
 
 		std::string err;
 		if (!copy_regular_file_with_progress(files[i].source, dest,
-			task_id, task, err))
+			task_id, i, task, err))
 		{
+			task.file_states[i] = "failed";
 			task.state = "failed";
 			task.error = err;
 			update_local_import_task(task_id, task);
 			return;
 		}
+		task.copied_sizes[i] = files[i].size;
+		task.file_states[i] = "done";
 		task.saved_count++;
 		update_local_import_task(task_id, task);
 	}
@@ -1058,6 +1073,10 @@ bool LocalDiskImportAction::run(request_t& req, response_t& res,
 	task.saved_count = 0;
 	for (size_t i = 0; i < files.size(); ++i) {
 		task.total_bytes += files[i].size;
+		task.names.push_back(files[i].name);
+		task.sizes.push_back(files[i].size);
+		task.copied_sizes.push_back(0);
+		task.file_states.push_back("pending");
 	}
 	update_local_import_task(task_id, task);
 	std::thread(run_local_import_task, task_id, upload_dir, folder_path, files).detach();
@@ -1111,6 +1130,22 @@ bool LocalDiskImportProgressAction::run(request_t& req, response_t& res)
 	root.add_number("count", (long long) task.saved_count);
 	root.add_number("saved_count", (long long) task.saved_count);
 	root.add_number("total_files", (long long) task.total_files);
+	acl::json_node& files = json.create_array();
+	root.add_child("files", files);
+	for (size_t i = 0; i < task.names.size(); ++i) {
+		acl::json_node& item = files.add_child(false, true);
+		const long long size = i < task.sizes.size() ? task.sizes[i] : 0;
+		const long long copied = i < task.copied_sizes.size() ? task.copied_sizes[i] : 0;
+		const std::string state = i < task.file_states.size() ? task.file_states[i] : "";
+		const double file_progress = size > 0
+			? ((double) copied * 100.0 / (double) size)
+			: (state == "done" ? 100.0 : 0.0);
+		item.add_text("name", task.names[i].c_str());
+		item.add_text("state", state.c_str());
+		item.add_number("size", size);
+		item.add_number("copied", copied);
+		item.add_number("progress", file_progress);
+	}
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
