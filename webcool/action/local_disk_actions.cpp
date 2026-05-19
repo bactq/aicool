@@ -120,6 +120,44 @@ static bool is_same_or_child_path(const std::string& base,
 		&& candidate[base.size()] == '/';
 }
 
+static bool is_system_level_directory_path(const std::string& path)
+{
+	static const char* protected_paths[] = {
+		"/",
+		"/Applications",
+		"/Library",
+		"/System",
+		"/Users",
+		"/Volumes",
+		"/bin",
+		"/boot",
+		"/dev",
+		"/etc",
+		"/home",
+		"/lib",
+		"/lib64",
+		"/opt",
+		"/private",
+		"/private/etc",
+		"/private/tmp",
+		"/private/var",
+		"/proc",
+		"/root",
+		"/run",
+		"/sbin",
+		"/sys",
+		"/tmp",
+		"/usr",
+		"/var",
+	};
+	for (size_t i = 0; i < sizeof(protected_paths) / sizeof(protected_paths[0]); ++i) {
+		if (path == protected_paths[i]) {
+			return true;
+		}
+	}
+	return false;
+}
+
 static bool validate_local_name(const std::string& name, std::string& err) {
 	err.clear();
 	if (name.empty()) {
@@ -488,6 +526,11 @@ bool LocalDiskMoveAction::run(request_t& req, response_t& res)
 	}
 	if (source == "/") {
 		json_error(res, 409, "root directory cannot be moved", req.isKeepAlive());
+		return true;
+	}
+	if (source_is_dir && is_system_level_directory_path(source)) {
+		json_error(res, 409, "system directory cannot be moved",
+			req.isKeepAlive());
 		return true;
 	}
 
