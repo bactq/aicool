@@ -290,6 +290,16 @@
       border-color: #b8d0e7;
     }
 
+    .tag-dialog-btn.danger {
+      border-color: #d94f5c;
+      background: #d94f5c;
+    }
+
+    .tag-dialog-btn.danger:hover {
+      border-color: #b93b47;
+      background: #b93b47;
+    }
+
     .local-import-dialog-card {
       width: min(520px, calc(100vw - 32px));
     }

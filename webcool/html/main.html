@@ -250,7 +250,7 @@
           <h2 id="tag-dialog-title">新建标签</h2>
           <p id="tag-dialog-desc">请输入标签名称。</p>
         </div>
-        <label class="tag-dialog-label" for="tag-dialog-input">标签名称</label>
+        <label id="tag-dialog-label" class="tag-dialog-label" for="tag-dialog-input">标签名称</label>
         <input id="tag-dialog-input" class="tag-dialog-input" type="text" maxlength="60" autocomplete="off">
         <div class="tag-dialog-actions">
           <button type="button" id="tag-dialog-cancel" class="tag-dialog-btn secondary">取消</button>
@@ -276,6 +276,22 @@
           <button type="submit" id="lock-dialog-confirm" class="tag-dialog-btn">确认</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <div id="confirm-dialog" class="tag-dialog" hidden>
+    <div class="tag-dialog-backdrop" data-confirm-dialog-close="1"></div>
+    <div class="tag-dialog-card" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+      <div class="tag-dialog-form">
+        <div class="tag-dialog-head">
+          <h2 id="confirm-dialog-title">确认操作</h2>
+          <p id="confirm-dialog-desc">请确认是否继续。</p>
+        </div>
+        <div class="tag-dialog-actions">
+          <button type="button" id="confirm-dialog-cancel" class="tag-dialog-btn secondary">取消</button>
+          <button type="button" id="confirm-dialog-confirm" class="tag-dialog-btn danger">确认</button>
+        </div>
+      </div>
     </div>
   </div>
 

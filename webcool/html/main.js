@@ -99,6 +99,7 @@
       const tagDialogForm = document.getElementById('tag-dialog-form');
       const tagDialogTitle = document.getElementById('tag-dialog-title');
       const tagDialogDesc = document.getElementById('tag-dialog-desc');
+      const tagDialogLabel = document.getElementById('tag-dialog-label');
       const tagDialogInput = document.getElementById('tag-dialog-input');
       const tagDialogCancelBtn = document.getElementById('tag-dialog-cancel');
       const lockDialog = document.getElementById('lock-dialog');
@@ -109,6 +110,11 @@
       const lockDialogError = document.getElementById('lock-dialog-error');
       const lockDialogCancelBtn = document.getElementById('lock-dialog-cancel');
       const lockDialogConfirmBtn = document.getElementById('lock-dialog-confirm');
+      const confirmDialog = document.getElementById('confirm-dialog');
+      const confirmDialogTitle = document.getElementById('confirm-dialog-title');
+      const confirmDialogDesc = document.getElementById('confirm-dialog-desc');
+      const confirmDialogCancelBtn = document.getElementById('confirm-dialog-cancel');
+      const confirmDialogConfirmBtn = document.getElementById('confirm-dialog-confirm');
       const localImportDialog = document.getElementById('local-import-dialog');
       const localImportTree = document.getElementById('local-import-tree');
       const localImportEmpty = document.getElementById('local-import-empty');
@@ -124,6 +130,7 @@
       const panels = Array.from(document.querySelectorAll('.panel'));
       const SIDEBAR_COLLAPSED_STORAGE_KEY = 'webcool:sidebar-collapsed:v1';
       const TAG_TREE_STORAGE_KEY = 'webcool:file-tags:v1';
+      const FOLDER_UNLOCK_SESSION_STORAGE_KEY = 'webcool:folder-unlocks:v1';
       const TAG_MAX_LEVEL = 3;
       const AUDIO_PLAY_MODE_LABELS = {
         random: '随机播放',
@@ -176,10 +183,55 @@
       let activeDrag = null;
       let activeTagDialogResolver = null;
       let activeLockDialogState = null;
+      let activeConfirmDialogResolver = null;
       let activeAudioTagContextMenu = null;
       const openedPreviewWindows = new Map();
       const transcodeProgressTimers = new Map();
       const videoResumeSaveTimers = new Map();
+
+      function saveUnlockedFolderPasswords() {
+        try {
+          const entries = Array.from(unlockedFolderPasswords.entries()).filter(function (entry) {
+            return entry[0] && entry[1];
+          });
+          sessionStorage.setItem(FOLDER_UNLOCK_SESSION_STORAGE_KEY, JSON.stringify(entries));
+        } catch (_) {}
+      }
+
+      function loadUnlockedFolderPasswords() {
+        try {
+          const raw = sessionStorage.getItem(FOLDER_UNLOCK_SESSION_STORAGE_KEY);
+          const entries = raw ? JSON.parse(raw) : [];
+          if (!Array.isArray(entries)) {
+            return;
+          }
+          entries.forEach(function (entry) {
+            if (Array.isArray(entry) && entry[0] && entry[1]) {
+              unlockedFolderPasswords.set(String(entry[0]), String(entry[1]));
+            }
+          });
+        } catch (_) {}
+      }
+
+      function setUnlockedFolderPassword(path, password) {
+        const target = String(path || '');
+        if (!target) {
+          return;
+        }
+        unlockedFolderPasswords.set(target, String(password || ''));
+        saveUnlockedFolderPasswords();
+      }
+
+      function deleteUnlockedFolderPassword(path) {
+        const target = String(path || '');
+        if (!target) {
+          return;
+        }
+        unlockedFolderPasswords.delete(target);
+        saveUnlockedFolderPasswords();
+      }
+
+      loadUnlockedFolderPasswords();
       function normalizeFileRecord(file) {
         const source = file && typeof file === 'object' ? file : {};
         const path = String(source.path || source.name || '');
@@ -358,7 +410,7 @@
         if (password === null) {
           return false;
         }
-        unlockedFolderPasswords.set(lockedPath, password);
+        setUnlockedFolderPassword(lockedPath, password);
         return true;
       }
 
@@ -410,7 +462,7 @@
         if (!target || !unlockedFolderPasswords.has(target)) {
           return;
         }
-        unlockedFolderPasswords.delete(target);
+        deleteUnlockedFolderPassword(target);
         await loadFolderTreeState();
         if (isSameOrChildFolderPath(target, activeFolderPath)) {
           renderFiles([]);
@@ -428,13 +480,19 @@
           if (!(await ensureFolderUnlocked(path))) {
             return;
           }
-          const password = window.prompt('请输入目录「' + path + '」的加锁密码');
+          const password = await askLockPassword({
+            title: '加锁目录',
+            description: '请为目录「' + path + '」设置锁密码。加锁后需要输入密码才能访问。',
+            placeholder: '请输入新锁密码',
+            errorMessage: '加锁失败，请重新输入密码。',
+            statusErrorMessage: '加锁失败：密码错误或验证失败'
+          });
           if (password === null) {
             return;
           }
           await fetchJson(withFolderPassword(api.folderLock + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(password), path), { method: 'POST' });
           setFolderNodeLockedState(path, true);
-          unlockedFolderPasswords.set(path, password);
+          setUnlockedFolderPassword(path, password);
           await loadFiles();
           showStatus('目录已加锁：' + path, 'ok');
           return;
@@ -450,7 +508,7 @@
           if (password === null) {
             return;
           }
-          unlockedFolderPasswords.set(path, password);
+          setUnlockedFolderPassword(path, password);
           activeFolderPath = path;
           ensureFolderPathExpanded(activeFolderPath);
           await loadFiles();
@@ -462,17 +520,19 @@
           return;
         }
         if (action === 'remove-lock') {
-          const password = window.prompt('请输入目录「' + path + '」的去锁密码');
+          const password = await askLockPassword({
+            title: '去锁目录',
+            description: '请输入目录「' + path + '」的锁密码。验证成功后会永久移除该目录锁。',
+            errorMessage: '密码错误或去锁失败，请重新输入。',
+            statusErrorMessage: '去锁失败：密码错误或验证失败',
+            onSubmit: async function (passwordText) {
+              await fetchJson(api.folderUnlock + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
+            }
+          });
           if (password === null) {
             return;
           }
-          try {
-            await fetchJson(api.folderUnlock + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(password), { method: 'POST' });
-          } catch (err) {
-            showStatus('去锁失败：密码错误或验证失败', 'err');
-            return;
-          }
-          unlockedFolderPasswords.delete(path);
+          deleteUnlockedFolderPassword(path);
           await loadFiles();
           showStatus('目录已去锁：' + path, 'ok');
           return;
@@ -1236,6 +1296,9 @@
         const opts = options || {};
         tagDialogTitle.textContent = String(opts.title || '新建标签');
         tagDialogDesc.textContent = String(opts.description || '请输入标签名称。');
+        if (tagDialogLabel) {
+          tagDialogLabel.textContent = String(opts.label || '标签名称');
+        }
         tagDialogInput.value = String(opts.initialValue || '');
         tagDialogInput.placeholder = String(opts.placeholder || '请输入标签名称');
         tagDialog.hidden = false;
@@ -1299,8 +1362,49 @@
         return new Promise(function (resolve) {
           activeLockDialogState = {
             resolve: resolve,
-            onSubmit: typeof opts.onSubmit === 'function' ? opts.onSubmit : null
+            onSubmit: typeof opts.onSubmit === 'function' ? opts.onSubmit : null,
+            errorMessage: String(opts.errorMessage || '密码错误或验证失败，请重新输入。'),
+            statusErrorMessage: String(opts.statusErrorMessage || '解锁失败：密码错误或验证失败')
           };
+        });
+      }
+
+      function closeConfirmDialog(value) {
+        if (!confirmDialog) {
+          return;
+        }
+        confirmDialog.hidden = true;
+        document.body.style.overflow = '';
+        const resolver = activeConfirmDialogResolver;
+        activeConfirmDialogResolver = null;
+        if (resolver) {
+          resolver(!!value);
+        }
+      }
+
+      function askConfirmDialog(options) {
+        if (!confirmDialog || !confirmDialogTitle || !confirmDialogDesc) {
+          return Promise.resolve(false);
+        }
+        if (activeConfirmDialogResolver) {
+          closeConfirmDialog(false);
+        }
+        const opts = options || {};
+        confirmDialogTitle.textContent = String(opts.title || '确认操作');
+        confirmDialogDesc.textContent = String(opts.description || '请确认是否继续。');
+        if (confirmDialogConfirmBtn) {
+          confirmDialogConfirmBtn.textContent = String(opts.confirmText || '确认');
+          confirmDialogConfirmBtn.classList.toggle('danger', opts.danger !== false);
+        }
+        confirmDialog.hidden = false;
+        document.body.style.overflow = 'hidden';
+        requestAnimationFrame(function () {
+          if (confirmDialogConfirmBtn) {
+            confirmDialogConfirmBtn.focus();
+          }
+        });
+        return new Promise(function (resolve) {
+          activeConfirmDialogResolver = resolve;
         });
       }
 
@@ -2470,7 +2574,12 @@
         if (!(await ensureFolderUnlocked(activeFolderPath))) {
           return;
         }
-        const name = window.prompt('请输入新建文件夹名称');
+        const name = await askTagName({
+          title: '新建子目录',
+          description: '请输入要创建在「' + getFolderLabel(activeFolderPath) + '」下的子目录名称。',
+          label: '目录名称',
+          placeholder: '请输入目录名称'
+        });
         if (name === null) {
           return;
         }
@@ -2498,7 +2607,13 @@
         if (!(await ensureFolderUnlocked(activeFolderPath))) {
           return;
         }
-        if (!confirm('确认删除文件夹『' + activeFolderPath + '』？仅允许删除空文件夹。')) {
+        const confirmed = await askConfirmDialog({
+          title: '删除目录',
+          description: '确认删除目录「' + activeFolderPath + '」？仅允许删除空目录。',
+          confirmText: '删除',
+          danger: true
+        });
+        if (!confirmed) {
           return;
         }
         await fetchJson(withFolderPassword(api.folderDelete + '?path=' + encodeURIComponent(activeFolderPath), activeFolderPath), { method: 'POST' });
@@ -5236,6 +5351,14 @@
             return;
           }
         }
+
+        if (confirmDialog && !confirmDialog.hidden) {
+          const closeTarget = e.target.closest('[data-confirm-dialog-close="1"]');
+          if (closeTarget) {
+            closeConfirmDialog(false);
+            return;
+          }
+        }
       });
 
       if (tagDialogForm) {
@@ -5276,8 +5399,8 @@
             }
             closeLockDialog(password);
           } catch (err) {
-            showStatus('解锁失败：密码错误或验证失败', 'err');
-            setLockDialogError('密码错误或验证失败，请重新输入。');
+            showStatus(activeLockDialogState.statusErrorMessage || '解锁失败：密码错误或验证失败', 'err');
+            setLockDialogError(activeLockDialogState.errorMessage || '密码错误或验证失败，请重新输入。');
             if (lockDialogInput) {
               lockDialogInput.focus();
               lockDialogInput.select();
@@ -5297,7 +5420,24 @@
         });
       }
 
+      if (confirmDialogCancelBtn) {
+        confirmDialogCancelBtn.addEventListener('click', function () {
+          closeConfirmDialog(false);
+        });
+      }
+
+      if (confirmDialogConfirmBtn) {
+        confirmDialogConfirmBtn.addEventListener('click', function () {
+          closeConfirmDialog(true);
+        });
+      }
+
       document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && confirmDialog && !confirmDialog.hidden) {
+          e.preventDefault();
+          closeConfirmDialog(false);
+          return;
+        }
         if (e.key === 'Escape' && lockDialog && !lockDialog.hidden) {
           e.preventDefault();
           closeLockDialog(null);
