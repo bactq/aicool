@@ -24,6 +24,7 @@
         localDiskList: '/api/v1/local-disk/list',
         localDiskDownload: '/api/v1/local-disk/download',
         localDiskDelete: '/api/v1/local-disk/delete',
+        localDiskMkdir: '/api/v1/local-disk/mkdir',
         reloadTpl: '/api/v1/admin/template/reload',
         convertVideo: '/api/v1/video/convert',
         convertCancel: '/api/v1/video/convert/cancel',
@@ -2651,12 +2652,16 @@
             const name = String((item && item.name) || '');
             const path = String((item && item.path) || '');
             const encodedPath = encodeURIComponent(path);
-            const deleteBtn = '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">删除</button>';
-            return '<button type="button" class="local-disk-dir-item" data-local-folder="' + encodedPath + '">' +
-              '<span class="local-folder-icon">📁</span>' +
-              '<span class="local-disk-dir-item-name">' + escapeHtml(name) + '</span>' +
+            const createBtn = '<button type="button" class="local-mkdir-btn local-disk-dir-create-inline" data-local-mkdir="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '" title="新建子目录" aria-label="新建子目录">+</button>';
+            const deleteBtn = '<button type="button" class="local-delete-btn local-disk-dir-delete-inline" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '" title="删除空目录" aria-label="删除空目录">-</button>';
+            return '<div class="local-disk-dir-item">' +
+              '<button type="button" class="local-disk-dir-link" data-local-folder="' + encodedPath + '">' +
+                '<span class="local-folder-icon">📁</span>' +
+                '<span class="local-disk-dir-item-name">' + escapeHtml(name) + '</span>' +
+              '</button>' +
+              createBtn +
               deleteBtn +
-              '</button>';
+              '</div>';
           }).join('');
         } else {
           localDiskDirList.innerHTML = '';
@@ -3309,6 +3314,28 @@
         if (folderBtn && !e.target.closest('.local-delete-btn')) {
           const path = decodeURIComponent(folderBtn.getAttribute('data-local-folder') || '/');
           loadLocalDisk(path);
+          return;
+        }
+        const mkdirBtn = e.target.closest('.local-mkdir-btn[data-local-mkdir]');
+        if (mkdirBtn) {
+          e.stopPropagation();
+          const path = decodeURIComponent(mkdirBtn.getAttribute('data-local-mkdir') || '');
+          if (!path) { return; }
+          const name = window.prompt('请输入新建子目录名称');
+          if (name === null) { return; }
+          const cleanName = String(name || '').trim();
+          if (!cleanName) {
+            showStatus('子目录名称不能为空', 'err');
+            return;
+          }
+          fetchJson(api.localDiskMkdir + '?path=' + encodeURIComponent(path) + '&name=' + encodeURIComponent(cleanName), { method: 'POST' })
+            .then(function () {
+              showStatus('子目录已创建：' + cleanName, 'ok');
+              loadLocalDisk(activeLocalDiskPath || '');
+            })
+            .catch(function (err) {
+              showStatus('创建子目录失败：' + err.message, 'err');
+            });
           return;
         }
         const deleteBtn = e.target.closest('.local-delete-btn[data-local-delete]');

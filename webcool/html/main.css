@@ -1275,13 +1275,9 @@
       gap: 8px;
       padding: 7px 10px;
       border-radius: 8px;
-      cursor: pointer;
       font-size: 13px;
       color: #233e58;
-      border: none;
       background: transparent;
-      text-align: left;
-      width: 100%;
       font-weight: 600;
     }
 
@@ -1289,21 +1285,66 @@
       background: #eaf4ff;
     }
 
+    .local-disk-dir-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1 1 auto;
+      border: none;
+      background: transparent;
+      color: inherit;
+      text-align: left;
+      width: auto;
+      padding: 0;
+      cursor: pointer;
+      font: inherit;
+      font-weight: inherit;
+    }
+
     .local-disk-dir-item .local-folder-icon {
       flex-shrink: 0;
     }
 
     .local-disk-dir-item-name {
+      flex: 1 1 auto;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    .local-disk-dir-item .local-delete-btn {
-      margin-left: auto;
+    .local-disk-dir-create-inline,
+    .local-disk-dir-delete-inline {
       flex-shrink: 0;
-      padding: 3px 7px;
-      font-size: 11px;
+      border: none;
+      background: transparent;
+      color: #b0bec5;
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1;
+      padding: 0 2px;
+      margin: 0;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    .local-disk-dir-item:hover .local-disk-dir-create-inline {
+      color: #0d8b74;
+    }
+
+    .local-disk-dir-item:hover .local-disk-dir-delete-inline {
+      color: #c0392b;
+    }
+
+    .local-disk-dir-create-inline:hover {
+      background: #e5f7f3;
+      color: #0d8b74 !important;
+    }
+
+    .local-disk-dir-delete-inline:hover {
+      background: #fdecea;
+      color: #c0392b !important;
     }
 
     .folder-action-btn.icon-only {

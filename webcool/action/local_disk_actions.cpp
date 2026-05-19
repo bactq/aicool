@@ -93,6 +93,34 @@ static std::string join_local_path(const std::string& parent,
 	return parent + "/" + name;
 }
 
+static bool validate_local_name(const std::string& name, std::string& err) {
+	err.clear();
+	if (name.empty()) {
+		err = "directory name is empty";
+		return false;
+	}
+	if (name == "." || name == "..") {
+		err = "invalid directory name";
+		return false;
+	}
+	if (name.size() > 120) {
+		err = "directory name is too long";
+		return false;
+	}
+	for (size_t i = 0; i < name.size(); ++i) {
+		unsigned char c = (unsigned char) name[i];
+		if (c < 32 || c == 127) {
+			err = "directory name contains control character";
+			return false;
+		}
+		if (name[i] == '/' || name[i] == '\\') {
+			err = "directory name cannot contain slash";
+			return false;
+		}
+	}
+	return true;
+}
+
 static void format_time(time_t ts, char* buf, size_t size) {
 	if (buf == NULL || size == 0) {
 		return;
@@ -330,6 +358,51 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res)
 	root.add_bool("ok", true);
 	root.add_text("path", path.c_str());
 	root.add_text("message", is_dir ? "directory deleted" : "file deleted");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool LocalDiskCreateDirAction::run(request_t& req, response_t& res)
+{
+	std::string parent;
+	std::string err;
+	if (!normalize_local_path(req.getParameter("path"), parent, err)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	struct stat st;
+	if (stat(parent.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
+		json_error(res, 404, "parent directory not found", req.isKeepAlive());
+		return true;
+	}
+
+	const char* name_param = req.getParameter("name");
+	std::string name = name_param ? name_param : "";
+	while (!name.empty() && (name[0] == ' ' || name[0] == '\t')) {
+		name.erase(0, 1);
+	}
+	while (!name.empty() && (name[name.size() - 1] == ' ' || name[name.size() - 1] == '\t')) {
+		name.erase(name.size() - 1);
+	}
+	if (!validate_local_name(name, err)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	const std::string new_path = join_local_path(parent, name.c_str());
+	if (::mkdir(new_path.c_str(), 0755) != 0) {
+		json_error(res, errno == EEXIST ? 409 : 500,
+			errno == EEXIST ? "directory already exists" : strerror(errno),
+			req.isKeepAlive());
+		return true;
+	}
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("path", new_path.c_str());
+	root.add_text("name", name.c_str());
+	root.add_text("message", "directory created");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
