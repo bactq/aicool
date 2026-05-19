@@ -54,6 +54,7 @@
       const fileCounter = document.getElementById('file-counter');
       const fileListTitle = document.getElementById('file-list-title');
       const fileSelectAll = document.getElementById('file-select-all');
+      const fileBulkTagAction = document.getElementById('file-bulk-tag-action');
       const fileBulkAction = document.getElementById('file-bulk-action');
       const fileBulkDeleteAction = document.getElementById('file-bulk-delete-action');
       const fileViewContext = document.getElementById('file-view-context');
@@ -185,6 +186,7 @@
       let activeLockDialogState = null;
       let activeConfirmDialogResolver = null;
       let activeAudioTagContextMenu = null;
+      let activeFileTagMenu = null;
       const openedPreviewWindows = new Map();
       const transcodeProgressTimers = new Map();
       const videoResumeSaveTimers = new Map();
@@ -820,6 +822,13 @@
           activeAudioTagContextMenu.parentNode.removeChild(activeAudioTagContextMenu);
         }
         activeAudioTagContextMenu = null;
+      }
+
+      function closeFileTagMenu() {
+        if (activeFileTagMenu && activeFileTagMenu.parentNode) {
+          activeFileTagMenu.parentNode.removeChild(activeFileTagMenu);
+        }
+        activeFileTagMenu = null;
       }
 
       function clampFloatingMenuPosition(menuEl, clientX, clientY) {
@@ -1597,6 +1606,70 @@
         tagManager.classList.add('open');
         tagManager.innerHTML = treeHtml;
         focusActiveTagRenameInput();
+      }
+
+      function canBindFilesToTagOnClient(tagId, fileNames) {
+        const names = Array.isArray(fileNames) ? fileNames : [];
+        for (let i = 0; i < names.length; i += 1) {
+          const check = canBindFileToTagOnClient(tagId, names[i]);
+          if (!check.ok) {
+            return check;
+          }
+        }
+        return { ok: true, message: '' };
+      }
+
+      function buildQuickTagTreeHtml(nodes, fileNames, level) {
+        const list = Array.isArray(nodes) ? nodes : [];
+        const names = Array.isArray(fileNames) ? fileNames : [];
+        const safeLevel = Math.max(1, Math.min(TAG_MAX_LEVEL, level || 1));
+        return list.map(function (node) {
+          const tagId = String((node && node.id) || '');
+          const name = String((node && node.name) || '');
+          const check = canBindFilesToTagOnClient(tagId, names);
+          const children = Array.isArray(node && node.children) ? node.children : [];
+          const childHtml = children.length
+            ? '<div class="quick-tag-children">' + buildQuickTagTreeHtml(children, names, safeLevel + 1) + '</div>'
+            : '';
+          return (
+            '<div class="quick-tag-node">' +
+              '<button type="button" class="quick-tag-item' + (check.ok ? '' : ' disabled') + '" data-quick-tag-id="' + escapeHtml(tagId) + '"' + (check.ok ? '' : ' disabled title="' + escapeHtml(check.message) + '"') + ' style="padding-left:' + (8 + ((safeLevel - 1) * 14)) + 'px;">' +
+                '<span class="quick-tag-mark">#</span>' +
+                '<span class="quick-tag-name">' + escapeHtml(name) + '</span>' +
+              '</button>' +
+              childHtml +
+            '</div>'
+          );
+        }).join('');
+      }
+
+      async function openFileTagMenu(button, fileName) {
+        return openFilesTagMenu(button, [fileName]);
+      }
+
+      async function openFilesTagMenu(button, fileNames) {
+        closeFileTagMenu();
+        const targetFiles = (Array.isArray(fileNames) ? fileNames : [])
+          .map(function (name) { return String(name || ''); })
+          .filter(Boolean);
+        if (!button || !targetFiles.length) {
+          return;
+        }
+        if (!tagTree.length) {
+          await loadTagTreeState();
+        }
+        const menu = document.createElement('div');
+        menu.className = 'quick-tag-menu';
+        menu.setAttribute('data-quick-tag-files', targetFiles.join('\n'));
+        menu.innerHTML = tagTree.length
+          ? '<div class="quick-tag-title">' + (targetFiles.length > 1 ? ('给 ' + targetFiles.length + ' 个文件加入标签') : '加入标签') + '</div>' + buildQuickTagTreeHtml(tagTree, targetFiles, 1)
+          : '<div class="quick-tag-empty">当前没有标签</div>';
+        document.body.appendChild(menu);
+        const rect = button.getBoundingClientRect();
+        menu.style.left = Math.round(rect.left) + 'px';
+        menu.style.top = Math.round(rect.bottom + 6) + 'px';
+        clampFloatingMenuPosition(menu, rect.left, rect.bottom + 6);
+        activeFileTagMenu = menu;
       }
 
       function focusActiveTagRenameInput() {
@@ -2975,7 +3048,7 @@
       }
 
       function updateFileBulkActionButton() {
-        if (!fileBulkAction && !fileBulkDeleteAction) {
+        if (!fileBulkAction && !fileBulkDeleteAction && !fileBulkTagAction) {
           return;
         }
 
@@ -2999,6 +3072,12 @@
           fileBulkDeleteAction.title = title;
           fileBulkDeleteAction.setAttribute('aria-label', title);
           fileBulkDeleteAction.disabled = !isRecycleMode || selectedCount === 0;
+        }
+
+        if (fileBulkTagAction) {
+          fileBulkTagAction.disabled = selectedCount === 0;
+          fileBulkTagAction.title = selectedCount > 0 ? ('给选中的 ' + selectedCount + ' 个文件加标签') : '给选中文件加标签';
+          fileBulkTagAction.setAttribute('aria-label', fileBulkTagAction.title);
         }
       }
 
@@ -3091,7 +3170,7 @@
             : '';
           return (
             '<tr class="draggable-file-row" draggable="true" data-drag-file="' + encodedPath + '">' +
-              '<td class="file-select-cell"><input class="file-select-input" type="checkbox" data-select-file="' + encodedPath + '" aria-label="选择文件 ' + escapeHtml(rawName) + '"' + checked + '></td>' +
+              '<td class="file-select-cell"><div class="file-select-tools"><input class="file-select-input" type="checkbox" data-select-file="' + encodedPath + '" aria-label="选择文件 ' + escapeHtml(rawName) + '"' + checked + '><button class="file-tag-quick-btn" type="button" data-tag-file="' + encodedPath + '" title="加入标签" aria-label="加入标签">🏷</button></div></td>' +
               '<td><a class="file-name" draggable="false" href="' + escapeHtml(downloadUrlForFile(rawName, false)) + '">' + name + '</a>' + pathMeta + '</td>' +
               '<td>' + formatNumber(size) + ' 字节</td>' +
               '<td>' + uploaded + '</td>' +
@@ -4504,6 +4583,19 @@
           return;
         }
 
+        const quickTagBtn = e.target.closest('.file-tag-quick-btn[data-tag-file]');
+        if (quickTagBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const fileName = decodeURIComponent(quickTagBtn.getAttribute('data-tag-file') || '');
+          try {
+            await openFileTagMenu(quickTagBtn, fileName);
+          } catch (err) {
+            showStatus('打开标签选择失败：' + err.message, 'err');
+          }
+          return;
+        }
+
         const preview = e.target.closest('.preview-btn');
         if (preview) {
           const pfile = preview.getAttribute('data-preview-file');
@@ -4740,6 +4832,21 @@
               return;
             }
             showStatus('批量' + actionLabel + '失败：' + err.message, 'err');
+          }
+        });
+      }
+
+      if (fileBulkTagAction) {
+        fileBulkTagAction.addEventListener('click', async function () {
+          const fileNames = getSelectedVisibleFileNames();
+          if (!fileNames.length) {
+            showStatus('请先选择要加标签的文件', 'err');
+            return;
+          }
+          try {
+            await openFilesTagMenu(fileBulkTagAction, fileNames);
+          } catch (err) {
+            showStatus('打开标签选择失败：' + err.message, 'err');
           }
         });
       }
@@ -5317,6 +5424,37 @@
       }
 
       document.addEventListener('click', function (e) {
+        const quickTagItem = e.target.closest('.quick-tag-item[data-quick-tag-id]');
+        if (quickTagItem && activeFileTagMenu && activeFileTagMenu.contains(quickTagItem)) {
+          const tagId = quickTagItem.getAttribute('data-quick-tag-id') || '';
+          const fileNames = String(activeFileTagMenu.getAttribute('data-quick-tag-files') || '')
+            .split('\n')
+            .map(function (name) { return String(name || ''); })
+            .filter(Boolean);
+          closeFileTagMenu();
+          const check = canBindFilesToTagOnClient(tagId, fileNames);
+          if (!check.ok) {
+            showStatus('加入标签失败：' + check.message, 'err');
+            return;
+          }
+          bindFilesToTag(tagId, fileNames).then(async function (result) {
+            if (!result.ok) {
+              showStatus('加入标签失败：' + result.message, 'err');
+              return;
+            }
+            await loadTagTreeState();
+            if (activeFilterTagId === tagId) {
+              await showFilesForTag(tagId);
+            } else {
+              renderTagTree();
+            }
+            showStatus(fileNames.length > 1 ? ('已将 ' + fileNames.length + ' 个文件加入标签') : '文件已加入标签', 'ok');
+          }).catch(function (err) {
+            showStatus('加入标签失败：' + err.message, 'err');
+          });
+          return;
+        }
+
         const folderMenuItem = e.target.closest('.folder-context-item[data-folder-menu-action]');
         if (folderMenuItem && activeFolderContextMenu && activeFolderContextMenu.contains(folderMenuItem)) {
           const menu = activeFolderContextMenu;
@@ -5334,6 +5472,10 @@
 
         if (activeAudioTagContextMenu && !e.target.closest('.tag-context-menu')) {
           closeAudioTagContextMenu();
+        }
+
+        if (activeFileTagMenu && !e.target.closest('.quick-tag-menu') && !e.target.closest('.file-tag-quick-btn')) {
+          closeFileTagMenu();
         }
 
         if (tagDialog && !tagDialog.hidden) {
@@ -5454,8 +5596,12 @@
         }
       });
 
-      document.addEventListener('scroll', function () {
+      document.addEventListener('scroll', function (e) {
         closeAudioTagContextMenu();
+        if (activeFileTagMenu && activeFileTagMenu.contains(e.target)) {
+          return;
+        }
+        closeFileTagMenu();
       }, true);
 
       document.body.addEventListener('click', async function (e) {

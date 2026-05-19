@@ -90,7 +90,10 @@
                 <thead>
                   <tr>
                     <th class="file-select-col">
-                      <input id="file-select-all" type="checkbox" aria-label="全选当前列表文件">
+                      <span class="file-select-tools">
+                        <input id="file-select-all" type="checkbox" aria-label="全选当前列表文件">
+                        <button id="file-bulk-tag-action" class="file-tag-quick-btn" type="button" title="给选中文件加标签" aria-label="给选中文件加标签" disabled>🏷</button>
+                      </span>
                     </th>
                     <th>
                       <button class="sort-btn" data-sort-key="name" type="button">
