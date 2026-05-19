@@ -22,6 +22,7 @@ struct local_entry_t {
 	std::string name;
 	std::string path;
 	bool directory;
+	bool empty_directory;
 	long long size;
 	long long modified_at;
 	std::string modified_time;
@@ -118,6 +119,23 @@ static bool validate_local_name(const std::string& name, std::string& err) {
 			return false;
 		}
 	}
+	return true;
+}
+
+static bool directory_is_empty(const std::string& path) {
+	DIR* dir = opendir(path.c_str());
+	if (dir == NULL) {
+		return false;
+	}
+	struct dirent* entry = NULL;
+	while ((entry = readdir(dir)) != NULL) {
+		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+			continue;
+		}
+		closedir(dir);
+		return false;
+	}
+	closedir(dir);
 	return true;
 }
 
@@ -232,6 +250,7 @@ bool LocalDiskListAction::run(request_t& req, response_t& res)
 		item.name = entry->d_name;
 		item.path = child_path;
 		item.directory = S_ISDIR(child_st.st_mode);
+		item.empty_directory = item.directory && directory_is_empty(child_path);
 		item.size = item.directory ? 0 : (long long) child_st.st_size;
 		item.modified_at = (long long) child_st.st_mtime;
 		item.modified_time = time_buf;
@@ -260,6 +279,7 @@ bool LocalDiskListAction::run(request_t& req, response_t& res)
 		item.add_text("name", entries[i].name.c_str());
 		item.add_text("path", entries[i].path.c_str());
 		item.add_bool("directory", entries[i].directory);
+		item.add_bool("empty_directory", entries[i].empty_directory);
 		item.add_number("size", entries[i].size);
 		item.add_number("modified_at", entries[i].modified_at);
 		item.add_text("modified_time", entries[i].modified_time.c_str());

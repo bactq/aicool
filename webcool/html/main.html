@@ -135,14 +135,14 @@
           <button id="local-disk-home-btn" class="folder-action-btn icon-only" type="button" title="当前用户目录" aria-label="当前用户目录">⌂</button>
           <button id="local-disk-root-btn" class="folder-action-btn" type="button">根目录</button>
           <button id="local-disk-up-btn" class="folder-action-btn" type="button">上一级</button>
-          <button id="local-disk-view-table-btn" class="folder-action-btn local-disk-view-btn active" type="button" title="列表视图" aria-label="列表视图">☰ 列表</button>
-          <button id="local-disk-view-split-btn" class="folder-action-btn local-disk-view-btn" type="button" title="分栏视图" aria-label="分栏视图">⊟ 分栏</button>
+          <button id="local-disk-view-split-btn" class="folder-action-btn local-disk-view-btn active" type="button" title="分栏视图" aria-label="分栏视图">⊟ 分栏</button>
+          <button id="local-disk-view-table-btn" class="folder-action-btn local-disk-view-btn" type="button" title="列表视图" aria-label="列表视图">☰ 列表</button>
           <label class="local-hidden-toggle">
             <input id="local-disk-show-hidden" type="checkbox">
             <span>显示隐藏项</span>
           </label>
         </div>
-        <div class="file-table-wrap" id="local-disk-table-wrap">
+        <div class="file-table-wrap" id="local-disk-table-wrap" hidden>
           <table class="file-table local-disk-table" id="local-disk-table">
             <thead>
               <tr>
@@ -172,7 +172,7 @@
             <tbody id="local-disk-list"></tbody>
           </table>
         </div>
-        <div class="local-disk-explorer" id="local-disk-explorer" hidden>
+        <div class="local-disk-explorer" id="local-disk-explorer">
           <aside class="local-disk-dir-browser">
             <div class="folder-browser-head">
               <h2>子目录</h2>

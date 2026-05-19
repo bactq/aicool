@@ -1239,6 +1239,10 @@
       align-items: start;
     }
 
+    .local-disk-explorer[hidden] {
+      display: none;
+    }
+
     .local-disk-dir-browser {
       border: 1px solid #d8e5f2;
       border-radius: 14px;

@@ -118,7 +118,7 @@
       let activeLocalDiskItems = [];
       let localDiskSortKey = 'name';
       let localDiskSortOrder = 'asc';
-      let localDiskViewMode = 'table';
+      let localDiskViewMode = 'split';
       let activeDropFolderPath = null;
       let activeFolderAutoExpandPath = '';
       let folderAutoExpandTimer = null;
@@ -2595,6 +2595,12 @@
         if (!localDiskList || !localDiskTable || !localDiskEmpty) {
           return;
         }
+        if (localDiskTableWrap) {
+          localDiskTableWrap.hidden = false;
+        }
+        if (localDiskExplorer) {
+          localDiskExplorer.hidden = true;
+        }
         if (!list.length) {
           localDiskList.innerHTML = '';
           localDiskTable.style.display = 'none';
@@ -2625,7 +2631,9 @@
           const textBtn = !isDir && isTextName(name)
             ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">查看</button>'
             : '';
-          const deleteBtn = '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">删除</button>';
+          const deleteBtn = isDir && item.empty_directory
+            ? '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">删除</button>'
+            : '';
           return (
             '<tr>' +
               '<td>' + displayName + '</td>' +
@@ -2642,6 +2650,12 @@
         if (!localDiskDirList || !localDiskDirEmpty || !localDiskSplitList || !localDiskSplitTable || !localDiskSplitEmpty) {
           return;
         }
+        if (localDiskTableWrap) {
+          localDiskTableWrap.hidden = true;
+        }
+        if (localDiskExplorer) {
+          localDiskExplorer.hidden = false;
+        }
         const dirs = list.filter(function (item) { return !!(item && item.directory); });
         const files = list.filter(function (item) { return !(item && item.directory); });
 
@@ -2653,7 +2667,9 @@
             const path = String((item && item.path) || '');
             const encodedPath = encodeURIComponent(path);
             const createBtn = '<button type="button" class="local-mkdir-btn local-disk-dir-create-inline" data-local-mkdir="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '" title="新建子目录" aria-label="新建子目录">+</button>';
-            const deleteBtn = '<button type="button" class="local-delete-btn local-disk-dir-delete-inline" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '" title="删除空目录" aria-label="删除空目录">-</button>';
+            const deleteBtn = item.empty_directory
+              ? '<button type="button" class="local-delete-btn local-disk-dir-delete-inline" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '" title="删除空目录" aria-label="删除空目录">-</button>'
+              : '';
             return '<div class="local-disk-dir-item">' +
               '<button type="button" class="local-disk-dir-link" data-local-folder="' + encodedPath + '">' +
                 '<span class="local-folder-icon">📁</span>' +
