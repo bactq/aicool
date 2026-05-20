@@ -2577,10 +2577,13 @@
 
     .preview-image-shell {
       position: relative;
-      display: inline-flex;
+      display: flex;
       align-items: center;
       justify-content: center;
-      max-width: 100%;
+      width: 100%;
+      min-height: calc(90vh - 134px);
+      padding: 0 58px;
+      box-sizing: border-box;
     }
 
     .preview-image {
@@ -2622,11 +2625,11 @@
     }
 
     .preview-nav-prev {
-      left: 14px;
+      left: 8px;
     }
 
     .preview-nav-next {
-      right: 14px;
+      right: 8px;
     }
 
     .preview-video {
