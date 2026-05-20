@@ -184,6 +184,8 @@
       const unlockedFolderPasswords = new Map();
       const unlockedFilePasswords = new Map();
       const selectedFileNames = new Set();
+      const selectedFolderPaths = new Set();
+      let lastSelectedFolderPath = '';
       const expandedFolderPaths = new Set(['']);
       let tagTree = [];
       let activeFilterTagId = '';
@@ -1016,6 +1018,70 @@
         return result;
       }
 
+      function getVisibleFolderPathsInOrder() {
+        const result = [''];
+        function walk(nodes) {
+          (Array.isArray(nodes) ? nodes : []).forEach(function (node) {
+            const path = String((node && node.path) || '');
+            if (!path) {
+              return;
+            }
+            result.push(path);
+            if (expandedFolderPaths.has(path)) {
+              walk(node.children);
+            }
+          });
+        }
+        walk(getRootFolderTreeNodesForRender());
+        return result;
+      }
+
+      function clearSelectedFolders() {
+        selectedFolderPaths.clear();
+        lastSelectedFolderPath = '';
+      }
+
+      function selectFolderPath(path, shiftKey) {
+        const target = String(path || '');
+        if (!target || isRecycleRootFolderPath(target)) {
+          clearSelectedFolders();
+          return;
+        }
+        const targetInRecycle = isRecycleFolderPath(target);
+        if (shiftKey && lastSelectedFolderPath) {
+          const visiblePaths = getVisibleFolderPathsInOrder().filter(function (item) {
+            if (!item || isRecycleRootFolderPath(item)) {
+              return false;
+            }
+            return targetInRecycle ? isRecycleFolderPath(item) : !isRecycleFolderPath(item);
+          });
+          const start = visiblePaths.indexOf(lastSelectedFolderPath);
+          const end = visiblePaths.indexOf(target);
+          selectedFolderPaths.clear();
+          if (start >= 0 && end >= 0) {
+            const min = Math.min(start, end);
+            const max = Math.max(start, end);
+            for (let i = min; i <= max; i += 1) {
+              selectedFolderPaths.add(visiblePaths[i]);
+            }
+          } else {
+            selectedFolderPaths.add(target);
+          }
+        } else {
+          selectedFolderPaths.clear();
+          selectedFolderPaths.add(target);
+          lastSelectedFolderPath = target;
+        }
+      }
+
+      function getFolderDragPaths(sourcePath) {
+        const source = String(sourcePath || '');
+        if (source && selectedFolderPaths.has(source)) {
+          return Array.from(selectedFolderPaths);
+        }
+        return source ? [source] : [];
+      }
+
       async function moveFoldersToFolder(folderPaths, targetFolder) {
         const selected = normalizeFolderMoveSources(folderPaths);
         if (!selected.length) {
@@ -1044,6 +1110,41 @@
 
         ensureFolderPathExpanded(activeFolderPath);
         ensureFolderPathExpanded(target);
+        await loadFiles();
+        return { movedCount: movedCount, ignoredCount: ignoredCount };
+      }
+
+      async function moveFoldersToRecycle(folderPaths) {
+        const selected = normalizeFolderMoveSources(folderPaths).filter(function (path) {
+          return path && !isRecycleFolderPath(path);
+        });
+        if (!selected.length) {
+          return { movedCount: 0, ignoredCount: Array.isArray(folderPaths) ? folderPaths.length : 0 };
+        }
+
+        const rawSelectedCount = Array.isArray(folderPaths) ? folderPaths.length : 0;
+        const ignoredCount = rawSelectedCount > selected.length ? (rawSelectedCount - selected.length) : 0;
+        const confirmed = await askConfirmDialog({
+          title: '移入回收站',
+          description: '确认将选中的 ' + selected.length + ' 个文件夹及其全部内容移入回收站？',
+          confirmText: '移入回收站',
+          danger: true
+        });
+        if (!confirmed) {
+          return { movedCount: 0, ignoredCount: ignoredCount, cancelled: true };
+        }
+
+        let movedCount = 0;
+        for (let i = 0; i < selected.length; i += 1) {
+          const sourcePath = selected[i];
+          await fetchJson(withFolderPassword(api.folderDelete + '?path=' + encodeURIComponent(sourcePath), sourcePath), { method: 'POST' });
+          if (isSameOrChildFolderPath(sourcePath, activeFolderPath)) {
+            activeFolderPath = RECYCLE_FOLDER_NAME;
+          }
+          movedCount += 1;
+        }
+
+        ensureFolderPathExpanded(RECYCLE_FOLDER_NAME);
         await loadFiles();
         return { movedCount: movedCount, ignoredCount: ignoredCount };
       }
@@ -3106,6 +3207,7 @@
           const expanded = expandedFolderPaths.has(path);
           const hasChildren = Array.isArray(node.children) && node.children.length > 0;
           const isActive = activeFolderPath === path;
+          const isSelected = selectedFolderPaths.has(path);
           const isRenaming = activeFolderRenamePath === path && canRenameFolderPath(path);
           const padding = 10 + (Math.max(0, Number(level) || 0) * 18);
           const folderIconHtml = isRecycleRootFolderPath(path)
@@ -3119,7 +3221,7 @@
             : '<span class="folder-tree-name">' + folderIconHtml + escapeHtml(node.name || '') + '</span>';
           const lockHtml = folderLockIconHtml(node);
           return (
-            '<div class="folder-tree-node' + (isActive ? ' active' : '') + (activeDropFolderPath === path ? ' drop-target' : '') + '" data-folder-path="' + escapeHtml(path) + '">' +
+            '<div class="folder-tree-node' + (isActive ? ' active' : '') + (isSelected ? ' selected' : '') + (activeDropFolderPath === path ? ' drop-target' : '') + '" data-folder-path="' + escapeHtml(path) + '">' +
               '<div class="folder-tree-line" style="padding-left:' + padding + 'px;">' +
                 (hasChildren
                   ? '<button type="button" class="folder-tree-toggle" data-folder-toggle="' + escapeHtml(path) + '">' + (expanded ? '▾' : '▸') + '</button>'
@@ -3341,21 +3443,40 @@
         if (!activeFolderPath || !isRecycleFolderPath(activeFolderPath) || isRecycleRootFolderPath(activeFolderPath)) {
           return;
         }
+        const selected = selectedFolderPaths.has(activeFolderPath)
+          ? normalizeFolderMoveSources(Array.from(selectedFolderPaths)).filter(function (path) {
+            return isRecycleFolderPath(path) && !isRecycleRootFolderPath(path);
+          })
+          : [activeFolderPath];
+        if (!selected.length) {
+          return;
+        }
         const confirmed = await askConfirmDialog({
-          title: '恢复目录',
-          description: '确认恢复回收站中的目录「' + activeFolderPath + '」？将恢复到原路径（如冲突会自动改名）。',
+          title: selected.length > 1 ? '批量恢复目录' : '恢复目录',
+          description: selected.length > 1
+            ? ('确认恢复回收站中选中的 ' + selected.length + ' 个目录？将恢复到原路径（如冲突会自动改名）。')
+            : ('确认恢复回收站中的目录「' + activeFolderPath + '」？将恢复到原路径（如冲突会自动改名）。'),
           confirmText: '恢复',
           danger: false
         });
         if (!confirmed) {
           return;
         }
-        const result = await fetchJson(api.restore + '?file=' + encodeURIComponent(activeFolderPath));
-        const targetPath = String((result && result.path) || '');
+        let restoredCount = 0;
+        let lastTargetPath = '';
+        for (let i = 0; i < selected.length; i += 1) {
+          const result = await fetchJson(api.restore + '?file=' + encodeURIComponent(selected[i]));
+          lastTargetPath = String((result && result.path) || '');
+          restoredCount += 1;
+        }
+        clearSelectedFolders();
         activeFolderPath = RECYCLE_FOLDER_NAME;
         ensureFolderPathExpanded(activeFolderPath);
         await loadFiles();
-        showStatus('已恢复目录' + (targetPath ? ('：' + targetPath) : ''), 'ok');
+        showStatus(restoredCount > 1
+          ? ('已恢复 ' + restoredCount + ' 个目录')
+          : ('已恢复目录' + (lastTargetPath ? ('：' + lastTargetPath) : '')),
+          'ok');
       }
 
       async function moveFilesToFolder(filePaths, folderPath) {
@@ -5976,6 +6097,7 @@
             return;
           }
           activeFolderPath = path;
+          selectFolderPath(path, e.shiftKey);
           ensureFolderPathExpanded(activeFolderPath);
           await loadFiles();
         });
@@ -6046,12 +6168,14 @@
             return;
           }
           const folderPath = entry.getAttribute('data-drag-folder') || '';
-          if (!folderPath) {
+          if (!folderPath || isRecycleFolderPath(folderPath)) {
+            e.preventDefault();
             return;
           }
+          const dragPaths = getFolderDragPaths(folderPath);
           e.dataTransfer.effectAllowed = 'move';
           e.dataTransfer.setData('text/plain', folderPath);
-          e.dataTransfer.setData('application/webcool-folder-list', JSON.stringify([folderPath]));
+          e.dataTransfer.setData('application/webcool-folder-list', JSON.stringify(dragPaths));
         });
 
         folderTree.addEventListener('dragend', function () {
@@ -6116,14 +6240,21 @@
           const targetFolder = node.getAttribute('data-folder-path') || '';
           if (folderPaths.length) {
             try {
-              const summary = await moveFoldersToFolder(folderPaths, targetFolder);
-              let message = summary.movedCount > 1 ? ('已移动 ' + summary.movedCount + ' 个文件夹') : '文件夹已移动';
+              const summary = isRecycleRootFolderPath(targetFolder)
+                ? await moveFoldersToRecycle(folderPaths)
+                : await moveFoldersToFolder(folderPaths, targetFolder);
+              if (summary.cancelled) {
+                return;
+              }
+              let message = isRecycleRootFolderPath(targetFolder)
+                ? (summary.movedCount > 1 ? ('已将 ' + summary.movedCount + ' 个文件夹移入回收站') : '文件夹已移入回收站')
+                : (summary.movedCount > 1 ? ('已移动 ' + summary.movedCount + ' 个文件夹') : '文件夹已移动');
               if (summary.ignoredCount > 0) {
                 message += '，已忽略 ' + summary.ignoredCount + ' 个重复子文件夹';
               }
-              showStatus(message, 'ok');
+              showStatus(message, isRecycleRootFolderPath(targetFolder) ? 'warn' : 'ok');
             } catch (err) {
-              showStatus('移动文件夹失败：' + err.message, 'err');
+              showStatus((isRecycleRootFolderPath(targetFolder) ? '移入回收站失败：' : '移动文件夹失败：') + err.message, 'err');
             }
             return;
           }
