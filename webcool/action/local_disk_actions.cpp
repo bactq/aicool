@@ -239,12 +239,14 @@ static bool current_trash_files_path(std::string& path, std::string& err)
 #endif
 }
 
+#ifdef __APPLE__
 static bool is_current_trash_files_path(const std::string& path)
 {
 	std::string trash_path;
 	std::string err;
 	return current_trash_files_path(trash_path, err) && path == trash_path;
 }
+#endif
 
 static std::string unique_child_path(const std::string& parent,
 	const std::string& name)
