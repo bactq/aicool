@@ -1060,6 +1060,22 @@
       border-color: #c9ddf0;
     }
 
+    .tag-context-sep {
+      margin: 4px 2px;
+      border: none;
+      border-top: 1px solid #d6e4f2;
+    }
+
+    .tag-context-item-lock {
+      color: #6b4e2a;
+      background: #fdf6ef;
+    }
+
+    .tag-context-item-lock:hover {
+      background: #fbebd6;
+      border-color: #e8c99a;
+    }
+
     .tag-pop-menu {
       position: absolute;
       top: calc(100% + 6px);

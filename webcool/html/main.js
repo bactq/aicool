@@ -1307,15 +1307,28 @@
         });
       }
 
-      function openAudioTagContextMenu(tagId, tagName, clientX, clientY) {
+      function openAudioTagContextMenu(tagId, tagName, clientX, clientY, lockInfo) {
         closeAudioTagContextMenu();
 
         const menu = document.createElement('div');
-        menu.className = 'tag-context-menu';
-        menu.innerHTML =
+        menu.className = 'tag-context-menu file-context-menu';
+        let html =
           '<button type="button" class="tag-context-item" data-audio-tag-action="random" data-tag-id="' + escapeHtml(tagId) + '">' + AUDIO_PLAY_MODE_LABELS.random + '</button>' +
           '<button type="button" class="tag-context-item" data-audio-tag-action="sequential" data-tag-id="' + escapeHtml(tagId) + '">' + AUDIO_PLAY_MODE_LABELS.sequential + '</button>' +
           '<button type="button" class="tag-context-item" data-audio-tag-action="loop" data-tag-id="' + escapeHtml(tagId) + '">' + AUDIO_PLAY_MODE_LABELS.loop + '</button>';
+        if (lockInfo) {
+          html += '<hr class="tag-context-sep">';
+          if (lockInfo.locked) {
+            const unlocked = !!getTagPassword(tagId);
+            html += '<button type="button" class="folder-context-item" data-tag-lock-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + (unlocked ? '加锁' : '解锁') + '</button>';
+            html += '<button type="button" class="folder-context-item" data-tag-lock-action="remove-lock">去锁</button>';
+          } else {
+            html += '<button type="button" class="folder-context-item" data-tag-lock-action="lock">加锁</button>';
+          }
+          menu.setAttribute('data-tag-lock-id', tagId);
+          activeFileContextMenu = menu;
+        }
+        menu.innerHTML = html;
         menu.setAttribute('data-tag-id', tagId);
         menu.setAttribute('data-tag-name', tagName || '');
         menu.style.left = Math.round(clientX) + 'px';
@@ -6230,20 +6243,31 @@
           const meta = findTagMetaById(tagId);
           const isAudioConstraint = !!(tagId && getTagFileTypeConstraint(tagId) === 'audio');
           const isLockIconClick = !!e.target.closest('.tag-lock-inline[data-tag-lock-toggle]');
-          if (meta && canLockTagNode(meta.node, meta.level) && (!isAudioConstraint || isLockIconClick)) {
-            e.preventDefault();
-            e.stopPropagation();
-            openTagLockContextMenu(tagId, !!meta.node.locked, e.clientX, e.clientY);
+          if (isLockIconClick) {
+            if (meta && canLockTagNode(meta.node, meta.level)) {
+              e.preventDefault();
+              e.stopPropagation();
+              openTagLockContextMenu(tagId, !!meta.node.locked, e.clientX, e.clientY);
+            }
             return;
           }
           if (!tagId || !isAudioConstraint || !tagNodeEl) {
+            if (meta && canLockTagNode(meta.node, meta.level)) {
+              e.preventDefault();
+              e.stopPropagation();
+              openTagLockContextMenu(tagId, !!meta.node.locked, e.clientX, e.clientY);
+              return;
+            }
             closeFileContextMenu();
             closeAudioTagContextMenu();
             return;
           }
           e.preventDefault();
           e.stopPropagation();
-          openAudioTagContextMenu(tagId, String(tagNameEl.textContent || '').trim(), e.clientX, e.clientY);
+          const lockInfo = (meta && canLockTagNode(meta.node, meta.level))
+            ? { locked: !!meta.node.locked }
+            : null;
+          openAudioTagContextMenu(tagId, String(tagNameEl.textContent || '').trim(), e.clientX, e.clientY, lockInfo);
         });
 
         tagManager.addEventListener('dragover', function (e) {
@@ -6415,6 +6439,7 @@
           const action = tagLockMenuItem.getAttribute('data-tag-lock-action') || '';
           const tagId = menu.getAttribute('data-tag-lock-id') || '';
           closeFileContextMenu();
+          closeAudioTagContextMenu();
           handleTagLockAction(action, tagId).catch(function (err) {
             showStatus('标签锁操作失败：' + err.message, 'err');
           });
