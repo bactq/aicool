@@ -3108,12 +3108,15 @@
           const isActive = activeFolderPath === path;
           const isRenaming = activeFolderRenamePath === path && canRenameFolderPath(path);
           const padding = 10 + (Math.max(0, Number(level) || 0) * 18);
+          const folderIconHtml = isRecycleRootFolderPath(path)
+            ? '<span class="folder-tree-icon recycle" aria-hidden="true">🗑</span>'
+            : '';
           const childHtml = hasChildren && expanded
             ? '<div class="folder-tree-children">' + buildFolderTreeHtml(node.children, (level || 0) + 1) + '</div>'
             : '';
           const nameHtml = isRenaming
             ? '<input class="folder-rename-input" data-folder-rename-input="' + escapeHtml(path) + '" value="' + escapeHtml(node.name || '') + '" maxlength="120">'
-            : '<span class="folder-tree-name">' + escapeHtml(node.name || '') + '</span>';
+            : '<span class="folder-tree-name">' + folderIconHtml + escapeHtml(node.name || '') + '</span>';
           const lockHtml = folderLockIconHtml(node);
           return (
             '<div class="folder-tree-node' + (isActive ? ' active' : '') + (activeDropFolderPath === path ? ' drop-target' : '') + '" data-folder-path="' + escapeHtml(path) + '">' +
@@ -3164,7 +3167,7 @@
             '<div class="folder-tree-line" style="padding-left:10px;">' +
               '<span class="folder-tree-toggle placeholder">•</span>' +
               '<div class="folder-tree-entry" data-folder-select="">' +
-                '<span class="folder-tree-name">根目录</span>' +
+                '<span class="folder-tree-name"><span class="folder-tree-icon root" aria-hidden="true">⌂</span>根目录</span>' +
                 '<span class="folder-tree-count"></span>' +
               '</div>' +
             '</div>' +

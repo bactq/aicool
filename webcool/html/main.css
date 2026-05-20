@@ -508,6 +508,8 @@
       justify-content: space-between;
       gap: 10px;
       margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #d8e5f2;
     }
 
     .folder-browser-head h2 {
@@ -634,12 +636,39 @@
 
     .folder-tree-name {
       min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       font-size: 13px;
       font-weight: 700;
       color: #284b6f;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .folder-tree-icon {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      line-height: 1;
+    }
+
+    .folder-tree-icon.root {
+      background: #e9f5ff;
+      color: #1f6fb8;
+      border: 1px solid #b9dcfb;
+    }
+
+    .folder-tree-icon.recycle {
+      background: transparent;
+      color: #bd650d;
+      border: none;
     }
 
     .folder-rename-input {
