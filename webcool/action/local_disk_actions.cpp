@@ -379,7 +379,8 @@ static bool run_open_command(std::string& err)
 	return true;
 }
 
-static bool run_open_file_command(const std::string& path, std::string& err)
+static bool run_open_file_command(const std::string& path,
+	bool choose_app, std::string& err)
 {
 	err.clear();
 	pid_t pid = fork();
@@ -389,6 +390,16 @@ static bool run_open_file_command(const std::string& path, std::string& err)
 	}
 	if (pid == 0) {
 #ifdef __APPLE__
+		if (choose_app) {
+			execlp("osascript", "osascript",
+				"-e", "on run argv",
+				"-e", "set targetPath to item 1 of argv",
+				"-e", "set chosenApp to choose application with prompt \"选择本地播放器\"",
+				"-e", "set appName to name of chosenApp",
+				"-e", "do shell script \"open -a \" & quoted form of appName & \" \" & quoted form of targetPath",
+				"-e", "end run",
+				path.c_str(), (char*) NULL);
+		}
 		execlp("open", "open", path.c_str(), (char*) NULL);
 #else
 		execlp("xdg-open", "xdg-open", path.c_str(), (char*) NULL);
@@ -403,7 +414,9 @@ static bool run_open_file_command(const std::string& path, std::string& err)
 		return false;
 	}
 	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-		err = "failed to open file with local player";
+		err = choose_app
+			? "failed to choose local player"
+			: "failed to open file with local player";
 		return false;
 	}
 	return true;
@@ -1307,6 +1320,8 @@ bool LocalDiskOpenTrashAction::run(request_t& req, response_t& res)
 bool LocalDiskOpenFileAction::run(request_t& req, response_t& res,
 	const std::string& upload_dir)
 {
+	const bool choose_app = req.getParameter("chooser") != NULL
+		&& strcmp(req.getParameter("chooser"), "1") == 0;
 	std::string path;
 	std::string err;
 	if (!normalize_local_path(req.getParameter("path"), path, err)) {
@@ -1335,7 +1350,7 @@ bool LocalDiskOpenFileAction::run(request_t& req, response_t& res,
 		json_error(res, 403, "file is locked", req.isKeepAlive());
 		return true;
 	}
-	if (!run_open_file_command(path, err)) {
+	if (!run_open_file_command(path, choose_app, err)) {
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
 	}
@@ -1343,7 +1358,7 @@ bool LocalDiskOpenFileAction::run(request_t& req, response_t& res,
 	acl::json_node& root = json.create_node();
 	root.add_bool("ok", true);
 	root.add_text("path", path.c_str());
-	root.add_text("message", "file opened");
+	root.add_text("message", choose_app ? "local player chooser opened" : "file opened");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 

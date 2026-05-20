@@ -607,6 +607,7 @@
         }
         if (local && isVideo) {
           html += '<button type="button" class="folder-context-item" data-file-menu-action="open-local-player">使用本地播放器播放</button>';
+          html += '<button type="button" class="folder-context-item" data-file-menu-action="choose-local-player">选择本地播放器</button>';
         }
         menu.innerHTML = html;
         document.body.appendChild(menu);
@@ -880,6 +881,14 @@
           url = appendLocalDirPassword(url, localDiskParentPath(path));
           await fetchJson(url, { method: 'POST' });
           showStatus('已调用本地播放器：' + fileLabel, 'ok');
+          return;
+        }
+        if (action === 'choose-local-player') {
+          let url = api.localDiskOpenFile + '?chooser=1&path=' + encodeURIComponent(path);
+          url = appendFilePassword(url, path, true);
+          url = appendLocalDirPassword(url, localDiskParentPath(path));
+          await fetchJson(url, { method: 'POST' });
+          showStatus('已打开本地播放器选择窗口：' + fileLabel, 'ok');
         }
       }
 
