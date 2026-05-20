@@ -1586,7 +1586,8 @@
           }
           const fileName = getFilePath(current);
           updateCurrentTrack(index, fileName);
-          audioEl.src = downloadUrlForFile(fileName, true) + '&v=' + Date.now();
+          const isLocal = !!current.local;
+          audioEl.src = (isLocal ? localDiskDownloadUrl(fileName) : downloadUrlForFile(fileName, true)) + '&v=' + Date.now();
           audioEl.load();
           if (autoplay !== false) {
             audioEl.play().catch(function () {});
@@ -6227,13 +6228,15 @@
           }
           const tagId = tagNameEl.getAttribute('data-tag-id') || tagNameEl.getAttribute('data-tag-lock-toggle') || '';
           const meta = findTagMetaById(tagId);
-          if (meta && canLockTagNode(meta.node, meta.level)) {
+          const isAudioConstraint = !!(tagId && getTagFileTypeConstraint(tagId) === 'audio');
+          const isLockIconClick = !!e.target.closest('.tag-lock-inline[data-tag-lock-toggle]');
+          if (meta && canLockTagNode(meta.node, meta.level) && (!isAudioConstraint || isLockIconClick)) {
             e.preventDefault();
             e.stopPropagation();
             openTagLockContextMenu(tagId, !!meta.node.locked, e.clientX, e.clientY);
             return;
           }
-          if (!tagId || getTagFileTypeConstraint(tagId) !== 'audio' || !tagNodeEl) {
+          if (!tagId || !isAudioConstraint || !tagNodeEl) {
             closeFileContextMenu();
             closeAudioTagContextMenu();
             return;
