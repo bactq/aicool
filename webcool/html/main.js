@@ -3390,9 +3390,9 @@
       }
 
       async function openLocalImportDialog() {
-        const files = getSelectedLocalDiskFilePaths();
-        if (!files.length) {
-          showStatus('请先选择要上传的本地文件', 'err');
+        const paths = getSelectedLocalDiskImportPaths();
+        if (!paths.length) {
+          showStatus('请先选择要上传的本地文件或文件夹', 'err');
           return;
         }
         try {
@@ -3524,8 +3524,8 @@
       }
 
       async function confirmLocalImport() {
-        const files = getSelectedLocalDiskFilePaths();
-        if (!files.length) {
+        const paths = getSelectedLocalDiskImportPaths();
+        if (!paths.length) {
           closeLocalImportDialog();
           return;
         }
@@ -3535,7 +3535,7 @@
         const password = getFolderPasswordForPath(localImportTargetFolderPath);
         let url = api.localDiskImport
           + '?folder=' + encodeURIComponent(localImportTargetFolderPath || '')
-          + '&paths=' + encodeURIComponent(files.join('\n'));
+          + '&paths=' + encodeURIComponent(paths.join('\n'));
         if (password) {
           url += '&folder_password=' + encodeURIComponent(password);
         }
@@ -3885,6 +3885,10 @@
         }).filter(Boolean);
       }
 
+      function getSelectedLocalDiskImportPaths() {
+        return getSelectedLocalDiskPaths();
+      }
+
       function getVisibleLocalDiskFilePaths() {
         return activeLocalDiskItems.filter(function (item) {
           return item && !item.directory;
@@ -3916,7 +3920,7 @@
           }
         });
         if (localDiskImportBtn) {
-          localDiskImportBtn.disabled = disabled;
+          localDiskImportBtn.disabled = getSelectedLocalDiskImportPaths().length === 0;
         }
         updateLocalDiskSelectAllState();
       }
@@ -4184,9 +4188,9 @@
           const lockIcon = fileLocked
             ? '<span class="folder-lock-icon file-lock-inline' + (getFilePassword(path, true) ? ' unlocked' : '') + '" title="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '" aria-label="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
             : '';
-          const checked = !isDir && selectedLocalDiskPaths.has(path) ? ' checked' : '';
+          const checked = selectedLocalDiskPaths.has(path) ? ' checked' : '';
           const selectBox = isDir
-            ? '<span class="local-disk-select-placeholder"></span>'
+            ? '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="选择 ' + escapeHtml(name) + '"' + checked + '></span>'
             : '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="选择 ' + escapeHtml(name) + '"' + checked + '><button class="file-tag-quick-btn local-file-tag-btn" type="button" data-local-tag-file="' + encodedPath + '" title="加入标签" aria-label="加入标签">🏷</button></span>';
           const nameHtml = isDir
             ? '<button type="button" class="local-folder-link" data-local-folder="' + encodedPath + '"><span class="local-folder-icon">📁</span><span>' + escapeHtml(name) + '</span></button>' + dirLockIcon
