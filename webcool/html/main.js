@@ -223,6 +223,7 @@
       let activeTagRenameId = '';
       let tagRenameRequestId = '';
       let previewZ = 900;
+      let activeTagPreviewImages = [];
       let activeDrag = null;
       let activeTagDialogResolver = null;
       let activeLockDialogState = null;
@@ -4121,23 +4122,78 @@
         const imageFiles = (Array.isArray(files) ? files : []).filter(function (f) {
           return !f.directory && isImageName(f.name);
         });
+        activeTagPreviewImages = imageFiles.map(function (f) {
+          const rawName = getFilePath(f);
+          return {
+            file: rawName,
+            name: String(f.name || rawName || ''),
+            local: !!f.local
+          };
+        });
         if (!imageFiles.length) {
           tagImagePreviewWrap.innerHTML = '<p class="tag-preview-empty">\u5f53\u524d\u6807\u7b7e\u4e0b\u6ca1\u6709\u56fe\u7247\u3002</p>';
           tagImagePreviewWrap.hidden = false;
           return;
         }
-        const items = imageFiles.map(function (f) {
-          const rawName = getFilePath(f);
-          const isLocal = !!f.local;
-          const url = isLocal ? localDiskDownloadUrl(rawName) : downloadUrlForFile(rawName, true);
+        const items = activeTagPreviewImages.map(function (item, index) {
+          const rawName = item.file;
+          const url = item.local ? localDiskDownloadUrl(rawName) : downloadUrlForFile(rawName, true);
           const encodedPath = encodeURIComponent(rawName);
-          return '<div class="tag-img-thumb" data-thumb-file="' + encodedPath + '" data-thumb-name="' + escapeHtml(rawName) + '" role="button" tabindex="0" title="' + escapeHtml(f.name || '') + '">' +
-            '<img src="' + escapeHtml(url) + '" alt="' + escapeHtml(f.name || '') + '" loading="lazy">' +
-            '<div class="tag-img-thumb-name">' + escapeHtml(f.name || '') + '</div>' +
+          return '<div class="tag-img-thumb" data-thumb-file="' + encodedPath + '" data-thumb-index="' + index + '" data-thumb-name="' + escapeHtml(item.name) + '" role="button" tabindex="0" title="' + escapeHtml(item.name) + '">' +
+            '<img src="' + escapeHtml(url) + '" alt="' + escapeHtml(item.name) + '" loading="lazy">' +
+            '<div class="tag-img-thumb-name">' + escapeHtml(item.name) + '</div>' +
             '</div>';
         });
         tagImagePreviewWrap.innerHTML = '<div class="tag-img-thumb-grid">' + items.join('') + '</div>';
         tagImagePreviewWrap.hidden = false;
+      }
+
+      function imagePreviewUrlForItem(item) {
+        if (!item || !item.file) {
+          return '';
+        }
+        const url = item.local ? localDiskDownloadUrl(item.file) : downloadUrlForFile(item.file, true);
+        return url + '&v=' + Date.now();
+      }
+
+      function updateImagePreviewWindow(win, gallery, index) {
+        if (!win || !Array.isArray(gallery) || !gallery.length) {
+          return;
+        }
+        const nextIndex = Math.max(0, Math.min(Number(index || 0), gallery.length - 1));
+        const item = gallery[nextIndex];
+        const titleEl = win.querySelector('.preview-title');
+        const imageEl = win.querySelector('.preview-image');
+        const prevBtn = win.querySelector('.preview-nav-btn[data-preview-nav="prev"]');
+        const nextBtn = win.querySelector('.preview-nav-btn[data-preview-nav="next"]');
+        win.__imageGallery = gallery;
+        win.__imageIndex = nextIndex;
+        if (titleEl) {
+          titleEl.textContent = '图片预览：' + String(item.name || item.file || '');
+        }
+        if (imageEl) {
+          imageEl.src = imagePreviewUrlForItem(item);
+          imageEl.alt = String(item.name || '图片预览');
+        }
+        if (prevBtn) {
+          prevBtn.disabled = nextIndex <= 0;
+          prevBtn.hidden = gallery.length <= 1;
+        }
+        if (nextBtn) {
+          nextBtn.disabled = nextIndex >= gallery.length - 1;
+          nextBtn.hidden = gallery.length <= 1;
+        }
+      }
+
+      function stepImagePreviewWindow(win, delta) {
+        if (!win || !Array.isArray(win.__imageGallery) || !win.__imageGallery.length) {
+          return;
+        }
+        const nextIndex = Number(win.__imageIndex || 0) + Number(delta || 0);
+        if (nextIndex < 0 || nextIndex >= win.__imageGallery.length) {
+          return;
+        }
+        updateImagePreviewWindow(win, win.__imageGallery, nextIndex);
       }
 
       function buildLocalDiskFileRowHtml(item) {
@@ -4691,6 +4747,9 @@
         const existed = openedPreviewWindows.get(previewKey);
         if (existed && existed.isConnected) {
           bringToFront(existed);
+          if (kind === 'image' && Array.isArray(opts.gallery) && opts.gallery.length) {
+            updateImagePreviewWindow(existed, opts.gallery, Number(opts.galleryIndex || 0));
+          }
           const video = existed.querySelector('video');
           if (video) {
             video.play().catch(function () {});
@@ -4723,7 +4782,12 @@
         } else if (kind === 'text') {
           mediaHtml = '<pre class="preview-text">加载中...</pre>';
         } else {
-          mediaHtml = '<img class="preview-image" alt="图片预览" src="' + url + '">';
+          const showNav = Array.isArray(opts.gallery) && opts.gallery.length > 1;
+          mediaHtml = '<div class="preview-image-shell">'
+            + '<button class="preview-nav-btn preview-nav-prev" type="button" data-preview-nav="prev" aria-label="上一张"' + (showNav ? '' : ' hidden') + '>‹</button>'
+            + '<img class="preview-image" alt="图片预览" src="' + url + '">'
+            + '<button class="preview-nav-btn preview-nav-next" type="button" data-preview-nav="next" aria-label="下一张"' + (showNav ? '' : ' hidden') + '>›</button>'
+            + '</div>';
         }
 
         win.innerHTML =
@@ -4805,6 +4869,23 @@
         closeBtn.addEventListener('click', function () {
           closePreviewWindow(win, previewKey);
         });
+
+        const prevNavBtn = win.querySelector('.preview-nav-btn[data-preview-nav="prev"]');
+        const nextNavBtn = win.querySelector('.preview-nav-btn[data-preview-nav="next"]');
+        if (prevNavBtn) {
+          prevNavBtn.addEventListener('click', function () {
+            stepImagePreviewWindow(win, -1);
+          });
+        }
+        if (nextNavBtn) {
+          nextNavBtn.addEventListener('click', function () {
+            stepImagePreviewWindow(win, 1);
+          });
+        }
+
+        if (kind === 'image' && Array.isArray(opts.gallery) && opts.gallery.length) {
+          updateImagePreviewWindow(win, opts.gallery, Number(opts.galleryIndex || 0));
+        }
 
         win.addEventListener('mousedown', function () {
           bringToFront(win);
@@ -5969,8 +6050,13 @@
           if (thumb) {
             const pfile = thumb.getAttribute('data-thumb-file');
             const pname = thumb.getAttribute('data-thumb-name') || '';
+            const pindex = Number(thumb.getAttribute('data-thumb-index') || 0);
             if (pfile) {
-              openPreview('image', pfile, pname);
+              openPreview('image', pfile, pname, {
+                previewKey: 'tag-gallery:' + String(activeFilterTagId || 'default'),
+                gallery: activeTagPreviewImages.slice(),
+                galleryIndex: pindex
+              });
             }
           }
         });
@@ -5981,8 +6067,13 @@
               e.preventDefault();
               const pfile = thumb.getAttribute('data-thumb-file');
               const pname = thumb.getAttribute('data-thumb-name') || '';
+              const pindex = Number(thumb.getAttribute('data-thumb-index') || 0);
               if (pfile) {
-                openPreview('image', pfile, pname);
+                openPreview('image', pfile, pname, {
+                  previewKey: 'tag-gallery:' + String(activeFilterTagId || 'default'),
+                  gallery: activeTagPreviewImages.slice(),
+                  galleryIndex: pindex
+                });
               }
             }
           }
