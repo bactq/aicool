@@ -34,6 +34,7 @@
         localDiskMove: '/api/v1/local-disk/move',
         localDiskOpenTrash: '/api/v1/local-disk/open-trash',
         localDiskOpenFile: '/api/v1/local-disk/open-file',
+        openFile: '/api/v1/open-file',
         localDiskImport: '/api/v1/local-disk/import',
         localDiskImportProgress: '/api/v1/local-disk/import/progress',
         reloadTpl: '/api/v1/admin/template/reload',
@@ -609,6 +610,10 @@
           html += '<button type="button" class="folder-context-item" data-file-menu-action="open-local-player">使用本地播放器播放</button>';
           html += '<button type="button" class="folder-context-item" data-file-menu-action="choose-local-player">选择本地播放器</button>';
         }
+        if (!local && isVideo) {
+          html += '<button type="button" class="folder-context-item" data-file-menu-action="open-remote-player">使用本地播放器播放</button>';
+          html += '<button type="button" class="folder-context-item" data-file-menu-action="choose-remote-player">选择本地播放器</button>';
+        }
         menu.innerHTML = html;
         document.body.appendChild(menu);
         menu.style.left = Math.round(clientX) + 'px';
@@ -887,6 +892,21 @@
           let url = api.localDiskOpenFile + '?chooser=1&path=' + encodeURIComponent(path);
           url = appendFilePassword(url, path, true);
           url = appendLocalDirPassword(url, localDiskParentPath(path));
+          await fetchJson(url, { method: 'POST' });
+          showStatus('已打开本地播放器选择窗口：' + fileLabel, 'ok');
+        }
+        if (action === 'open-remote-player') {
+          let url = api.openFile + '?file=' + encodeURIComponent(path);
+          url = withFolderPassword(url, parentFolderPathFromFilePath(path));
+          url = appendFilePassword(url, path, false);
+          await fetchJson(url, { method: 'POST' });
+          showStatus('已调用本地播放器：' + fileLabel, 'ok');
+          return;
+        }
+        if (action === 'choose-remote-player') {
+          let url = api.openFile + '?chooser=1&file=' + encodeURIComponent(path);
+          url = withFolderPassword(url, parentFolderPathFromFilePath(path));
+          url = appendFilePassword(url, path, false);
           await fetchJson(url, { method: 'POST' });
           showStatus('已打开本地播放器选择窗口：' + fileLabel, 'ok');
         }

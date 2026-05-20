@@ -38,6 +38,7 @@ private:
 	bool routeMoveFile(request_t& req, response_t& res);
 	bool routeFiles(request_t& req, response_t& res);
 	bool routeDownload(request_t& req, response_t& res);
+	bool routeOpenFile(request_t& req, response_t& res);
 	bool routeLocalDiskList(request_t& req, response_t& res);
 	bool routeLocalDiskDownload(request_t& req, response_t& res);
 	bool routeLocalDiskDelete(request_t& req, response_t& res);
