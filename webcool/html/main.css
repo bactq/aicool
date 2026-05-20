@@ -2894,3 +2894,98 @@
     }
 
     #file-table { display: none; }
+
+    /* 标签图片预览视图切换按钮 */
+    .tag-view-mode-btns {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .tag-view-mode-btns[hidden] {
+      display: none !important;
+    }
+
+    .tag-view-btn {
+      padding: 4px 12px;
+      border: 1px solid #b0c9e0;
+      border-radius: 6px;
+      background: #f0f6fb;
+      color: #4a6a8a;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .tag-view-btn:hover {
+      background: #d6eaf8;
+      color: #1a4060;
+    }
+
+    .tag-view-btn.active {
+      background: #2a7ae4;
+      color: #fff;
+      border-color: #2a7ae4;
+    }
+
+    /* 标签图片缩略图画廊 */
+    .tag-image-preview-wrap {
+      padding: 12px 4px;
+      overflow-y: auto;
+    }
+
+    .tag-image-preview-wrap[hidden] {
+      display: none !important;
+    }
+
+    .tag-img-thumb-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 14px;
+    }
+
+    .tag-img-thumb {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      border: 1px solid #d8e5f2;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.9);
+      padding: 8px;
+      cursor: pointer;
+      transition: box-shadow 0.15s, border-color 0.15s;
+      overflow: hidden;
+    }
+
+    .tag-img-thumb:hover,
+    .tag-img-thumb:focus {
+      border-color: #2a7ae4;
+      box-shadow: 0 2px 10px rgba(42,122,228,0.18);
+      outline: none;
+    }
+
+    .tag-img-thumb img {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      object-fit: cover;
+      border-radius: 6px;
+      background: #eef4fb;
+      display: block;
+    }
+
+    .tag-img-thumb-name {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #4a6a8a;
+      text-align: center;
+      width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tag-preview-empty {
+      color: var(--muted);
+      font-size: 14px;
+      padding: 20px 0;
+    }

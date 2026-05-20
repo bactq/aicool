@@ -69,8 +69,10 @@
 
           <div class="file-browser">
             <div class="list-head">
-              <h2 id="file-list-title">当前目录文件</h2>
-              <div class="sort-row">
+              <h2 id="file-list-title">当前目录文件</h2>                <div id="tag-view-mode-btns" class="tag-view-mode-btns" hidden>
+                  <button id="tag-view-list-btn" class="tag-view-btn active" type="button">列表</button>
+                  <button id="tag-view-preview-btn" class="tag-view-btn" type="button">预览</button>
+                </div>              <div class="sort-row">
                 <span class="counter" id="file-counter">0 个文件</span>
                 <label for="sort-key">排序</label>
                 <select id="sort-key">
@@ -124,6 +126,7 @@
                 <tbody id="file-list"></tbody>
               </table>
             </div>
+            <div id="tag-image-preview-wrap" class="tag-image-preview-wrap" hidden></div>
           </div>
         </div>
         <p id="file-empty" class="empty">加载中...</p>

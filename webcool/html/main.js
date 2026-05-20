@@ -77,6 +77,10 @@
       const fileEmpty = document.getElementById('file-empty');
       const fileCounter = document.getElementById('file-counter');
       const fileListTitle = document.getElementById('file-list-title');
+      const tagViewModeBtns = document.getElementById('tag-view-mode-btns');
+      const tagViewListBtn = document.getElementById('tag-view-list-btn');
+      const tagViewPreviewBtn = document.getElementById('tag-view-preview-btn');
+      const tagImagePreviewWrap = document.getElementById('tag-image-preview-wrap');
       const fileSelectAll = document.getElementById('file-select-all');
       const fileBulkTagAction = document.getElementById('file-bulk-tag-action');
       const fileBulkAction = document.getElementById('file-bulk-action');
@@ -206,6 +210,7 @@
       const expandedFolderPaths = new Set(['']);
       let tagTree = [];
       let activeFilterTagId = '';
+      let tagFileViewMode = 'list';
       let currentAdminStoragePath = '';
       let adminStorageProgressTimer = null;
       let adminStoragePickerRootPath = '';
@@ -2465,11 +2470,47 @@
         return '';
       }
 
+      function getTagRootName(tagId) {
+        const rootMeta = getTagRootMeta(tagId);
+        if (!rootMeta || !rootMeta.node) {
+          return '';
+        }
+        return String(rootMeta.node.name || '').trim();
+      }
+
       function getRestrictedRootTagType(node, level) {
         if ((level || 1) !== 1 || !node || !node.id) {
           return '';
         }
         return getTagFileTypeConstraint(node.id);
+      }
+
+      function isActiveTagImageType() {
+        return !!(activeFilterTagId && getTagFileTypeConstraint(activeFilterTagId) === 'image');
+      }
+
+      function isTagPreviewEnabled(tagId) {
+        const id = String(tagId || '');
+        if (!id) {
+          return false;
+        }
+        const meta = findTagMetaById(id);
+        if (!meta || !meta.node) {
+          return false;
+        }
+        const rootName = getTagRootName(id);
+        // 规则：图片标签(含子标签)可预览；标牌仅其子标签可预览（不含标牌根）。
+        if (rootName === '图片') {
+          return true;
+        }
+        if (rootName === '标牌' && Number(meta.level || 1) > 1) {
+          return true;
+        }
+        return false;
+      }
+
+      function isActiveTagPreviewEnabled() {
+        return isTagPreviewEnabled(activeFilterTagId);
       }
 
       function isProtectedRestrictedRootTag(node, level) {
@@ -3769,6 +3810,7 @@
 
       async function showFilesForTag(tagId) {
         activeFilterTagId = tagId;
+        tagFileViewMode = 'list';
         setActivePanel('panel-files');
         const data = await fetchJson(appendTagPassword(api.tagFiles + '?tag_id=' + encodeURIComponent(tagId), tagId));
         renderFiles(Array.isArray(data.files) ? data.files.map(normalizeFileRecord) : []);
@@ -3799,8 +3841,18 @@
 
       function updateExplorerLayout() {
         const isTagFilterMode = !!activeFilterTagId;
+        const isPreviewEnabledTag = isTagFilterMode && isActiveTagPreviewEnabled();
         if (fileListTitle) {
           fileListTitle.textContent = isTagFilterMode ? '当前标签文件' : '当前目录文件';
+        }
+        if (tagViewModeBtns) {
+          tagViewModeBtns.hidden = !isPreviewEnabledTag;
+        }
+        if (!isPreviewEnabledTag) {
+          tagFileViewMode = 'list';
+          if (tagViewListBtn) tagViewListBtn.classList.add('active');
+          if (tagViewPreviewBtn) tagViewPreviewBtn.classList.remove('active');
+          if (tagImagePreviewWrap) tagImagePreviewWrap.hidden = true;
         }
         if (explorerShell) {
           explorerShell.classList.toggle('tag-filter-mode', isTagFilterMode);
@@ -3968,6 +4020,7 @@
         if (!currentFiles.length) {
           fileList.innerHTML = '';
           fileTable.style.display = 'none';
+          if (tagImagePreviewWrap) tagImagePreviewWrap.hidden = true;
           fileEmpty.textContent = activeFilterTagId ? '当前标签下没有文件。' : '当前目录没有文件。';
           fileEmpty.style.display = 'block';
           return;
@@ -3984,6 +4037,16 @@
         }
 
         fileEmpty.style.display = 'none';
+
+        if (tagFileViewMode === 'preview' && isActiveTagPreviewEnabled()) {
+          fileTable.style.display = 'none';
+          renderTagImagePreview(sorted);
+          updateFileSelectAllState();
+          updateFileBulkActionButton();
+          return;
+        }
+
+        if (tagImagePreviewWrap) tagImagePreviewWrap.hidden = true;
         fileTable.style.display = 'table';
         fileList.innerHTML = sorted.map(file => {
           const name = escapeHtml(file.name || '');
@@ -4049,6 +4112,32 @@
         }).join('');
         updateFileSelectAllState();
         updateFileBulkActionButton();
+      }
+
+      function renderTagImagePreview(files) {
+        if (!tagImagePreviewWrap) {
+          return;
+        }
+        const imageFiles = (Array.isArray(files) ? files : []).filter(function (f) {
+          return !f.directory && isImageName(f.name);
+        });
+        if (!imageFiles.length) {
+          tagImagePreviewWrap.innerHTML = '<p class="tag-preview-empty">\u5f53\u524d\u6807\u7b7e\u4e0b\u6ca1\u6709\u56fe\u7247\u3002</p>';
+          tagImagePreviewWrap.hidden = false;
+          return;
+        }
+        const items = imageFiles.map(function (f) {
+          const rawName = getFilePath(f);
+          const isLocal = !!f.local;
+          const url = isLocal ? localDiskDownloadUrl(rawName) : downloadUrlForFile(rawName, true);
+          const encodedPath = encodeURIComponent(rawName);
+          return '<div class="tag-img-thumb" data-thumb-file="' + encodedPath + '" data-thumb-name="' + escapeHtml(rawName) + '" role="button" tabindex="0" title="' + escapeHtml(f.name || '') + '">' +
+            '<img src="' + escapeHtml(url) + '" alt="' + escapeHtml(f.name || '') + '" loading="lazy">' +
+            '<div class="tag-img-thumb-name">' + escapeHtml(f.name || '') + '</div>' +
+            '</div>';
+        });
+        tagImagePreviewWrap.innerHTML = '<div class="tag-img-thumb-grid">' + items.join('') + '</div>';
+        tagImagePreviewWrap.hidden = false;
       }
 
       function buildLocalDiskFileRowHtml(item) {
@@ -5851,6 +5940,54 @@
       sortOrder.addEventListener('change', function () {
         renderFiles(activeSourceFiles);
       });
+
+      if (tagViewListBtn) {
+        tagViewListBtn.addEventListener('click', function () {
+          if (!isActiveTagPreviewEnabled()) return;
+          if (tagFileViewMode === 'list') return;
+          tagFileViewMode = 'list';
+          tagViewListBtn.classList.add('active');
+          if (tagViewPreviewBtn) tagViewPreviewBtn.classList.remove('active');
+          renderFiles(activeSourceFiles);
+        });
+      }
+
+      if (tagViewPreviewBtn) {
+        tagViewPreviewBtn.addEventListener('click', function () {
+          if (!isActiveTagPreviewEnabled()) return;
+          if (tagFileViewMode === 'preview') return;
+          tagFileViewMode = 'preview';
+          tagViewPreviewBtn.classList.add('active');
+          if (tagViewListBtn) tagViewListBtn.classList.remove('active');
+          renderFiles(activeSourceFiles);
+        });
+      }
+
+      if (tagImagePreviewWrap) {
+        tagImagePreviewWrap.addEventListener('click', function (e) {
+          const thumb = e.target.closest('.tag-img-thumb[data-thumb-file]');
+          if (thumb) {
+            const pfile = thumb.getAttribute('data-thumb-file');
+            const pname = thumb.getAttribute('data-thumb-name') || '';
+            if (pfile) {
+              openPreview('image', pfile, pname);
+            }
+          }
+        });
+        tagImagePreviewWrap.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            const thumb = e.target.closest('.tag-img-thumb[data-thumb-file]');
+            if (thumb) {
+              e.preventDefault();
+              const pfile = thumb.getAttribute('data-thumb-file');
+              const pname = thumb.getAttribute('data-thumb-name') || '';
+              if (pfile) {
+                openPreview('image', pfile, pname);
+              }
+            }
+          }
+        });
+      }
 
       sortButtons.forEach(function (btn) {
         btn.addEventListener('click', function () {
