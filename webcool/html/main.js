@@ -4196,6 +4196,109 @@
         updateImagePreviewWindow(win, win.__imageGallery, nextIndex);
       }
 
+      function getTopImagePreviewWindow() {
+        if (!previewLayer) {
+          return null;
+        }
+        return Array.from(previewLayer.querySelectorAll('.floating-preview')).filter(function (win) {
+          return win && win.isConnected && Array.isArray(win.__imageGallery) && win.__imageGallery.length > 1;
+        }).sort(function (a, b) {
+          return Number(b.style.zIndex || 0) - Number(a.style.zIndex || 0);
+        })[0] || null;
+      }
+
+      function buildImageGalleryFromFiles(files) {
+        return (Array.isArray(files) ? files : []).filter(function (file) {
+          return file && !file.directory && isImageName(file.name || getFilePath(file));
+        }).map(function (file) {
+          const rawName = getFilePath(file);
+          return {
+            file: rawName,
+            name: String(file.name || rawName || ''),
+            local: !!file.local
+          };
+        }).filter(function (item) {
+          return !!item.file;
+        });
+      }
+
+      function imageGalleryIndexOf(gallery, filePath) {
+        const target = String(filePath || '');
+        const index = (Array.isArray(gallery) ? gallery : []).findIndex(function (item) {
+          return String((item && item.file) || '') === target;
+        });
+        return index >= 0 ? index : 0;
+      }
+
+      function getSortedCurrentFiles() {
+        const key = sortKey.value || 'name';
+        const order = sortOrder.value || 'asc';
+        return (Array.isArray(currentFiles) ? currentFiles : []).slice().sort(function (a, b) {
+          return compareFiles(a, b, key, order);
+        });
+      }
+
+      function currentImageGalleryPreviewKey() {
+        if (activeFilterTagId) {
+          return 'image-gallery:tag:' + String(activeFilterTagId || 'default');
+        }
+        return 'image-gallery:folder:' + String(activeFolderPath || 'root');
+      }
+
+      function openCurrentFileImagePreview(filePath, displayName) {
+        const rawPath = String(filePath || '');
+        if (!rawPath) {
+          return;
+        }
+        const gallery = buildImageGalleryFromFiles(getSortedCurrentFiles());
+        const index = imageGalleryIndexOf(gallery, rawPath);
+        const current = gallery[index] || { file: rawPath, name: displayName || rawPath, local: false };
+        const opts = {
+          previewKey: currentImageGalleryPreviewKey(),
+          gallery: gallery.length ? gallery : [current],
+          galleryIndex: index,
+          local: !!current.local
+        };
+        if (current.local) {
+          opts.url = localDiskDownloadUrl(rawPath);
+        }
+        openPreview('image', encodeURIComponent(rawPath), displayName || current.name || rawPath, opts);
+      }
+
+      function buildLocalDiskImageGallery() {
+        return (Array.isArray(activeLocalDiskItems) ? activeLocalDiskItems : []).slice()
+          .sort(compareLocalDiskItems)
+          .filter(function (item) {
+            return item && !item.directory && isImageName(item.name || item.path);
+          }).map(function (item) {
+            const path = String(item.path || '');
+            return {
+              file: path,
+              name: String(item.name || localDiskBaseName(path)),
+              local: true
+            };
+          }).filter(function (item) {
+            return !!item.file;
+          });
+      }
+
+      function openLocalDiskImagePreview(path, displayName) {
+        const rawPath = String(path || '');
+        if (!rawPath) {
+          return;
+        }
+        const gallery = buildLocalDiskImageGallery();
+        const index = imageGalleryIndexOf(gallery, rawPath);
+        const current = gallery[index] || { file: rawPath, name: displayName || rawPath, local: true };
+        openPreview('image', encodeURIComponent(rawPath), displayName || current.name || rawPath, {
+          local: true,
+          url: localDiskDownloadUrl(rawPath),
+          previewKey: 'local-image-gallery:' + String(activeLocalDiskPath || localDiskParentPath(rawPath) || 'root'),
+          gallery: gallery.length ? gallery : [current],
+          galleryIndex: index
+        });
+      }
+
       function buildLocalDiskFileRowHtml(item) {
         const name = String((item && item.name) || '');
         const path = String((item && item.path) || '');
@@ -5858,6 +5961,10 @@
         const path = decodeURIComponent(previewBtn.getAttribute('data-local-file') || '');
         const kind = previewBtn.getAttribute('data-kind') || 'image';
         if (!path) { return; }
+        if (kind === 'image') {
+          openLocalDiskImagePreview(path, previewBtn.getAttribute('data-local-name') || path);
+          return;
+        }
         openPreview(kind, encodeURIComponent(path), path, {
           local: true,
           url: localDiskDownloadUrl(path),
@@ -6246,6 +6353,10 @@
           const path = decodeURIComponent(localPreview.getAttribute('data-local-file') || '');
           const kind = localPreview.getAttribute('data-kind') || 'image';
           const name = localPreview.getAttribute('data-local-name') || path;
+          if (kind === 'image') {
+            openCurrentFileImagePreview(path, name);
+            return;
+          }
           openPreview(kind, encodeURIComponent(path), name, {
             local: true,
             url: localDiskDownloadUrl(path),
@@ -6259,7 +6370,7 @@
           const pfile = preview.getAttribute('data-preview-file');
           const pname = preview.getAttribute('data-preview-name') || '';
           if (pfile) {
-            openPreview('image', pfile, pname);
+            openCurrentFileImagePreview(decodeURIComponent(pfile), pname);
           }
           return;
         }
@@ -7367,6 +7478,14 @@
         if (e.key === 'Escape' && tagDialog && !tagDialog.hidden) {
           e.preventDefault();
           closeTagDialog(null);
+          return;
+        }
+        if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.target.closest('input, textarea, select')) {
+          const imageWin = getTopImagePreviewWindow();
+          if (imageWin) {
+            e.preventDefault();
+            stepImagePreviewWindow(imageWin, e.key === 'ArrowLeft' ? -1 : 1);
+          }
         }
       });
 
