@@ -407,6 +407,10 @@
         return text === RECYCLE_FOLDER_NAME || text.indexOf(RECYCLE_FOLDER_NAME + '/') === 0;
       }
 
+      function isRecycleRootFolderPath(path) {
+        return String(path || '') === RECYCLE_FOLDER_NAME;
+      }
+
       function collectFolderPaths(nodes, out) {
         const list = Array.isArray(nodes) ? nodes : [];
         const result = Array.isArray(out) ? out : [];
@@ -3073,7 +3077,7 @@
 
       function syncFolderActionButtons() {
         if (folderDeleteBtn) {
-          folderDeleteBtn.disabled = !activeFolderPath || isRecycleFolderPath(activeFolderPath);
+          folderDeleteBtn.disabled = !activeFolderPath || isRecycleRootFolderPath(activeFolderPath);
         }
         if (folderCurrentPath) {
           folderCurrentPath.textContent = getFolderLabel(activeFolderPath);
@@ -3286,6 +3290,26 @@
 
       async function deleteCurrentFolder() {
         if (!activeFolderPath) {
+          return;
+        }
+        if (isRecycleRootFolderPath(activeFolderPath)) {
+          return;
+        }
+        if (isRecycleFolderPath(activeFolderPath)) {
+          const confirmedPermanent = await askConfirmDialog({
+            title: '彻底删除目录',
+            description: '确认彻底删除回收站中的目录「' + activeFolderPath + '」及其全部内容？此操作不可恢复。',
+            confirmText: '彻底删除',
+            danger: true
+          });
+          if (!confirmedPermanent) {
+            return;
+          }
+          await fetchJson(api.del + '?file=' + encodeURIComponent(activeFolderPath));
+          activeFolderPath = RECYCLE_FOLDER_NAME;
+          ensureFolderPathExpanded(activeFolderPath);
+          await loadFiles();
+          showStatus('回收站目录已彻底删除', 'warn');
           return;
         }
         if (!(await ensureFolderUnlocked(activeFolderPath))) {
@@ -3647,11 +3671,38 @@
         return names;
       }
 
+      function getFileRecordByPath(fileName) {
+        const target = String(fileName || '');
+        return (Array.isArray(currentFiles) ? currentFiles : []).find(function (file) {
+          return getFilePath(file) === target;
+        }) || null;
+      }
+
+      function summarizeSelectedFileTypes(fileNames) {
+        const names = Array.isArray(fileNames) ? fileNames : [];
+        let folderCount = 0;
+        let fileCount = 0;
+        names.forEach(function (name) {
+          const item = getFileRecordByPath(name);
+          if (item && item.directory) {
+            folderCount += 1;
+          } else {
+            fileCount += 1;
+          }
+        });
+        const label = folderCount > 0 && fileCount > 0
+          ? '文件/文件夹'
+          : (folderCount > 0 ? '文件夹' : '文件');
+        return {
+          fileCount: fileCount,
+          folderCount: folderCount,
+          label: label
+        };
+      }
+
       function isCurrentFileLocal(fileName) {
         const target = String(fileName || '');
-        const found = (Array.isArray(currentFiles) ? currentFiles : []).find(function (file) {
-          return getFilePath(file) === target;
-        });
+        const found = getFileRecordByPath(target);
         return !!(found && found.local);
       }
 
@@ -3686,7 +3737,7 @@
         }
 
         if (fileBulkDeleteAction) {
-          const title = '批量彻底删除文件（仅回收站）';
+          const title = '批量彻底删除文件/文件夹（仅回收站）';
           fileBulkDeleteAction.textContent = '彻底删除';
           fileBulkDeleteAction.title = title;
           fileBulkDeleteAction.setAttribute('aria-label', title);
@@ -5592,8 +5643,10 @@
         }
 
         const isRecycleMode = isRecycleFolderPath(activeFolderPath);
+        const itemRecord = getFileRecordByPath(name);
+        const itemLabel = itemRecord && itemRecord.directory ? '文件夹' : '文件';
         const confirmText = isRecycleMode
-          ? ('确认彻底删除文件：' + name + ' ？此操作不可恢复。')
+          ? ('确认彻底删除' + itemLabel + '：' + name + ' ？此操作不可恢复。')
           : ('确认删除文件：' + name + ' ？将先移入回收站。');
         if (!confirm(confirmText)) {
           return;
@@ -5602,7 +5655,7 @@
         resetStatus();
         try {
           await fetchJson(appendFilePassword(withFolderPassword(api.del + '?file=' + file, parentFolderPathFromFilePath(name)), name, false));
-          showStatus(isRecycleMode ? ('已彻底删除：' + name) : ('已移入回收站：' + name), 'warn');
+          showStatus(isRecycleMode ? ('已彻底删除' + itemLabel + '：' + name) : ('已移入回收站：' + name), 'warn');
           await loadFiles();
         } catch (err) {
           showStatus('删除失败：' + err.message, 'err');
@@ -5781,7 +5834,10 @@
             return;
           }
 
-          const confirmText = '确认彻底删除选中的 ' + fileNames.length + ' 个文件？此操作不可恢复。';
+          const selectedTypes = summarizeSelectedFileTypes(fileNames);
+          const confirmText = selectedTypes.folderCount > 0
+            ? ('确认彻底删除选中的 ' + fileNames.length + ' 个' + selectedTypes.label + '？其中的文件夹会连同其全部内容一起删除，此操作不可恢复。')
+            : ('确认彻底删除选中的 ' + fileNames.length + ' 个文件？此操作不可恢复。');
           if (!confirm(confirmText)) {
             return;
           }
@@ -5797,7 +5853,7 @@
               selectedFileNames.delete(name);
             });
             await loadFiles();
-            showStatus('已批量彻底删除 ' + completedCount + ' 个文件', 'warn');
+            showStatus('已批量彻底删除 ' + completedCount + ' 个' + selectedTypes.label, 'warn');
           } catch (err) {
             if (completedCount > 0) {
               await loadFiles();
