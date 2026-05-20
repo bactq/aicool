@@ -18,6 +18,13 @@ bool folder_lock_path_allows(const std::string& upload_dir,
 	bool& allowed, std::string& locked_path, std::string& err);
 bool folder_lock_path_has_lock(const std::string& upload_dir,
 	const std::string& relative_path, bool& locked, std::string& err);
+bool file_lock_path_allows(const std::string& upload_dir,
+	const std::string& file_key, const std::string& password,
+	bool& allowed, std::string& err);
+bool file_lock_path_has_lock(const std::string& upload_dir,
+	const std::string& file_key, bool& locked, std::string& err);
+bool file_lock_rename_key(const std::string& upload_dir,
+	const std::string& old_key, const std::string& new_key, std::string& err);
 bool folder_bind_file(const std::string& upload_dir, const std::string& file_name,
 	long long folder_id, std::string& err);
 bool folder_unbind_file(const std::string& upload_dir,
@@ -83,17 +90,20 @@ public:
 
 class LocalDiskListAction {
 public:
-	static bool run(request_t& req, response_t& res);
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
 };
 
 class LocalDiskDownloadAction {
 public:
-	static bool run(request_t& req, response_t& res);
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
 };
 
 class LocalDiskDeleteAction {
 public:
-	static bool run(request_t& req, response_t& res);
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
 };
 
 class LocalDiskCreateDirAction {
@@ -103,12 +113,19 @@ public:
 
 class LocalDiskMoveAction {
 public:
-	static bool run(request_t& req, response_t& res);
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
 };
 
 class LocalDiskOpenTrashAction {
 public:
 	static bool run(request_t& req, response_t& res);
+};
+
+class LocalDiskOpenFileAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
 };
 
 class LocalDiskImportAction {
@@ -221,6 +238,24 @@ public:
 };
 
 class FolderLockVerifyAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class FileLockAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class FileUnlockAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class FileLockVerifyAction {
 public:
 	static bool run(request_t& req, response_t& res,
 		const std::string& upload_dir);

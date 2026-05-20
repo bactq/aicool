@@ -46,6 +46,7 @@ struct file_entry_t {
 	long long size;
 	long long uploaded_at;
 	std::string uploaded_time;
+	bool locked;
 };
 
 struct recycle_record_t {
@@ -58,6 +59,10 @@ static bool file_exists_readable(const char* path) {
 		return false;
 	}
 	return access(path, R_OK) == 0;
+}
+
+static std::string remote_file_lock_key(const std::string& path) {
+	return std::string("remote:") + path;
 }
 
 static std::string choose_sqlite_lib_path() {
@@ -390,7 +395,10 @@ static bool soft_delete_to_recycle(const std::string& upload_dir,
 	}
 	tag_renamed = true;
 
-	if (!video_resume_rename_file(upload_dir, file_path, recycle_path, err)) {
+	if (!video_resume_rename_file(upload_dir, file_path, recycle_path, err)
+		|| !file_lock_rename_key(upload_dir, remote_file_lock_key(file_path),
+			remote_file_lock_key(recycle_path), err))
+	{
 		if (tag_renamed) {
 			std::string rollback_err;
 			tag_rename_file(upload_dir, recycle_path, file_path, rollback_err);
@@ -401,6 +409,8 @@ static bool soft_delete_to_recycle(const std::string& upload_dir,
 
 	if (!insert_recycle_record(upload_dir, recycle_path, file_path, err)) {
 		std::string rollback_err;
+		file_lock_rename_key(upload_dir, remote_file_lock_key(recycle_path),
+			remote_file_lock_key(file_path), rollback_err);
 		video_resume_rename_file(upload_dir, recycle_path, file_path, rollback_err);
 		tag_rename_file(upload_dir, recycle_path, file_path, rollback_err);
 		(void) ::rename(to_full.c_str(), from_full.c_str());
@@ -694,6 +704,7 @@ static bool collect_files_recursive(const std::string& upload_dir,
 		item.size = (long long) st.st_size;
 		item.uploaded_at = (long long) st.st_mtime;
 		item.uploaded_time = uploaded_time;
+		item.locked = false;
 		out.push_back(item);
 	}
 	closedir(dir);
@@ -780,6 +791,13 @@ bool FilesAction::run(request_t& req, response_t& res,
 		if (!filter_folder.empty() && item_ref.folder_path != filter_folder) {
 			continue;
 		}
+		bool file_locked = false;
+		std::string file_lock_err;
+		if (file_lock_path_has_lock(upload_dir, remote_file_lock_key(item_ref.path),
+			file_locked, file_lock_err))
+		{
+			item_ref.locked = file_locked;
+		}
 		acl::json_node& item = files.add_child(false, true);
 		item.add_text("name", item_ref.name.c_str());
 		item.add_text("path", item_ref.path.c_str());
@@ -789,6 +807,7 @@ bool FilesAction::run(request_t& req, response_t& res,
 		item.add_number("size", item_ref.size);
 		item.add_number("uploaded_at", item_ref.uploaded_at);
 		item.add_text("uploaded_time", item_ref.uploaded_time.c_str());
+		item.add_bool("locked", item_ref.locked);
 		count++;
 	}
 	if (!filter_folder.empty()) {
@@ -823,6 +842,18 @@ bool DeleteAction::run(request_t& req, response_t& res,
 	}
 	if (!lock_allowed) {
 		json_error(res, 403, "folder is locked", req.isKeepAlive());
+		return true;
+	}
+	bool file_lock_allowed = false;
+	if (!file_lock_path_allows(upload_dir, remote_file_lock_key(file_path),
+		req.getParameter("file_password") ? req.getParameter("file_password") : "",
+		file_lock_allowed, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!file_lock_allowed) {
+		json_error(res, 403, "file is locked", req.isKeepAlive());
 		return true;
 	}
 
@@ -931,7 +962,10 @@ bool RestoreAction::run(request_t& req, response_t& res,
 	}
 	tag_renamed = true;
 
-	if (!video_resume_rename_file(upload_dir, file_path, target_path, err)) {
+	if (!video_resume_rename_file(upload_dir, file_path, target_path, err)
+		|| !file_lock_rename_key(upload_dir, remote_file_lock_key(file_path),
+			remote_file_lock_key(target_path), err))
+	{
 		if (tag_renamed) {
 			std::string rollback_err;
 			tag_rename_file(upload_dir, target_path, file_path, rollback_err);
@@ -943,6 +977,8 @@ bool RestoreAction::run(request_t& req, response_t& res,
 
 	if (!delete_recycle_record(upload_dir, file_path, err)) {
 		std::string rollback_err;
+		file_lock_rename_key(upload_dir, remote_file_lock_key(target_path),
+			remote_file_lock_key(file_path), rollback_err);
 		video_resume_rename_file(upload_dir, target_path, file_path, rollback_err);
 		tag_rename_file(upload_dir, target_path, file_path, rollback_err);
 		(void) ::rename(to_full.c_str(), from_full.c_str());
@@ -994,6 +1030,18 @@ bool MoveFileAction::run(request_t& req, response_t& res,
 		json_error(res, 403, "source folder is locked", req.isKeepAlive());
 		return true;
 	}
+	bool file_lock_allowed = false;
+	if (!file_lock_path_allows(upload_dir, remote_file_lock_key(file_path),
+		req.getParameter("file_password") ? req.getParameter("file_password") : "",
+		file_lock_allowed, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!file_lock_allowed) {
+		json_error(res, 403, "file is locked", req.isKeepAlive());
+		return true;
+	}
 	bool target_lock_allowed = false;
 	if (!folder_lock_path_allows(upload_dir, target_folder,
 		req.getParameter("target_folder_password") ? req.getParameter("target_folder_password") : "",
@@ -1033,7 +1081,9 @@ bool MoveFileAction::run(request_t& req, response_t& res,
 
 	std::string rename_err;
 	if (!tag_rename_file(upload_dir, file_path, target_path, rename_err)
-		|| !video_resume_rename_file(upload_dir, file_path, target_path, rename_err))
+		|| !video_resume_rename_file(upload_dir, file_path, target_path, rename_err)
+		|| !file_lock_rename_key(upload_dir, remote_file_lock_key(file_path),
+			remote_file_lock_key(target_path), rename_err))
 	{
 		(void) ::rename(to_full.c_str(), from_full.c_str());
 		json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
@@ -1068,6 +1118,16 @@ bool DownloadAction::run(request_t& req, response_t& res,
 	}
 	if (!lock_allowed) {
 		return sendText(res, 403, "folder is locked\n", req.isKeepAlive());
+	}
+	bool file_lock_allowed = false;
+	if (!file_lock_path_allows(upload_dir, remote_file_lock_key(file_path),
+		req.getParameter("file_password") ? req.getParameter("file_password") : "",
+		file_lock_allowed, err))
+	{
+		return sendText(res, 500, err.c_str(), req.isKeepAlive());
+	}
+	if (!file_lock_allowed) {
+		return sendText(res, 403, "file is locked\n", req.isKeepAlive());
 	}
 
 	const std::string fullpath = join_upload_path(upload_dir, file_path);

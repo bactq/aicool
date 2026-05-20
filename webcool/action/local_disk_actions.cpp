@@ -379,6 +379,40 @@ static bool run_open_command(std::string& err)
 	return true;
 }
 
+static bool run_open_file_command(const std::string& path, std::string& err)
+{
+	err.clear();
+	pid_t pid = fork();
+	if (pid < 0) {
+		err = strerror(errno);
+		return false;
+	}
+	if (pid == 0) {
+#ifdef __APPLE__
+		execlp("open", "open", path.c_str(), (char*) NULL);
+#else
+		execlp("xdg-open", "xdg-open", path.c_str(), (char*) NULL);
+		execlp("gio", "gio", "open", path.c_str(), (char*) NULL);
+#endif
+		_exit(127);
+	}
+
+	int status = 0;
+	if (waitpid(pid, &status, 0) < 0) {
+		err = strerror(errno);
+		return false;
+	}
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+		err = "failed to open file with local player";
+		return false;
+	}
+	return true;
+}
+
+static std::string local_file_lock_key(const std::string& path) {
+	return std::string("local:") + path;
+}
+
 static void split_local_paths(const char* input, std::vector<std::string>& paths)
 {
 	paths.clear();
@@ -720,7 +754,8 @@ static bool parse_range_header(const char* range, long long size,
 
 } // namespace
 
-bool LocalDiskListAction::run(request_t& req, response_t& res)
+bool LocalDiskListAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
 {
 	std::string path;
 	std::string err;
@@ -814,6 +849,13 @@ bool LocalDiskListAction::run(request_t& req, response_t& res)
 		item.add_text("path", entries[i].path.c_str());
 		item.add_bool("directory", entries[i].directory);
 		item.add_bool("empty_directory", entries[i].empty_directory);
+		if (!entries[i].directory) {
+			bool locked = false;
+			std::string lock_err;
+			if (file_lock_path_has_lock(upload_dir, local_file_lock_key(entries[i].path), locked, lock_err)) {
+				item.add_bool("locked", locked);
+			}
+		}
 		item.add_number("size", entries[i].size);
 		item.add_number("modified_at", entries[i].modified_at);
 		item.add_text("modified_time", entries[i].modified_time.c_str());
@@ -822,7 +864,8 @@ bool LocalDiskListAction::run(request_t& req, response_t& res)
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
-bool LocalDiskDownloadAction::run(request_t& req, response_t& res)
+bool LocalDiskDownloadAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
 {
 	std::string path;
 	std::string err;
@@ -833,6 +876,17 @@ bool LocalDiskDownloadAction::run(request_t& req, response_t& res)
 	struct stat st;
 	if (stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
 		return sendText(res, 404, "file not found\n", req.isKeepAlive());
+	}
+	bool file_lock_allowed = false;
+	std::string lock_err;
+	if (!file_lock_path_allows(upload_dir, local_file_lock_key(path),
+		req.getParameter("file_password") ? req.getParameter("file_password") : "",
+		file_lock_allowed, lock_err))
+	{
+		return sendText(res, 500, lock_err.c_str(), req.isKeepAlive());
+	}
+	if (!file_lock_allowed) {
+		return sendText(res, 403, "file is locked\n", req.isKeepAlive());
 	}
 
 	acl::ifstream in;
@@ -926,7 +980,8 @@ bool LocalDiskDownloadAction::run(request_t& req, response_t& res)
 	return res.write(NULL, 0);
 }
 
-bool LocalDiskDeleteAction::run(request_t& req, response_t& res)
+bool LocalDiskDeleteAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
 {
 	std::string path;
 	std::string err;
@@ -945,6 +1000,21 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res)
 	if (!is_dir && !is_file) {
 		json_error(res, 400, "only files and directories can be deleted", req.isKeepAlive());
 		return true;
+	}
+	if (is_file) {
+		bool file_lock_allowed = false;
+		std::string lock_err;
+		if (!file_lock_path_allows(upload_dir, local_file_lock_key(path),
+			req.getParameter("file_password") ? req.getParameter("file_password") : "",
+			file_lock_allowed, lock_err))
+		{
+			json_error(res, 500, lock_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+		if (!file_lock_allowed) {
+			json_error(res, 403, "file is locked", req.isKeepAlive());
+			return true;
+		}
 	}
 	if (path == "/") {
 		json_error(res, 409, "root directory cannot be deleted", req.isKeepAlive());
@@ -1022,7 +1092,8 @@ bool LocalDiskCreateDirAction::run(request_t& req, response_t& res)
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
-bool LocalDiskMoveAction::run(request_t& req, response_t& res)
+bool LocalDiskMoveAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
 {
 	std::string source;
 	std::string target;
@@ -1055,6 +1126,21 @@ bool LocalDiskMoveAction::run(request_t& req, response_t& res)
 		json_error(res, 400, "only files and directories can be moved",
 			req.isKeepAlive());
 		return true;
+	}
+	if (!source_is_dir) {
+		bool file_lock_allowed = false;
+		std::string lock_err;
+		if (!file_lock_path_allows(upload_dir, local_file_lock_key(source),
+			req.getParameter("file_password") ? req.getParameter("file_password") : "",
+			file_lock_allowed, lock_err))
+		{
+			json_error(res, 500, lock_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+		if (!file_lock_allowed) {
+			json_error(res, 403, "file is locked", req.isKeepAlive());
+			return true;
+		}
 	}
 	if (source == "/") {
 		json_error(res, 409, "root directory cannot be moved", req.isKeepAlive());
@@ -1105,6 +1191,13 @@ bool LocalDiskMoveAction::run(request_t& req, response_t& res)
 			req.isKeepAlive());
 		return true;
 	}
+	if (!source_is_dir && !file_lock_rename_key(upload_dir,
+		local_file_lock_key(source), local_file_lock_key(dest), err))
+	{
+		(void) ::rename(dest.c_str(), source.c_str());
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
 
 	acl::json json;
 	acl::json_node& root = json.create_node();
@@ -1128,6 +1221,44 @@ bool LocalDiskOpenTrashAction::run(request_t& req, response_t& res)
 	acl::json_node& root = json.create_node();
 	root.add_bool("ok", true);
 	root.add_text("message", "system Trash opened");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool LocalDiskOpenFileAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string path;
+	std::string err;
+	if (!normalize_local_path(req.getParameter("path"), path, err)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	struct stat st;
+	if (stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+		json_error(res, 404, "file not found", req.isKeepAlive());
+		return true;
+	}
+	bool file_lock_allowed = false;
+	if (!file_lock_path_allows(upload_dir, local_file_lock_key(path),
+		req.getParameter("file_password") ? req.getParameter("file_password") : "",
+		file_lock_allowed, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!file_lock_allowed) {
+		json_error(res, 403, "file is locked", req.isKeepAlive());
+		return true;
+	}
+	if (!run_open_file_command(path, err)) {
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("path", path.c_str());
+	root.add_text("message", "file opened");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 

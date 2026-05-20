@@ -44,6 +44,7 @@ private:
 	bool routeLocalDiskCreateDir(request_t& req, response_t& res);
 	bool routeLocalDiskMove(request_t& req, response_t& res);
 	bool routeLocalDiskOpenTrash(request_t& req, response_t& res);
+	bool routeLocalDiskOpenFile(request_t& req, response_t& res);
 	bool routeLocalDiskImport(request_t& req, response_t& res);
 	bool routeLocalDiskImportProgress(request_t& req, response_t& res);
 	bool routeVideoConvert(request_t& req, response_t& res);
@@ -61,6 +62,9 @@ private:
 	bool routeFolderLock(request_t& req, response_t& res);
 	bool routeFolderUnlock(request_t& req, response_t& res);
 	bool routeFolderLockVerify(request_t& req, response_t& res);
+	bool routeFileLock(request_t& req, response_t& res);
+	bool routeFileUnlock(request_t& req, response_t& res);
+	bool routeFileLockVerify(request_t& req, response_t& res);
 	bool routeTagList(request_t& req, response_t& res);
 	bool routeTagCreate(request_t& req, response_t& res);
 	bool routeTagRename(request_t& req, response_t& res);

@@ -115,6 +115,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/local-disk/mkdir", &http_servlet::routeLocalDiskCreateDir },
 		{ "/api/v1/local-disk/move", &http_servlet::routeLocalDiskMove },
 		{ "/api/v1/local-disk/open-trash", &http_servlet::routeLocalDiskOpenTrash },
+		{ "/api/v1/local-disk/open-file", &http_servlet::routeLocalDiskOpenFile },
 		{ "/api/v1/local-disk/import", &http_servlet::routeLocalDiskImport },
 		{ "/api/v1/local-disk/import/progress", &http_servlet::routeLocalDiskImportProgress },
 		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },
@@ -132,6 +133,9 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/folders/lock", &http_servlet::routeFolderLock },
 		{ "/api/v1/folders/unlock", &http_servlet::routeFolderUnlock },
 		{ "/api/v1/folders/lock/verify", &http_servlet::routeFolderLockVerify },
+		{ "/api/v1/files/lock", &http_servlet::routeFileLock },
+		{ "/api/v1/files/unlock", &http_servlet::routeFileUnlock },
+		{ "/api/v1/files/lock/verify", &http_servlet::routeFileLockVerify },
 		{ "/api/v1/tags", &http_servlet::routeTagList },
 		{ "/api/v1/tags/rename", &http_servlet::routeTagRename },
 		{ "/api/v1/tag-files", &http_servlet::routeTagFiles },
@@ -170,15 +174,15 @@ bool http_servlet::routeDownload(request_t& req, response_t& res) {
 }
 
 bool http_servlet::routeLocalDiskList(request_t& req, response_t& res) {
-	return action::LocalDiskListAction::run(req, res);
+	return action::LocalDiskListAction::run(req, res, upload_dir_);
 }
 
 bool http_servlet::routeLocalDiskDownload(request_t& req, response_t& res) {
-	return action::LocalDiskDownloadAction::run(req, res);
+	return action::LocalDiskDownloadAction::run(req, res, upload_dir_);
 }
 
 bool http_servlet::routeLocalDiskDelete(request_t& req, response_t& res) {
-	return action::LocalDiskDeleteAction::run(req, res);
+	return action::LocalDiskDeleteAction::run(req, res, upload_dir_);
 }
 
 bool http_servlet::routeLocalDiskCreateDir(request_t& req, response_t& res) {
@@ -186,11 +190,15 @@ bool http_servlet::routeLocalDiskCreateDir(request_t& req, response_t& res) {
 }
 
 bool http_servlet::routeLocalDiskMove(request_t& req, response_t& res) {
-	return action::LocalDiskMoveAction::run(req, res);
+	return action::LocalDiskMoveAction::run(req, res, upload_dir_);
 }
 
 bool http_servlet::routeLocalDiskOpenTrash(request_t& req, response_t& res) {
 	return action::LocalDiskOpenTrashAction::run(req, res);
+}
+
+bool http_servlet::routeLocalDiskOpenFile(request_t& req, response_t& res) {
+	return action::LocalDiskOpenFileAction::run(req, res, upload_dir_);
 }
 
 bool http_servlet::routeLocalDiskImport(request_t& req, response_t& res) {
@@ -265,6 +273,18 @@ bool http_servlet::routeFolderLockVerify(request_t& req, response_t& res) {
 	return action::FolderLockVerifyAction::run(req, res, upload_dir_);
 }
 
+bool http_servlet::routeFileLock(request_t& req, response_t& res) {
+	return action::FileLockAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeFileUnlock(request_t& req, response_t& res) {
+	return action::FileUnlockAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeFileLockVerify(request_t& req, response_t& res) {
+	return action::FileLockVerifyAction::run(req, res, upload_dir_);
+}
+
 bool http_servlet::routeTagList(request_t& req, response_t& res) {
 	return action::TagListAction::run(req, res, upload_dir_);
 }
@@ -315,10 +335,14 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/folders/lock", &http_servlet::routeFolderLock },
 		{ "/api/v1/folders/unlock", &http_servlet::routeFolderUnlock },
 		{ "/api/v1/folders/lock/verify", &http_servlet::routeFolderLockVerify },
+		{ "/api/v1/files/lock", &http_servlet::routeFileLock },
+		{ "/api/v1/files/unlock", &http_servlet::routeFileUnlock },
+		{ "/api/v1/files/lock/verify", &http_servlet::routeFileLockVerify },
 		{ "/api/v1/local-disk/delete", &http_servlet::routeLocalDiskDelete },
 		{ "/api/v1/local-disk/mkdir", &http_servlet::routeLocalDiskCreateDir },
 		{ "/api/v1/local-disk/move", &http_servlet::routeLocalDiskMove },
 		{ "/api/v1/local-disk/open-trash", &http_servlet::routeLocalDiskOpenTrash },
+		{ "/api/v1/local-disk/open-file", &http_servlet::routeLocalDiskOpenFile },
 		{ "/api/v1/local-disk/import", &http_servlet::routeLocalDiskImport },
 		{ "/api/v1/local-disk/import/progress", &http_servlet::routeLocalDiskImportProgress },
 		{ "/api/v1/tags/create", &http_servlet::routeTagCreate },

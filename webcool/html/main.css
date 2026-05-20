@@ -690,6 +690,15 @@
       background: rgba(219, 244, 228, 0.82);
     }
 
+    .file-lock-inline {
+      cursor: pointer;
+    }
+
+    .file-lock-inline:hover {
+      border-color: rgba(83, 108, 132, 0.82);
+      background: rgba(229, 238, 246, 0.9);
+    }
+
     .folder-lock-shackle {
       position: absolute;
       left: 7px;

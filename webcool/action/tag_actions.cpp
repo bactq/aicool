@@ -1426,6 +1426,14 @@ bool TagFilesAction::run(request_t& req, response_t& res,
 		item.add_text("path", file_path.c_str());
 		item.add_text("folder_path", (is_local_file ? local_parent_path(file_path) : parent_relative_path(file_path)).c_str());
 		item.add_bool("local", is_local_file);
+		bool file_locked = false;
+		std::string lock_key = is_local_file
+			? (std::string("local:") + file_path)
+			: (std::string("remote:") + file_path);
+		std::string lock_err;
+		if (file_lock_path_has_lock(upload_dir, lock_key, file_locked, lock_err)) {
+			item.add_bool("locked", file_locked);
+		}
 		item.add_number("size", fsize);
 		item.add_number("uploaded_at", (long long) st.st_mtime);
 		item.add_text("uploaded_time", uploaded_time);
