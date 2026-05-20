@@ -9,6 +9,8 @@ namespace {
 
 const char* resolve_index_html_path() {
 	static const char* kCandidates[] = {
+		"html/zh/main.html",
+		"webcool/html/zh/main.html",
 		"html/main.html",
 		"webcool/html/main.html"
 	};

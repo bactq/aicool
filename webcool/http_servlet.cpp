@@ -42,9 +42,54 @@ bool send_static_file(const char* file_path, const char* content_type,
 	return res.write(body) && res.write(NULL, 0);
 }
 
+bool try_route_localized_asset(const char* path, const char* lang,
+	const char* file_name, const char* content_type,
+	request_t& req, response_t& res)
+{
+	acl::string route1, route2, route3;
+	route1.format("/webcool/html/%s/%s", lang, file_name);
+	route2.format("/html/%s/%s", lang, file_name);
+	route3.format("/%s/%s", lang, file_name);
+
+	if (strcmp(path, route1.c_str()) != 0
+		&& strcmp(path, route2.c_str()) != 0
+		&& strcmp(path, route3.c_str()) != 0)
+	{
+		return false;
+	}
+
+	acl::string local_path, workspace_path;
+	local_path.format("html/%s/%s", lang, file_name);
+	workspace_path.format("webcool/html/%s/%s", lang, file_name);
+	const char* file_path = resolve_static_file_path(local_path.c_str(),
+		workspace_path.c_str());
+	return file_path != NULL
+		? send_static_file(file_path, content_type, req, res)
+		: false;
+}
+
 bool try_route_static_asset(const char* path, request_t& req, response_t& res) {
 	if (path == NULL || *path == '\0') {
 		return false;
+	}
+
+	static const char* kLangs[] = { "zh", "en" };
+	for (size_t i = 0; i < sizeof(kLangs) / sizeof(kLangs[0]); ++i) {
+		if (try_route_localized_asset(path, kLangs[i], "main.html",
+			"text/html; charset=utf-8", req, res))
+		{
+			return true;
+		}
+		if (try_route_localized_asset(path, kLangs[i], "main.css",
+			"text/css; charset=utf-8", req, res))
+		{
+			return true;
+		}
+		if (try_route_localized_asset(path, kLangs[i], "main.js",
+			"application/javascript; charset=utf-8", req, res))
+		{
+			return true;
+		}
 	}
 
 	if (strcmp(path, "/webcool/html/main.css") == 0

@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>File Management Console</title>
+  <link rel="stylesheet" href="/webcool/html/en/main.css">
+</head>
+<body>
+  <main class="shell">
+    <aside class="left-pane">
+      <div class="left-pane-head">
+        <h1 class="brand">File Console</h1>
+        <button type="button" id="sidebar-toggle-btn" class="sidebar-toggle-btn" aria-label="Collapse sidebar" title="Collapse sidebar">◀</button>
+      </div>
+      <p class="brand-sub">Use the left pane to switch features; the right pane shows content and actions.</p>
+      <nav class="menu" aria-label="Main menu">
+        <button type="button" class="menu-btn" data-panel="panel-upload">Upload Files</button>
+        <button type="button" class="menu-btn active" data-panel="panel-files">Remote Disk</button>
+        <button type="button" class="menu-btn" data-panel="panel-local-disk">Local Disk</button>
+        <button type="button" class="menu-btn" data-panel="panel-admin">System Management</button>
+      </nav>
+      <section class="left-tag-tree-section" aria-label="File tag tree">
+        <div class="left-tag-tree-head">
+          <span>Tag Tree</span>
+          <button type="button" id="files-tag-toggle" class="tree-switch-btn" aria-label="Expand or create file tag tree">+</button>
+        </div>
+        <div id="tag-manager" class="left-tag-manager"></div>
+      </section>
+    </aside>
+
+    <section class="right-pane">
+      <section class="panel section" id="panel-upload">
+        <h1>Upload Files</h1>
+        <p class="sub">Upload up to three files at once and show live progress.</p>
+        <form id="upload-form" enctype="multipart/form-data">
+          <input type="hidden" id="upload-folder-path" name="folder" value="">
+          <div class="upload-box">
+            <div class="file-row"><label>File 1</label><input type="file" name="file1"></div>
+            <div class="file-row"><label>File 2</label><input type="file" name="file2"></div>
+            <div class="file-row"><label>File 3</label><input type="file" name="file3"></div>
+          </div>
+          <input class="btn" type="submit" value="Upload Files">
+        </form>
+        <div id="upload-progress" class="progress-wrap" aria-live="polite">
+          <div class="progress-track">
+            <div id="upload-progress-fill" class="progress-fill"></div>
+          </div>
+          <div id="upload-progress-text" class="progress-text">Ready to upload...</div>
+        </div>
+      </section>
+
+      <section class="panel section active" id="panel-files">
+        <h1>Remote Disk</h1>
+        <p class="sub">Browse folders like a file manager, with folder management, preview, download, delete, and drag-to-move.</p>
+        <div id="file-view-context" class="file-view-context">Current view: All files</div>
+        <div class="explorer-shell">
+          <aside class="folder-browser">
+            <div class="folder-browser-head">
+              <h2>Folders</h2>
+              <div class="folder-browser-actions">
+                <button id="folder-create-btn" class="folder-action-btn" type="button">Create</button>
+                <button id="folder-delete-btn" class="folder-action-btn danger" type="button" disabled>Delete</button>
+                <button id="folder-restore-btn" class="folder-action-btn" type="button" disabled>Restore</button>
+              </div>
+            </div>
+            <div id="folder-tree-empty" class="folder-tree-empty">Loading...</div>
+            <div id="folder-tree" class="folder-tree"></div>
+          </aside>
+
+          <div class="file-browser">
+            <div class="list-head">
+              <h2 id="file-list-title">Current Folder Files</h2>                <div id="tag-view-mode-btns" class="tag-view-mode-btns" hidden>
+                  <button id="tag-view-list-btn" class="tag-view-btn active" type="button">List</button>
+                  <button id="tag-view-preview-btn" class="tag-view-btn" type="button">Preview</button>
+                </div>              <div class="sort-row">
+                <span class="counter" id="file-counter">0 files</span>
+                <label for="sort-key">Sort</label>
+                <select id="sort-key">
+                  <option value="name">By name</option>
+                  <option value="size">By size</option>
+                  <option value="uploaded_at">By upload time</option>
+                </select>
+                <select id="sort-order">
+                  <option value="asc">Ascending</option>
+                  <option value="desc">Descending</option>
+                </select>
+              </div>
+            </div>
+            <div class="file-table-wrap">
+              <table class="file-table" id="file-table">
+                <thead>
+                  <tr>
+                    <th class="file-select-col">
+                      <span class="file-select-tools">
+                        <input id="file-select-all" type="checkbox" aria-label="Select all files in the current list">
+                        <button id="file-bulk-tag-action" class="file-tag-quick-btn" type="button" title="Add tags to selected files" aria-label="Add tags to selected files" disabled>🏷</button>
+                      </span>
+                    </th>
+                    <th>
+                      <button class="sort-btn" data-sort-key="name" type="button">
+                        File Name <span class="arrow">-</span>
+                      </button>
+                    </th>
+                    <th>
+                      <button class="sort-btn" data-sort-key="size" type="button">
+                        File Size <span class="arrow">-</span>
+                      </button>
+                    </th>
+                    <th>
+                      <button class="sort-btn" data-sort-key="uploaded_at" type="button">
+                        Upload Time <span class="arrow">-</span>
+                      </button>
+                    </th>
+                    <th class="file-actions-head">
+                      <span class="file-actions-head-label">Actions</span>
+                      <span class="file-actions-head-label-recycle">Action</span>
+                    </th>
+                    <th class="file-bulk-head">
+                      <button id="file-bulk-action" class="file-bulk-action-btn" type="button" disabled>Delete</button>
+                    </th>
+                    <th class="file-permanent-head">
+                      <button id="file-bulk-delete-action" class="file-bulk-action-btn" type="button" disabled>Delete Permanently</button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody id="file-list"></tbody>
+              </table>
+            </div>
+            <div id="tag-image-preview-wrap" class="tag-image-preview-wrap" hidden></div>
+          </div>
+        </div>
+        <p id="file-empty" class="empty">Loading...</p>
+      </section>
+
+      <section class="panel section" id="panel-local-disk">
+        <h1>Local Disk</h1>
+        <p class="sub">Browse server local folders with image preview, video playback, audio playback, and text viewing.</p>
+        <div id="local-disk-context" class="file-view-context">Current path: /</div>
+        <div class="local-disk-toolbar">
+          <button id="local-disk-home-btn" class="folder-action-btn icon-only" type="button" title="Current user folder" aria-label="Current user folder">⌂</button>
+          <button id="local-disk-root-btn" class="folder-action-btn" type="button">Root</button>
+          <button id="local-disk-trash-btn" class="folder-action-btn" type="button">Trash</button>
+          <button id="local-disk-up-btn" class="folder-action-btn" type="button">Up</button>
+          <button id="local-disk-view-split-btn" class="folder-action-btn local-disk-view-btn active" type="button" title="Split view" aria-label="Split view">⊟ Split</button>
+          <button id="local-disk-view-table-btn" class="folder-action-btn local-disk-view-btn" type="button" title="List view" aria-label="List view">☰ List</button>
+          <button id="local-disk-import-btn" class="folder-action-btn" type="button" disabled>Upload</button>
+          <label class="local-hidden-toggle">
+            <input id="local-disk-show-hidden" type="checkbox">
+            <span>Show hidden items</span>
+          </label>
+        </div>
+        <div class="file-table-wrap" id="local-disk-table-wrap" hidden>
+          <table class="file-table local-disk-table" id="local-disk-table">
+            <thead>
+              <tr>
+                <th>
+                  <span class="local-disk-name-head">
+                    <input id="local-disk-table-select-all" class="local-disk-select" type="checkbox" aria-label="Select all files in the current folder">
+                    <button id="local-disk-table-bulk-tag-btn" class="file-tag-quick-btn" type="button" title="Add tags to selected files" aria-label="Add tags to selected files" disabled>🏷</button>
+                    <button class="sort-btn local-sort-btn active" data-local-sort-key="name" type="button">
+                      Name <span class="arrow">↑</span>
+                    </button>
+                  </span>
+                </th>
+                <th>
+                  <button class="sort-btn local-sort-btn" data-local-sort-key="type" type="button">
+                    Type <span class="arrow">-</span>
+                  </button>
+                </th>
+                <th>
+                  <button class="sort-btn local-sort-btn" data-local-sort-key="size" type="button">
+                    Size <span class="arrow">-</span>
+                  </button>
+                </th>
+                <th>
+                  <button class="sort-btn local-sort-btn" data-local-sort-key="modified_at" type="button">
+                    Modified <span class="arrow">-</span>
+                  </button>
+                </th>
+                <th class="file-actions-head">Actions</th>
+                <th class="file-bulk-head">
+                  <button id="local-disk-table-bulk-remove-btn" class="file-bulk-action-btn" type="button" title="Move to Trash" aria-label="Move to Trash" disabled>Remove</button>
+                </th>
+              </tr>
+            </thead>
+            <tbody id="local-disk-list"></tbody>
+          </table>
+        </div>
+        <div class="local-disk-explorer" id="local-disk-explorer">
+          <aside class="local-disk-dir-browser">
+            <div class="folder-browser-head">
+              <h2>Folder Tree</h2>
+            </div>
+            <div id="local-disk-dir-list" class="local-disk-dir-list"></div>
+            <p id="local-disk-dir-empty" class="folder-tree-empty">No subfolders</p>
+          </aside>
+          <div class="local-disk-file-browser">
+            <div class="folder-browser-head">
+              <h2>Current Folder Files</h2>
+            </div>
+            <div class="file-table-wrap">
+              <table class="file-table" id="local-disk-split-table">
+                <thead>
+                  <tr>
+                    <th>
+                      <span class="local-disk-name-head">
+                        <input id="local-disk-select-all" class="local-disk-select" type="checkbox" aria-label="Select all files in the current folder">
+                        <button id="local-disk-bulk-tag-btn" class="file-tag-quick-btn" type="button" title="Add tags to selected files" aria-label="Add tags to selected files" disabled>🏷</button>
+                        <button class="sort-btn local-sort-btn" data-local-sort-key="name" type="button">
+                          File Name <span class="arrow">-</span>
+                        </button>
+                      </span>
+                    </th>
+                    <th>
+                      <button class="sort-btn local-sort-btn" data-local-sort-key="size" type="button">
+                        Size <span class="arrow">-</span>
+                      </button>
+                    </th>
+                    <th>
+                      <button class="sort-btn local-sort-btn" data-local-sort-key="modified_at" type="button">
+                        Modified <span class="arrow">-</span>
+                      </button>
+                    </th>
+                    <th class="file-actions-head">Actions</th>
+                    <th class="file-bulk-head">
+                      <button id="local-disk-bulk-remove-btn" class="file-bulk-action-btn" type="button" title="Move to Trash" aria-label="Move to Trash" disabled>Remove</button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody id="local-disk-split-list"></tbody>
+              </table>
+            </div>
+            <p id="local-disk-split-empty" class="empty">No files in the current folder.</p>
+          </div>
+        </div>
+        <p id="local-disk-empty" class="empty">Loading...</p>
+      </section>
+
+      <section class="panel section" id="panel-admin">
+        <h1>System Management</h1>
+        <p class="sub">Manage service settings and maintenance actions.</p>
+        <div class="admin-shell">
+          <aside class="admin-command-bar" aria-label="System management commands">
+            <button id="admin-storage-tab" class="admin-command-btn active" type="button">Storage Path</button>
+            <button id="admin-language-tab" class="admin-command-btn" type="button">Language</button>
+            <button id="reload-template-btn" class="admin-command-btn" type="button">Refresh Template Cache</button>
+          </aside>
+          <div class="admin-display">
+            <section id="admin-storage-view" class="admin-view">
+              <h2>Storage Path</h2>
+              <p class="admin-view-desc">The current location where remote disk files are stored.</p>
+              <div class="admin-storage-row">
+                <input id="admin-storage-path" class="admin-storage-input" type="text" autocomplete="off" spellcheck="false">
+                <button id="admin-storage-browse-btn" class="admin-storage-browse-btn" type="button" title="Browse local folders" aria-label="Browse local folders">...</button>
+                <button id="admin-storage-choose-btn" class="admin-storage-choose-btn" type="button">Set</button>
+              </div>
+              <div id="admin-storage-progress" class="admin-storage-progress" hidden>
+                <div class="admin-storage-progress-head">
+                  <strong>Moving stored files</strong>
+                  <span id="admin-storage-progress-text">0%</span>
+                </div>
+                <div class="admin-storage-progress-track">
+                  <div id="admin-storage-progress-fill" class="admin-storage-progress-fill"></div>
+                </div>
+                <p id="admin-storage-progress-message" class="admin-storage-progress-message">Waiting to start...</p>
+              </div>
+            </section>
+            <section id="admin-language-view" class="admin-view" hidden>
+              <h2>Language</h2>
+              <p class="admin-view-desc">Set the interface language. After applying, the matching language version will open.</p>
+              <div class="admin-language-row">
+                <select id="admin-language-select" class="admin-language-select">
+                  <option value="zh">Simplified Chinese</option>
+                  <option value="en">English</option>
+                </select>
+                <button id="admin-language-apply-btn" class="admin-storage-choose-btn" type="button">Apply</button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <div id="status" class="status"></div>
+    </section>
+  </main>
+
+  <div id="preview-layer" class="preview-layer"></div>
+  <div id="tag-dialog" class="tag-dialog" hidden>
+    <div class="tag-dialog-backdrop" data-tag-dialog-close="1"></div>
+    <div class="tag-dialog-card" role="dialog" aria-modal="true" aria-labelledby="tag-dialog-title">
+      <form id="tag-dialog-form" class="tag-dialog-form">
+        <div class="tag-dialog-head">
+          <h2 id="tag-dialog-title">Create Tag</h2>
+          <p id="tag-dialog-desc">Enter a tag name.</p>
+        </div>
+        <label id="tag-dialog-label" class="tag-dialog-label" for="tag-dialog-input">Tag Name</label>
+        <input id="tag-dialog-input" class="tag-dialog-input" type="text" maxlength="60" autocomplete="off">
+        <div class="tag-dialog-actions">
+          <button type="button" id="tag-dialog-cancel" class="tag-dialog-btn secondary">Cancel</button>
+          <button type="submit" class="tag-dialog-btn">Confirm</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="lock-dialog" class="tag-dialog" hidden>
+    <div class="tag-dialog-backdrop" data-lock-dialog-close="1"></div>
+    <div class="tag-dialog-card lock-dialog-card" role="dialog" aria-modal="true" aria-labelledby="lock-dialog-title">
+      <form id="lock-dialog-form" class="tag-dialog-form">
+        <div class="tag-dialog-head">
+          <h2 id="lock-dialog-title">Unlock Folder</h2>
+          <p id="lock-dialog-desc">Enter the folder lock password.</p>
+        </div>
+        <label class="tag-dialog-label" for="lock-dialog-input">Lock Password</label>
+        <input id="lock-dialog-input" class="tag-dialog-input" type="password" autocomplete="current-password">
+        <div id="lock-dialog-error" class="lock-dialog-error" role="alert" hidden></div>
+        <div class="tag-dialog-actions">
+          <button type="button" id="lock-dialog-cancel" class="tag-dialog-btn secondary">Cancel</button>
+          <button type="submit" id="lock-dialog-confirm" class="tag-dialog-btn">Confirm</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="confirm-dialog" class="tag-dialog" hidden>
+    <div class="tag-dialog-backdrop" data-confirm-dialog-close="1"></div>
+    <div class="tag-dialog-card" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+      <div class="tag-dialog-form">
+        <div class="tag-dialog-head">
+          <h2 id="confirm-dialog-title">Confirm Action</h2>
+          <p id="confirm-dialog-desc">Please confirm whether to continue.</p>
+        </div>
+        <div class="tag-dialog-actions">
+          <button type="button" id="confirm-dialog-cancel" class="tag-dialog-btn secondary">Cancel</button>
+          <button type="button" id="confirm-dialog-confirm" class="tag-dialog-btn danger">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="admin-storage-picker-dialog" class="tag-dialog" hidden>
+    <div class="tag-dialog-backdrop" data-admin-storage-picker-close="1"></div>
+    <div class="tag-dialog-card admin-storage-picker-card" role="dialog" aria-modal="true" aria-labelledby="admin-storage-picker-title">
+      <div class="tag-dialog-form">
+        <div class="tag-dialog-head">
+          <h2 id="admin-storage-picker-title">Choose Storage Path</h2>
+          <p id="admin-storage-picker-path">Choose a local folder as the new storage path.</p>
+        </div>
+        <div id="admin-storage-picker-tree" class="admin-storage-picker-tree"></div>
+        <p id="admin-storage-picker-empty" class="folder-tree-empty">No folders available.</p>
+        <div class="tag-dialog-actions">
+          <button type="button" id="admin-storage-picker-cancel" class="tag-dialog-btn secondary">Cancel</button>
+          <button type="button" id="admin-storage-picker-confirm" class="tag-dialog-btn">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="local-import-dialog" class="tag-dialog" hidden>
+    <div class="tag-dialog-backdrop" data-local-import-close="1"></div>
+    <div class="tag-dialog-card local-import-dialog-card" role="dialog" aria-modal="true" aria-labelledby="local-import-title">
+      <div class="tag-dialog-form">
+        <div class="tag-dialog-head">
+          <h2 id="local-import-title">Upload to Remote Disk</h2>
+          <p id="local-import-desc">Choose the remote target folder.</p>
+        </div>
+        <div id="local-import-tree" class="local-import-tree"></div>
+        <p id="local-import-empty" class="folder-tree-empty">No folders available.</p>
+        <div class="tag-dialog-actions">
+          <button type="button" id="local-import-cancel" class="tag-dialog-btn secondary">Cancel</button>
+          <button type="button" id="local-import-confirm" class="tag-dialog-btn">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="local-import-progress-dialog" class="tag-dialog" hidden>
+    <div class="tag-dialog-backdrop"></div>
+    <div class="tag-dialog-card local-import-progress-card" role="dialog" aria-modal="true" aria-labelledby="local-import-progress-title">
+      <div class="tag-dialog-form">
+        <div class="tag-dialog-head">
+          <h2 id="local-import-progress-title">Uploading</h2>
+          <p id="local-import-progress-desc">Uploading local files to the remote disk.</p>
+        </div>
+        <div class="local-import-progress-track">
+          <div id="local-import-progress-fill" class="local-import-progress-fill"></div>
+        </div>
+        <div id="local-import-progress-text" class="local-import-progress-text">Ready to upload...</div>
+        <div id="local-import-progress-files" class="local-import-progress-files"></div>
+        <div class="tag-dialog-actions">
+          <button type="button" id="local-import-progress-close" class="tag-dialog-btn secondary" hidden>Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/webcool/html/en/main.js"></script>
+</body>
+</html>
