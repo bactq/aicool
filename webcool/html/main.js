@@ -3733,9 +3733,7 @@
         const mediaVideo = win.querySelector('video');
         if (mediaVideo) {
           const rawVideoFile = decodeURIComponent(String(file || ''));
-          if (!opts.local) {
-            bindVideoResume(mediaVideo, rawVideoFile);
-          }
+          bindVideoResume(mediaVideo, opts.local ? ('local:' + rawVideoFile) : rawVideoFile);
           mediaVideo.src = url;
           mediaVideo.play().catch(function () {});
 

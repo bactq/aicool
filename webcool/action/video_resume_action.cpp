@@ -22,6 +22,34 @@ static const char* g_video_resume_create_table_sql =
 	"position_ms INTEGER NOT NULL DEFAULT 0,"
 	"updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))"
 	")";
+static const char* g_local_resume_prefix = "local:";
+
+static bool normalize_video_resume_file_key(const char* file,
+	std::string& key, std::string& err)
+{
+	err.clear();
+	key.clear();
+	if (file == NULL || *file == '\0') {
+		err = "missing query parameter: file";
+		return false;
+	}
+	const size_t prefix_len = strlen(g_local_resume_prefix);
+	if (strncmp(file, g_local_resume_prefix, prefix_len) == 0) {
+		const char* local_path = file + prefix_len;
+		if (*local_path != '/') {
+			err = "absolute local path is required";
+			return false;
+		}
+		struct stat st;
+		if (stat(local_path, &st) != 0 || !S_ISREG(st.st_mode)) {
+			err = "file not found";
+			return false;
+		}
+		key = std::string(g_local_resume_prefix) + local_path;
+		return true;
+	}
+	return normalize_relative_path(file, key, err, false);
+}
 
 static bool file_exists_readable(const char* path) {
 	if (path == NULL || *path == '\0') {
@@ -232,7 +260,7 @@ bool VideoResumeGetAction::run(request_t& req, response_t& res,
 	}
 
 	std::string file_path;
-	if (!normalize_relative_path(file, file_path, db_err, false)) {
+	if (!normalize_video_resume_file_key(file, file_path, db_err)) {
 		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
 		return true;
 	}
@@ -303,7 +331,7 @@ bool VideoResumeSetAction::run(request_t& req, response_t& res,
 	}
 
 	std::string file_path;
-	if (!normalize_relative_path(file, file_path, db_err, false)) {
+	if (!normalize_video_resume_file_key(file, file_path, db_err)) {
 		json_error(res, 400, db_err.c_str(), req.isKeepAlive());
 		return true;
 	}

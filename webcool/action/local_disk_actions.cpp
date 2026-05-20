@@ -651,6 +651,73 @@ static const char* content_type_for_file(const std::string& name) {
 	return "application/octet-stream";
 }
 
+static bool parse_range_value(const char* s, long long& out) {
+	if (s == NULL || *s == '\0') {
+		return false;
+	}
+	errno = 0;
+	char* end = NULL;
+	long long v = strtoll(s, &end, 10);
+	if (errno != 0 || end == s || *end != '\0' || v < 0) {
+		return false;
+	}
+	out = v;
+	return true;
+}
+
+static bool parse_range_header(const char* range, long long size,
+	long long& begin, long long& end)
+{
+	if (range == NULL || size <= 0) {
+		return false;
+	}
+	if (strncasecmp(range, "bytes=", 6) != 0) {
+		return false;
+	}
+	const char* expr = range + 6;
+	if (*expr == '\0' || strchr(expr, ',') != NULL) {
+		return false;
+	}
+	const char* dash = strchr(expr, '-');
+	if (dash == NULL) {
+		return false;
+	}
+	if (dash == expr) {
+		long long suffix = 0;
+		if (!parse_range_value(dash + 1, suffix) || suffix <= 0) {
+			return false;
+		}
+		if (suffix > size) {
+			suffix = size;
+		}
+		begin = size - suffix;
+		end = size - 1;
+		return true;
+	}
+
+	acl::string left(expr, (size_t) (dash - expr));
+	long long start = 0;
+	if (!parse_range_value(left.c_str(), start) || start >= size) {
+		return false;
+	}
+	if (*(dash + 1) == '\0') {
+		begin = start;
+		end = size - 1;
+		return true;
+	}
+
+	long long stop = 0;
+	if (!parse_range_value(dash + 1, stop) || stop < start) {
+		return false;
+	}
+	if (stop >= size) {
+		stop = size - 1;
+	}
+	begin = start;
+	end = stop;
+	return true;
+}
+
 } // namespace
 
 bool LocalDiskListAction::run(request_t& req, response_t& res)
@@ -774,17 +841,74 @@ bool LocalDiskDownloadAction::run(request_t& req, response_t& res)
 	}
 
 	const long long fsize = in.fsize();
+	if (fsize < 0) {
+		in.close();
+		return sendText(res, 500, "cannot read file size\n", req.isKeepAlive());
+	}
+	if (fsize == 0) {
+		in.close();
+		return sendText(res, 409, "file is empty\n", req.isKeepAlive());
+	}
 	const std::string name = path.substr(path.rfind('/') == std::string::npos ? 0 : path.rfind('/') + 1);
 	const char* ctype = content_type_for_file(name);
-	res.setStatus(200)
-		.setKeepAlive(req.isKeepAlive())
-		.setContentType(ctype)
-		.setHeader("Content-Disposition", "inline")
-		.setContentLength(fsize);
+	const char* range = req.getHeader("Range");
+	long long range_begin = 0;
+	long long range_end = 0;
+	const bool has_range = parse_range_header(range, fsize, range_begin, range_end);
+	const bool want_range = range != NULL && *range != '\0';
+	if (want_range && !has_range) {
+		acl::string cr;
+		cr.format("bytes */%lld", fsize);
+		res.setStatus(416)
+			.setKeepAlive(req.isKeepAlive())
+			.setHeader("Content-Range", cr.c_str())
+			.setHeader("Accept-Ranges", "bytes")
+			.setContentType("text/plain; charset=utf-8");
+		const char* msg = "invalid range\n";
+		res.setContentLength((long long) strlen(msg));
+		in.close();
+		return res.write(msg, strlen(msg)) && res.write(NULL, 0);
+	}
+
+	const long long send_begin = has_range ? range_begin : 0;
+	const long long send_end = has_range ? range_end : (fsize - 1);
+	const long long send_size = send_end - send_begin + 1;
+	if (send_size < 0) {
+		in.close();
+		return sendText(res, 500, "invalid send size\n", req.isKeepAlive());
+	}
+	if (send_begin > 0 && in.fseek(send_begin, SEEK_SET) < 0) {
+		in.close();
+		return sendText(res, 500, "seek file failed\n", req.isKeepAlive());
+	}
+
+	if (has_range) {
+		acl::string content_range;
+		content_range.format("bytes %lld-%lld/%lld", send_begin, send_end, fsize);
+		res.setStatus(206)
+			.setKeepAlive(req.isKeepAlive())
+			.setContentType(ctype)
+			.setHeader("Content-Disposition", "inline")
+			.setHeader("Accept-Ranges", "bytes")
+			.setHeader("Content-Range", content_range.c_str())
+			.setContentLength(send_size);
+	} else {
+		res.setStatus(200)
+			.setKeepAlive(req.isKeepAlive())
+			.setContentType(ctype)
+			.setHeader("Content-Disposition", "inline")
+			.setHeader("Accept-Ranges", "bytes")
+			.setContentLength(fsize);
+	}
 
 	char buf[8192];
-	while (!in.eof()) {
-		int n = in.read(buf, sizeof(buf), false);
+	long long remain = send_size;
+	while (remain > 0 && !in.eof()) {
+		size_t want = sizeof(buf);
+		if ((long long) want > remain) {
+			want = (size_t) remain;
+		}
+		int n = in.read(buf, want, false);
 		if (n < 0) {
 			in.close();
 			return false;
@@ -796,6 +920,7 @@ bool LocalDiskDownloadAction::run(request_t& req, response_t& res)
 			in.close();
 			return false;
 		}
+		remain -= n;
 	}
 	in.close();
 	return res.write(NULL, 0);
