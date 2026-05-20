@@ -73,6 +73,39 @@ bool try_route_static_asset(const char* path, request_t& req, response_t& res) {
 		return false;
 	}
 
+	if (strcmp(path, "/webcool/html/i18n/zh.js") == 0
+		|| strcmp(path, "/html/i18n/zh.js") == 0
+		|| strcmp(path, "/i18n/zh.js") == 0)
+	{
+		const char* file_path = resolve_static_file_path("html/i18n/zh.js",
+			"webcool/html/i18n/zh.js");
+		return file_path != NULL
+			? send_static_file(file_path, "application/javascript; charset=utf-8", req, res)
+			: false;
+	}
+
+	if (strcmp(path, "/webcool/html/i18n/en.js") == 0
+		|| strcmp(path, "/html/i18n/en.js") == 0
+		|| strcmp(path, "/i18n/en.js") == 0)
+	{
+		const char* file_path = resolve_static_file_path("html/i18n/en.js",
+			"webcool/html/i18n/en.js");
+		return file_path != NULL
+			? send_static_file(file_path, "application/javascript; charset=utf-8", req, res)
+			: false;
+	}
+
+	if (strcmp(path, "/webcool/html/main.html") == 0
+		|| strcmp(path, "/html/main.html") == 0
+		|| strcmp(path, "/main.html") == 0)
+	{
+		const char* file_path = resolve_static_file_path("html/main.html",
+			"webcool/html/main.html");
+		return file_path != NULL
+			? send_static_file(file_path, "text/html; charset=utf-8", req, res)
+			: false;
+	}
+
 	static const char* kLangs[] = { "zh", "en" };
 	for (size_t i = 0; i < sizeof(kLangs) / sizeof(kLangs[0]); ++i) {
 		if (try_route_localized_asset(path, kLangs[i], "main.html",

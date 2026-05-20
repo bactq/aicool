@@ -5732,7 +5732,7 @@
       }
 
       function localizedPageUrl(lang) {
-        return '/webcool/html/' + (lang === 'en' ? 'en' : 'zh') + '/main.html';
+        return '/';
       }
 
       function applyLanguageSetting() {
@@ -5745,6 +5745,9 @@
         } catch (_) {}
         if (nextLang === UI_LANG) {
           showStatus('语言设置已保存', 'ok');
+          if (window.WebCoolI18n && typeof window.WebCoolI18n.apply === 'function') {
+            window.WebCoolI18n.apply(document);
+          }
           return;
         }
         window.location.href = localizedPageUrl(nextLang);
@@ -5759,10 +5762,7 @@
           return;
         }
         const path = window.location.pathname || '';
-        const isLocalizedEntry = /\/webcool\/html\/(zh|en)\/main\.html$/.test(path)
-          || /\/html\/(zh|en)\/main\.html$/.test(path)
-          || /\/(zh|en)\/main\.html$/.test(path);
-        if (!isLocalizedEntry && savedLang !== UI_LANG) {
+        if (savedLang !== UI_LANG) {
           window.location.replace(localizedPageUrl(savedLang));
         }
       }
