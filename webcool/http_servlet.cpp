@@ -113,6 +113,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
 		{ "/api/v1/files", &http_servlet::routeFiles },
 		{ "/api/v1/download", &http_servlet::routeDownload },
+		{ "/api/v1/image/save", &http_servlet::routeImageSave },
 		{ "/api/v1/local-disk/list", &http_servlet::routeLocalDiskList },
 		{ "/api/v1/local-disk/download", &http_servlet::routeLocalDiskDownload },
 		{ "/api/v1/local-disk/delete", &http_servlet::routeLocalDiskDelete },
@@ -190,6 +191,10 @@ bool http_servlet::routeFiles(request_t& req, response_t& res) {
 
 bool http_servlet::routeDownload(request_t& req, response_t& res) {
 	return action::DownloadAction::run(req, res, action::runtime_upload_dir_get());
+}
+
+bool http_servlet::routeImageSave(request_t& req, response_t& res) {
+	return action::ImageSaveAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeLocalDiskList(request_t& req, response_t& res) {
@@ -352,6 +357,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 	static const std::map<std::string, route_handler> routes = {
 		{ "/api/v1/upload", &http_servlet::routeUpload },
 		{ "/api/v1/admin/storage/migrate", &http_servlet::routeAdminStorageMigrate },
+		{ "/api/v1/image/save", &http_servlet::routeImageSave },
 		{ "/api/v1/restore", &http_servlet::routeRestore },
 		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
 		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },

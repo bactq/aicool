@@ -27,6 +27,7 @@
         del: '/api/v1/delete',
         restore: '/api/v1/restore',
         download: '/api/v1/download',
+        imageSave: '/api/v1/image/save',
         localDiskList: '/api/v1/local-disk/list',
         localDiskDownload: '/api/v1/local-disk/download',
         localDiskDelete: '/api/v1/local-disk/delete',
@@ -4172,9 +4173,16 @@
           titleEl.textContent = '图片预览：' + String(item.name || item.file || '');
         }
         if (imageEl) {
-          imageEl.src = imagePreviewUrlForItem(item);
+          imageEl.onload = function () {
+            if (!win.__imageBaseCanvas) {
+              capturePreviewBaseCanvas(win);
+            }
+            updatePreviewImageSizeLabel(win);
+          };
           imageEl.alt = String(item.name || '图片预览');
+          imageEl.src = imagePreviewUrlForItem(item);
         }
+        resetImageEditState(win);
         if (prevBtn) {
           prevBtn.disabled = nextIndex <= 0;
           prevBtn.hidden = gallery.length <= 1;
@@ -4296,6 +4304,463 @@
           previewKey: 'local-image-gallery:' + String(activeLocalDiskPath || localDiskParentPath(rawPath) || 'root'),
           gallery: gallery.length ? gallery : [current],
           galleryIndex: index
+        });
+      }
+
+      function imageEditMimeForFile(filePath) {
+        const text = String(filePath || '').toLowerCase();
+        if (/\.(jpg|jpeg)$/.test(text)) {
+          return 'image/jpeg';
+        }
+        if (/\.png$/.test(text)) {
+          return 'image/png';
+        }
+        return '';
+      }
+
+      function currentPreviewImageItem(win) {
+        if (!win || !Array.isArray(win.__imageGallery) || !win.__imageGallery.length) {
+          return null;
+        }
+        return win.__imageGallery[Math.max(0, Math.min(Number(win.__imageIndex || 0), win.__imageGallery.length - 1))] || null;
+      }
+
+      function setImageEditHint(win, text, error) {
+        const hint = win ? win.querySelector('.preview-edit-hint') : null;
+        if (!hint) {
+          return;
+        }
+        hint.textContent = String(text || '');
+        hint.classList.toggle('error', !!error);
+      }
+
+      function updatePreviewImageSizeLabel(win, width, height) {
+        if (!win) {
+          return;
+        }
+        const widthInput = win ? win.querySelector('.preview-size-input[data-image-size="width"]') : null;
+        const heightInput = win ? win.querySelector('.preview-size-input[data-image-size="height"]') : null;
+        const img = win.querySelector('.preview-image');
+        const w = Math.max(0, Math.round(Number(width || (img && img.naturalWidth) || 0)));
+        const h = Math.max(0, Math.round(Number(height || (img && img.naturalHeight) || 0)));
+        if (widthInput) {
+          widthInput.value = w ? String(w) : '';
+        }
+        if (heightInput) {
+          heightInput.value = h ? String(h) : '';
+        }
+      }
+
+      function resetImageEditState(win) {
+        if (!win) {
+          return;
+        }
+        win.__imageDirty = false;
+        win.__imageCropMode = false;
+        win.__imageCropRect = null;
+        win.__imageBaseCanvas = null;
+        win.__imageScale = 1;
+        win.__imageCurrentWidth = 0;
+        win.__imageCurrentHeight = 0;
+        const shell = win.querySelector('.preview-image-shell');
+        const cropRect = win.querySelector('.preview-crop-rect');
+        if (shell) {
+          shell.classList.remove('crop-mode');
+        }
+        if (cropRect) {
+          cropRect.hidden = true;
+          cropRect.removeAttribute('style');
+        }
+        setImageEditHint(win, '');
+        updatePreviewImageSizeLabel(win);
+      }
+
+      function canvasToBlob(canvas, type, quality) {
+        return new Promise(function (resolve, reject) {
+          canvas.toBlob(function (blob) {
+            if (blob) {
+              resolve(blob);
+            } else {
+              reject(new Error('生成图片失败'));
+            }
+          }, type || 'image/png', quality || 0.92);
+        });
+      }
+
+      function drawImageElementToCanvas(img) {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        return canvas;
+      }
+
+      function cloneCanvas(source) {
+        const canvas = document.createElement('canvas');
+        canvas.width = source.width;
+        canvas.height = source.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(source, 0, 0);
+        return canvas;
+      }
+
+      function capturePreviewBaseCanvas(win) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        if (!win || !img || !img.complete || !img.naturalWidth || !img.naturalHeight) {
+          return null;
+        }
+        win.__imageBaseCanvas = drawImageElementToCanvas(img);
+        win.__imageScale = 1;
+        win.__imageCurrentWidth = win.__imageBaseCanvas.width;
+        win.__imageCurrentHeight = win.__imageBaseCanvas.height;
+        updatePreviewImageSizeLabel(win);
+        return win.__imageBaseCanvas;
+      }
+
+      function previewBaseCanvas(win) {
+        return (win && win.__imageBaseCanvas) || capturePreviewBaseCanvas(win);
+      }
+
+      function replacePreviewImageWithCanvas(win, canvas, options) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        const item = currentPreviewImageItem(win);
+        const opts = options || {};
+        const mime = imageEditMimeForFile(item && item.file);
+        if (!img || !mime) {
+          throw new Error('当前图片格式暂不支持编辑保存');
+        }
+        if (opts.updateBase !== false) {
+          win.__imageBaseCanvas = cloneCanvas(canvas);
+          win.__imageScale = 1;
+        }
+        win.__imageCurrentWidth = canvas.width;
+        win.__imageCurrentHeight = canvas.height;
+        img.src = canvas.toDataURL(mime, 0.92);
+        win.__imageDirty = true;
+        win.__imageCropRect = null;
+        const cropRect = win.querySelector('.preview-crop-rect');
+        if (cropRect) {
+          cropRect.hidden = true;
+          cropRect.removeAttribute('style');
+        }
+        updatePreviewImageSizeLabel(win, canvas.width, canvas.height);
+      }
+
+      function rotatePreviewImage(win, direction) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) {
+          setImageEditHint(win, '图片还没有加载完成，请稍后再试。', true);
+          return;
+        }
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalHeight;
+          canvas.height = img.naturalWidth;
+          const ctx = canvas.getContext('2d');
+          if (direction === 'left') {
+            ctx.translate(0, canvas.height);
+            ctx.rotate(-Math.PI / 2);
+          } else {
+            ctx.translate(canvas.width, 0);
+            ctx.rotate(Math.PI / 2);
+          }
+          ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+          replacePreviewImageWithCanvas(win, canvas);
+          setImageEditHint(win, direction === 'left'
+            ? '已向左旋转 90 度，点击“保存到服务”写入文件。'
+            : '已向右旋转 90 度，点击“保存到服务”写入文件。');
+        } catch (err) {
+          setImageEditHint(win, '旋转失败：' + err.message, true);
+        }
+      }
+
+      function renderPreviewImageFromBase(win, width, height, message) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) {
+          setImageEditHint(win, '图片还没有加载完成，请稍后再试。', true);
+          return;
+        }
+        const base = previewBaseCanvas(win);
+        if (!base) {
+          setImageEditHint(win, '图片还没有加载完成，请稍后再试。', true);
+          return;
+        }
+        const nextWidth = Math.max(1, Math.round(Number(width || 0)));
+        const nextHeight = Math.max(1, Math.round(Number(height || 0)));
+        if (nextWidth > 12000 || nextHeight > 12000) {
+          setImageEditHint(win, '图片尺寸过大，无法调整。', true);
+          return;
+        }
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = nextWidth;
+          canvas.height = nextHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(base, 0, 0, nextWidth, nextHeight);
+          replacePreviewImageWithCanvas(win, canvas, { updateBase: false });
+          setImageEditHint(win, message || ('已调整至 ' + nextWidth + ' x ' + nextHeight + '。'));
+        } catch (err) {
+          setImageEditHint(win, '调整尺寸失败：' + err.message, true);
+        }
+      }
+
+      function scalePreviewImage(win, factor) {
+        const base = previewBaseCanvas(win);
+        if (!base) {
+          setImageEditHint(win, '图片还没有加载完成，请稍后再试。', true);
+          return;
+        }
+        const scale = Math.max(0.05, Math.min(20, Number(win.__imageScale || 1) * Number(factor || 1)));
+        const nextWidth = Math.max(1, Math.round(base.width * scale));
+        const nextHeight = Math.max(1, Math.round(base.height * scale));
+        win.__imageScale = scale;
+        renderPreviewImageFromBase(
+          win,
+          nextWidth,
+          nextHeight,
+          (Number(factor || 1) > 1 ? '已等比例放大至 ' : '已等比例缩小至 ') + nextWidth + ' x ' + nextHeight + '。'
+        );
+      }
+
+      function applyPreviewImageManualSize(win) {
+        const widthInput = win ? win.querySelector('.preview-size-input[data-image-size="width"]') : null;
+        const heightInput = win ? win.querySelector('.preview-size-input[data-image-size="height"]') : null;
+        const width = Math.round(Number(widthInput && widthInput.value));
+        const height = Math.round(Number(heightInput && heightInput.value));
+        if (!width || !height || width < 1 || height < 1) {
+          setImageEditHint(win, '请输入有效的图片宽度和高度。', true);
+          return;
+        }
+        const base = previewBaseCanvas(win);
+        if (base) {
+          win.__imageScale = width / base.width;
+        }
+        renderPreviewImageFromBase(win, width, height, '已按输入尺寸调整至 ' + width + ' x ' + height + '。');
+      }
+
+      function setPreviewCropMode(win, enabled) {
+        if (!win) {
+          return;
+        }
+        win.__imageCropMode = !!enabled;
+        const shell = win.querySelector('.preview-image-shell');
+        const cropRect = win.querySelector('.preview-crop-rect');
+        if (shell) {
+          shell.classList.toggle('crop-mode', !!enabled);
+        }
+        if (cropRect && !enabled && !win.__imageCropRect) {
+          cropRect.hidden = true;
+          cropRect.removeAttribute('style');
+        }
+        setImageEditHint(win, enabled ? '在图片上拖拽选择剪切区域，然后点击“应用剪切”。' : '');
+      }
+
+      function applyPreviewImageCrop(win) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        const rect = win && win.__imageCropRect;
+        if (!img || !rect || rect.width < 2 || rect.height < 2) {
+          setImageEditHint(win, '请先拖拽选择一个剪切区域。', true);
+          return;
+        }
+        try {
+          const source = drawImageElementToCanvas(img);
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(rect.width));
+          canvas.height = Math.max(1, Math.round(rect.height));
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(
+            source,
+            Math.round(rect.x), Math.round(rect.y), canvas.width, canvas.height,
+            0, 0, canvas.width, canvas.height
+          );
+          replacePreviewImageWithCanvas(win, canvas);
+          setPreviewCropMode(win, false);
+          setImageEditHint(win, '已应用剪切，点击“保存到服务”写入文件。');
+        } catch (err) {
+          setImageEditHint(win, '剪切失败：' + err.message, true);
+        }
+      }
+
+      function cancelPreviewImageCrop(win) {
+        if (!win) {
+          return;
+        }
+        win.__imageCropRect = null;
+        const cropRect = win.querySelector('.preview-crop-rect');
+        if (cropRect) {
+          cropRect.hidden = true;
+          cropRect.removeAttribute('style');
+        }
+        setPreviewCropMode(win, false);
+      }
+
+      async function savePreviewImageEdits(win) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        const item = currentPreviewImageItem(win);
+        if (!img || !item || !item.file) {
+          return;
+        }
+        const mime = imageEditMimeForFile(item.file);
+        if (!mime) {
+          setImageEditHint(win, 'GIF 动图暂不支持编辑保存，请先转换为 PNG/JPG。', true);
+          return;
+        }
+        if (!win.__imageDirty) {
+          setImageEditHint(win, '图片尚未编辑，无需保存。');
+          return;
+        }
+        try {
+          const canvas = drawImageElementToCanvas(img);
+          const blob = await canvasToBlob(canvas, mime, 0.92);
+          const form = new FormData();
+          form.append('image', blob, localDiskBaseName(item.file));
+          let url = api.imageSave + '?file=' + encodeURIComponent(item.file);
+          if (item.local) {
+            url += '&local=1';
+            url = appendLocalDirPassword(appendFilePassword(url, item.file, true), localDiskParentPath(item.file));
+          } else {
+            url = appendFilePassword(withFolderPassword(url, parentFolderPathFromFilePath(item.file)), item.file, false);
+          }
+          setImageEditHint(win, '正在保存...');
+          await fetchJson(url, { method: 'POST', body: form });
+          win.__imageDirty = false;
+          win.__imageBaseCanvas = null;
+          win.__imageScale = 1;
+          img.src = imagePreviewUrlForItem(item);
+          showStatus('图片编辑结果已保存：' + item.file, 'ok');
+          setImageEditHint(win, '已保存。');
+        } catch (err) {
+          setImageEditHint(win, '保存失败：' + err.message, true);
+          showStatus('保存图片失败：' + err.message, 'err');
+        }
+      }
+
+      async function downloadPreviewImageEdits(win) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        const item = currentPreviewImageItem(win);
+        if (!img || !item || !item.file) {
+          return;
+        }
+        const mime = imageEditMimeForFile(item.file);
+        if (!mime) {
+          setImageEditHint(win, 'GIF 动图暂不支持编辑后下载，请先转换为 PNG/JPG。', true);
+          return;
+        }
+        try {
+          const canvas = drawImageElementToCanvas(img);
+          const blob = await canvasToBlob(canvas, mime, 0.92);
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = localDiskBaseName(item.file) || 'image';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+          setImageEditHint(win, '已生成本地下载文件。');
+        } catch (err) {
+          setImageEditHint(win, '下载失败：' + err.message, true);
+        }
+      }
+
+      function initPreviewImageEditing(win) {
+        const shell = win ? win.querySelector('.preview-image-shell') : null;
+        const img = win ? win.querySelector('.preview-image') : null;
+        const cropRect = win ? win.querySelector('.preview-crop-rect') : null;
+        if (!win || !shell || !img || !cropRect) {
+          return;
+        }
+
+        let drag = null;
+        function clampPoint(e) {
+          const rect = img.getBoundingClientRect();
+          const x = Math.max(rect.left, Math.min(rect.right, e.clientX));
+          const y = Math.max(rect.top, Math.min(rect.bottom, e.clientY));
+          return { x: x, y: y, imageRect: rect };
+        }
+        function drawRect(a, b) {
+          const shellRect = shell.getBoundingClientRect();
+          const left = Math.min(a.x, b.x);
+          const top = Math.min(a.y, b.y);
+          const width = Math.abs(a.x - b.x);
+          const height = Math.abs(a.y - b.y);
+          cropRect.hidden = false;
+          cropRect.style.left = (left - shellRect.left) + 'px';
+          cropRect.style.top = (top - shellRect.top) + 'px';
+          cropRect.style.width = width + 'px';
+          cropRect.style.height = height + 'px';
+          win.__imageCropRect = {
+            x: ((left - b.imageRect.left) / b.imageRect.width) * img.naturalWidth,
+            y: ((top - b.imageRect.top) / b.imageRect.height) * img.naturalHeight,
+            width: (width / b.imageRect.width) * img.naturalWidth,
+            height: (height / b.imageRect.height) * img.naturalHeight
+          };
+        }
+
+        shell.addEventListener('mousedown', function (e) {
+          if (!win.__imageCropMode || !img.complete || !img.naturalWidth) {
+            return;
+          }
+          e.preventDefault();
+          const start = clampPoint(e);
+          drag = { start: start };
+          drawRect(start, start);
+        });
+        window.addEventListener('mousemove', function (e) {
+          if (!drag) {
+            return;
+          }
+          e.preventDefault();
+          drawRect(drag.start, clampPoint(e));
+        });
+        window.addEventListener('mouseup', function (e) {
+          if (!drag) {
+            return;
+          }
+          e.preventDefault();
+          drawRect(drag.start, clampPoint(e));
+          drag = null;
+        });
+
+        win.addEventListener('click', function (e) {
+          const action = e.target.closest('[data-image-edit]');
+          if (!action || !win.contains(action)) {
+            return;
+          }
+          e.preventDefault();
+          const type = action.getAttribute('data-image-edit') || '';
+          if (type === 'rotate-left') {
+            rotatePreviewImage(win, 'left');
+          } else if (type === 'rotate-right') {
+            rotatePreviewImage(win, 'right');
+          } else if (type === 'zoom-in') {
+            scalePreviewImage(win, 1.25);
+          } else if (type === 'zoom-out') {
+            scalePreviewImage(win, 0.8);
+          } else if (type === 'crop') {
+            setPreviewCropMode(win, true);
+          } else if (type === 'apply-crop') {
+            applyPreviewImageCrop(win);
+          } else if (type === 'cancel-crop') {
+            cancelPreviewImageCrop(win);
+          } else if (type === 'download') {
+            downloadPreviewImageEdits(win);
+          } else if (type === 'save') {
+            savePreviewImageEdits(win);
+          }
+        });
+
+        win.addEventListener('keydown', function (e) {
+          if (!e.target.closest('.preview-size-input[data-image-size]')) {
+            return;
+          }
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            applyPreviewImageManualSize(win);
+          }
         });
       }
 
@@ -4886,9 +5351,31 @@
           mediaHtml = '<pre class="preview-text">加载中...</pre>';
         } else {
           const showNav = Array.isArray(opts.gallery) && opts.gallery.length > 1;
-          mediaHtml = '<div class="preview-image-shell">'
+          mediaHtml = '<div class="preview-image-toolbar">' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="rotate-left" title="向左旋转90度" aria-label="向左旋转90度">↶</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="rotate-right" title="向右旋转90度" aria-label="向右旋转90度">↷</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="crop" title="剪切" aria-label="剪切">✂</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="apply-crop" title="应用剪切" aria-label="应用剪切">✓</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="cancel-crop" title="取消剪切" aria-label="取消剪切">×</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="zoom-in" title="等比例放大" aria-label="等比例放大">＋</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="zoom-out" title="等比例缩小" aria-label="等比例缩小">－</button>' +
+              '<span class="preview-image-size" title="当前图像尺寸">' +
+                '<input class="preview-size-input" data-image-size="width" type="number" min="1" step="1" aria-label="图片宽度">' +
+                '<span>x</span>' +
+                '<input class="preview-size-input" data-image-size="height" type="number" min="1" step="1" aria-label="图片高度">' +
+              '</span>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="download" title="下载到本地" aria-label="下载到本地">' +
+                '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">' +
+                  '<path d="M12 3v12"></path><path d="M6.5 9.5 12 15l5.5-5.5"></path><path d="M5 17v2.2c0 .9.7 1.6 1.6 1.6h10.8c.9 0 1.6-.7 1.6-1.6V17"></path>' +
+                '</svg>' +
+              '</button>' +
+              '<button class="preview-edit-btn primary" type="button" data-image-edit="save" title="保存到服务" aria-label="保存到服务">💾</button>' +
+              '<div class="preview-edit-hint" aria-live="polite"></div>' +
+            '</div>' +
+            '<div class="preview-image-shell">'
             + '<button class="preview-nav-btn preview-nav-prev" type="button" data-preview-nav="prev" aria-label="上一张"' + (showNav ? '' : ' hidden') + '>‹</button>'
             + '<img class="preview-image" alt="图片预览" src="' + url + '">'
+            + '<div class="preview-crop-rect" hidden></div>'
             + '<button class="preview-nav-btn preview-nav-next" type="button" data-preview-nav="next" aria-label="下一张"' + (showNav ? '' : ' hidden') + '>›</button>'
             + '</div>';
         }
@@ -4896,7 +5383,10 @@
         win.innerHTML =
           '<div class="preview-head">' +
             '<div class="preview-title">' + titleText + escapedTitle + '</div>' +
-            '<button class="preview-close" type="button">关闭</button>' +
+            '<div class="preview-head-actions">' +
+              '<button class="preview-window-btn" type="button" data-preview-window-action="maximize" title="最大化" aria-label="最大化">□</button>' +
+              '<button class="preview-close" type="button" title="关闭" aria-label="关闭">×</button>' +
+            '</div>' +
           '</div>' +
           '<div class="preview-body">' + mediaHtml + '</div>';
 
@@ -4968,10 +5458,17 @@
 
         const closeBtn = win.querySelector('.preview-close');
         const head = win.querySelector('.preview-head');
+        const maximizeBtn = win.querySelector('[data-preview-window-action="maximize"]');
 
         closeBtn.addEventListener('click', function () {
           closePreviewWindow(win, previewKey);
         });
+
+        if (maximizeBtn) {
+          maximizeBtn.addEventListener('click', function () {
+            togglePreviewWindowMaximize(win);
+          });
+        }
 
         const prevNavBtn = win.querySelector('.preview-nav-btn[data-preview-nav="prev"]');
         const nextNavBtn = win.querySelector('.preview-nav-btn[data-preview-nav="next"]');
@@ -4988,6 +5485,15 @@
 
         if (kind === 'image' && Array.isArray(opts.gallery) && opts.gallery.length) {
           updateImagePreviewWindow(win, opts.gallery, Number(opts.galleryIndex || 0));
+        } else if (kind === 'image') {
+          updateImagePreviewWindow(win, [{
+            file: rawFileForUrl,
+            name: String(name || rawFileForUrl || ''),
+            local: !!opts.local
+          }], 0);
+        }
+        if (kind === 'image') {
+          initPreviewImageEditing(win);
         }
 
         win.addEventListener('mousedown', function () {
@@ -4995,9 +5501,10 @@
         });
 
         head.addEventListener('mousedown', function (e) {
-          if (e.target.closest('.preview-close')) {
+          if (e.target.closest('.preview-close') || e.target.closest('.preview-window-btn') || win.classList.contains('is-maximized')) {
             return;
           }
+          snapshotPreviewWindowRect(win);
           const rect = win.getBoundingClientRect();
           bringToFront(win);
           activeDrag = {
@@ -5050,6 +5557,71 @@
         }
         previewZ += 1;
         win.style.zIndex = String(previewZ);
+      }
+
+      function snapshotPreviewWindowRect(win) {
+        if (!win || win.classList.contains('is-maximized')) {
+          return;
+        }
+        const rect = win.getBoundingClientRect();
+        win.dataset.restoreLeft = Math.round(rect.left) + 'px';
+        win.dataset.restoreTop = Math.round(rect.top) + 'px';
+        win.dataset.restoreWidth = Math.round(rect.width) + 'px';
+        win.dataset.restoreHeight = Math.round(rect.height) + 'px';
+      }
+
+      function syncPreviewWindowButtons(win) {
+        if (!win) {
+          return;
+        }
+        const maximizeBtn = win.querySelector('[data-preview-window-action="maximize"]');
+        if (!maximizeBtn) {
+          return;
+        }
+        const restoreMode = win.classList.contains('is-maximized');
+        maximizeBtn.textContent = restoreMode ? '❐' : '□';
+        maximizeBtn.title = restoreMode ? '复原' : '最大化';
+        maximizeBtn.setAttribute('aria-label', restoreMode ? '复原' : '最大化');
+      }
+
+      function restorePreviewWindowGeometry(win) {
+        if (!win) {
+          return;
+        }
+        win.classList.remove('is-maximized');
+        win.style.transform = 'none';
+        win.style.resize = 'both';
+        win.style.maxHeight = '90vh';
+        win.style.width = win.dataset.restoreWidth || '';
+        win.style.height = win.dataset.restoreHeight || '';
+        win.style.left = win.dataset.restoreLeft || '';
+        win.style.top = win.dataset.restoreTop || '';
+        if (!win.dataset.restoreLeft || !win.dataset.restoreTop) {
+          centerPreviewWindow(win);
+        } else {
+          clampWindowPosition(win);
+        }
+        syncPreviewWindowButtons(win);
+      }
+
+      function togglePreviewWindowMaximize(win) {
+        if (!win) {
+          return;
+        }
+        if (win.classList.contains('is-maximized')) {
+          restorePreviewWindowGeometry(win);
+          return;
+        }
+        snapshotPreviewWindowRect(win);
+        win.classList.add('is-maximized');
+        win.style.transform = 'none';
+        win.style.resize = 'none';
+        win.style.left = '22px';
+        win.style.top = '22px';
+        win.style.width = 'calc(100vw - 44px)';
+        win.style.height = 'calc(100vh - 44px)';
+        win.style.maxHeight = 'calc(100vh - 44px)';
+        syncPreviewWindowButtons(win);
       }
 
       function centerPreviewWindow(win) {
