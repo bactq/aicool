@@ -385,6 +385,7 @@
           folder_path: String(source.folder_path || derivedFolder || ''),
           name: String(source.name || derivedName || ''),
           display_path: path,
+          directory: !!source.directory,
           locked: !!source.locked
         });
       }
@@ -402,7 +403,8 @@
       }
 
       function isRecycleFolderPath(path) {
-        return String(path || '') === RECYCLE_FOLDER_NAME;
+        const text = String(path || '');
+        return text === RECYCLE_FOLDER_NAME || text.indexOf(RECYCLE_FOLDER_NAME + '/') === 0;
       }
 
       function collectFolderPaths(nodes, out) {
@@ -3291,8 +3293,8 @@
         }
         const confirmed = await askConfirmDialog({
           title: '删除目录',
-          description: '确认删除目录「' + activeFolderPath + '」？仅允许删除空目录。',
-          confirmText: '删除',
+          description: '确认将目录「' + activeFolderPath + '」及其全部内容移入回收站？',
+          confirmText: '移入回收站',
           danger: true
         });
         if (!confirmed) {
@@ -3302,7 +3304,7 @@
         activeFolderPath = '';
         renderFolderTree();
         renderFiles(activeSourceFiles);
-        showStatus('文件夹已删除', 'warn');
+        showStatus('文件夹已移入回收站', 'warn');
       }
 
       async function moveFilesToFolder(filePaths, folderPath) {
@@ -3761,6 +3763,7 @@
           const rawName = getFilePath(file);
           const encodedPath = encodeURIComponent(rawName);
           const isLocalTaggedFile = !!file.local;
+          const isDir = !!file.directory;
           const fileLocked = !!file.locked;
           const lockIcon = fileLocked
             ? '<span class="folder-lock-icon file-lock-inline' + (getFilePassword(rawName, isLocalTaggedFile) ? ' unlocked' : '') + '" title="' + (getFilePassword(rawName, isLocalTaggedFile) ? '点击重新加锁' : '点击解锁') + '" aria-label="' + (getFilePassword(rawName, isLocalTaggedFile) ? '点击重新加锁' : '点击解锁') + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
@@ -3771,22 +3774,22 @@
           const size = safeSize(file);
           const uploaded = escapeHtml(file.uploaded_time || '-');
           const checked = selectedFileNames.has(rawName) ? ' checked' : '';
-          const previewBtn = isImageName(file.name)
+          const previewBtn = !isDir && isImageName(file.name)
             ? (isLocalTaggedFile
               ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">预览</button>'
               : '<button class="preview-btn" data-preview-file="' + encodedPath + '" data-preview-name="' + escapeHtml(rawName) + '">预览</button>')
             : '';
-          const videoBtn = isVideoName(file.name)
+          const videoBtn = !isDir && isVideoName(file.name)
             ? (isLocalTaggedFile
               ? '<button class="local-preview-btn video-btn" data-kind="video" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">观影</button>'
               : '<button class="video-btn" data-video-file="' + encodedPath + '" data-video-name="' + escapeHtml(rawName) + '">观影</button>')
             : '';
-          const audioBtn = isAudioName(file.name)
+          const audioBtn = !isDir && isAudioName(file.name)
             ? (isLocalTaggedFile
               ? '<button class="local-preview-btn audio-btn" data-kind="audio" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">听音</button>'
               : '<button class="audio-btn" data-audio-file="' + encodedPath + '" data-audio-name="' + escapeHtml(rawName) + '">听音</button>')
             : '';
-          const textBtn = isTextName(file.name)
+          const textBtn = !isDir && isTextName(file.name)
             ? (isLocalTaggedFile
               ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">查看</button>'
               : '<button class="text-btn" data-text-file="' + encodedPath + '" data-text-name="' + escapeHtml(rawName) + '">查看</button>')
@@ -3799,11 +3802,17 @@
           const permanentDeleteBtn = isRecycleMode
             ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">彻底删除</button>'
             : '';
+          const nameContent = isDir
+            ? '<span class="file-name local-folder-link"><span class="local-folder-icon">📁</span>' + name + '</span>'
+            : '<a class="file-name" draggable="false" href="' + escapeHtml(isLocalTaggedFile ? localDiskDownloadUrl(rawName) : downloadUrlForFile(rawName, false)) + '">' + name + '</a>';
+          const tagQuickBtn = isDir
+            ? ''
+            : '<button class="file-tag-quick-btn" type="button" data-tag-file="' + encodedPath + '" title="加入标签" aria-label="加入标签">🏷</button>';
           return (
-            '<tr class="draggable-file-row" draggable="true" data-drag-file="' + encodedPath + '" data-file-context="' + encodedPath + '" data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (isVideoName(file.name) ? '1' : '0') + '">' +
-              '<td class="file-select-cell"><div class="file-select-tools"><input class="file-select-input" type="checkbox" data-select-file="' + encodedPath + '" aria-label="选择文件 ' + escapeHtml(rawName) + '"' + checked + '><button class="file-tag-quick-btn" type="button" data-tag-file="' + encodedPath + '" title="加入标签" aria-label="加入标签">🏷</button></div></td>' +
-              '<td data-file-context="' + encodedPath + '" data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (isVideoName(file.name) ? '1' : '0') + '"><a class="file-name" draggable="false" href="' + escapeHtml(isLocalTaggedFile ? localDiskDownloadUrl(rawName) : downloadUrlForFile(rawName, false)) + '">' + name + '</a>' + lockIcon + pathMeta + '</td>' +
-              '<td>' + formatNumber(size) + ' 字节</td>' +
+            '<tr class="draggable-file-row" draggable="' + (isDir ? 'false' : 'true') + '" data-drag-file="' + encodedPath + '"' + (isDir ? '' : ' data-file-context="' + encodedPath + '"') + ' data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (!isDir && isVideoName(file.name) ? '1' : '0') + '">' +
+              '<td class="file-select-cell"><div class="file-select-tools"><input class="file-select-input" type="checkbox" data-select-file="' + encodedPath + '" aria-label="选择' + (isDir ? '目录 ' : '文件 ') + escapeHtml(rawName) + '"' + checked + '>' + tagQuickBtn + '</div></td>' +
+              '<td' + (isDir ? '' : ' data-file-context="' + encodedPath + '"') + ' data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (!isDir && isVideoName(file.name) ? '1' : '0') + '">' + nameContent + lockIcon + pathMeta + '</td>' +
+              '<td>' + (isDir ? '文件夹' : (formatNumber(size) + ' 字节')) + '</td>' +
               '<td>' + uploaded + '</td>' +
               '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + '</div></td>' +
               '<td class="row-danger-action"><div class="danger-actions">' + primaryActionBtn + '</div></td>' +

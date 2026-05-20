@@ -46,6 +46,7 @@ struct file_entry_t {
 	long long size;
 	long long uploaded_at;
 	std::string uploaded_time;
+	bool directory;
 	bool locked;
 };
 
@@ -53,6 +54,9 @@ struct recycle_record_t {
 	std::string original_path;
 	std::string original_name;
 };
+
+static void format_upload_time(time_t ts, char* buf, size_t size);
+static bool should_skip_entry(const char* name);
 
 static bool file_exists_readable(const char* path) {
 	if (path == NULL || *path == '\0') {
@@ -180,7 +184,9 @@ static bool alloc_recycle_target_path(const std::string& upload_dir,
 	for (int i = 0; i < 1024; ++i) {
 		std::string unique_name = make_recycle_unique_name(original_name);
 		std::string candidate = std::string(recycle_folder_name()) + "/" + unique_name;
-		if (!upload_regular_file_exists(upload_dir, candidate)) {
+		if (!upload_regular_file_exists(upload_dir, candidate)
+			&& !upload_directory_exists(upload_dir, candidate))
+		{
 			recycle_rel = candidate;
 			return true;
 		}
@@ -361,6 +367,103 @@ static bool delete_recycle_record(const std::string& upload_dir,
 		.set_parameter("recycle_name", recycle_name.c_str());
 	if (!db.exec_update(q)) {
 		err = db.get_error();
+		return false;
+	}
+	return true;
+}
+
+static bool collect_recycle_directory_entries(const std::string& upload_dir,
+	std::map<std::string, recycle_record_t>& recycle_records,
+	std::vector<file_entry_t>& out, std::string& err)
+{
+	err.clear();
+	const std::string recycle_dir = join_upload_path(upload_dir, recycle_folder_name());
+	DIR* dir = opendir(recycle_dir.c_str());
+	if (dir == NULL) {
+		if (errno == ENOENT) {
+			return true;
+		}
+		err = strerror(errno);
+		return false;
+	}
+
+	struct dirent* entry = NULL;
+	while ((entry = readdir(dir)) != NULL) {
+		if (should_skip_entry(entry->d_name)) {
+			continue;
+		}
+		const std::string recycle_name(entry->d_name);
+		const std::string rel_path = std::string(recycle_folder_name()) + "/" + recycle_name;
+		const std::string full_path = join_upload_path(upload_dir, rel_path);
+		struct stat st;
+		if (stat(full_path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
+			continue;
+		}
+
+		std::map<std::string, recycle_record_t>::const_iterator it =
+			recycle_records.find(recycle_name);
+		if (it == recycle_records.end()) {
+			continue;
+		}
+
+		char uploaded_time[32];
+		uploaded_time[0] = '\0';
+		format_upload_time(st.st_mtime, uploaded_time, sizeof(uploaded_time));
+
+		file_entry_t item;
+		item.name = it->second.original_name.empty()
+			? recycle_name
+			: it->second.original_name;
+		item.path = rel_path;
+		item.folder_path = recycle_folder_name();
+		item.recycle_original_name = it->second.original_name;
+		item.recycle_original_path = it->second.original_path;
+		item.size = 0;
+		item.uploaded_at = (long long) st.st_mtime;
+		item.uploaded_time = uploaded_time;
+		item.directory = true;
+		item.locked = false;
+		out.push_back(item);
+	}
+	closedir(dir);
+	return true;
+}
+
+static bool delete_directory_recursive(const std::string& full_path,
+	std::string& err)
+{
+	DIR* dir = opendir(full_path.c_str());
+	if (dir == NULL) {
+		err = strerror(errno);
+		return false;
+	}
+
+	struct dirent* entry = NULL;
+	while ((entry = readdir(dir)) != NULL) {
+		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+			continue;
+		}
+		const std::string child = full_path + "/" + entry->d_name;
+		struct stat st;
+		if (lstat(child.c_str(), &st) != 0) {
+			err = strerror(errno);
+			closedir(dir);
+			return false;
+		}
+		if (S_ISDIR(st.st_mode)) {
+			if (!delete_directory_recursive(child, err)) {
+				closedir(dir);
+				return false;
+			}
+		} else if (::unlink(child.c_str()) != 0) {
+			err = strerror(errno);
+			closedir(dir);
+			return false;
+		}
+	}
+	closedir(dir);
+	if (::rmdir(full_path.c_str()) != 0) {
+		err = strerror(errno);
 		return false;
 	}
 	return true;
@@ -704,6 +807,7 @@ static bool collect_files_recursive(const std::string& upload_dir,
 		item.size = (long long) st.st_size;
 		item.uploaded_at = (long long) st.st_mtime;
 		item.uploaded_time = uploaded_time;
+		item.directory = false;
 		item.locked = false;
 		out.push_back(item);
 	}
@@ -712,6 +816,13 @@ static bool collect_files_recursive(const std::string& upload_dir,
 }
 
 } // namespace
+
+bool recycle_bin_insert_record(const std::string& upload_dir,
+	const std::string& recycle_rel, const std::string& original_path,
+	std::string& err)
+{
+	return insert_recycle_record(upload_dir, recycle_rel, original_path, err);
+}
 
 bool FilesAction::run(request_t& req, response_t& res,
 	const std::string& upload_dir)
@@ -757,7 +868,8 @@ bool FilesAction::run(request_t& req, response_t& res,
 		});
 
 	std::map<std::string, recycle_record_t> recycle_records;
-	bool need_recycle_records = false;
+	const bool recycle_root_view = filter_folder == recycle_folder_name();
+	bool need_recycle_records = recycle_root_view;
 	for (size_t i = 0; i < entries.size(); ++i) {
 		if (is_recycle_file_path(entries[i].path)) {
 			need_recycle_records = true;
@@ -768,6 +880,22 @@ bool FilesAction::run(request_t& req, response_t& res,
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
 	}
+	if (recycle_root_view
+		&& !collect_recycle_directory_entries(upload_dir, recycle_records, entries, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	std::sort(entries.begin(), entries.end(),
+		[](const file_entry_t& a, const file_entry_t& b) {
+			if (a.folder_path != b.folder_path) {
+				return a.folder_path < b.folder_path;
+			}
+			if (a.directory != b.directory) {
+				return a.directory && !b.directory;
+			}
+			return a.path < b.path;
+		});
 
 	acl::json json;
 	acl::json_node& root = json.create_node();
@@ -807,6 +935,7 @@ bool FilesAction::run(request_t& req, response_t& res,
 		item.add_number("size", item_ref.size);
 		item.add_number("uploaded_at", item_ref.uploaded_at);
 		item.add_text("uploaded_time", item_ref.uploaded_time.c_str());
+		item.add_bool("directory", item_ref.directory);
 		item.add_bool("locked", item_ref.locked);
 		count++;
 	}
@@ -827,8 +956,14 @@ bool DeleteAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
-	if (!upload_regular_file_exists(upload_dir, file_path)) {
-		json_error(res, 404, "file not found", req.isKeepAlive());
+	const bool hard_delete = is_recycle_file_path(file_path);
+	const bool target_is_dir = upload_directory_exists(upload_dir, file_path);
+	if (!target_is_dir && !upload_regular_file_exists(upload_dir, file_path)) {
+		json_error(res, 404, hard_delete ? "recycle item not found" : "file not found", req.isKeepAlive());
+		return true;
+	}
+	if (target_is_dir && !hard_delete) {
+		json_error(res, 400, "directory delete should use folder delete API", req.isKeepAlive());
 		return true;
 	}
 	bool lock_allowed = false;
@@ -857,18 +992,28 @@ bool DeleteAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
-	const bool hard_delete = is_recycle_file_path(file_path);
 	if (hard_delete) {
 		const std::string fullpath = join_upload_path(upload_dir, file_path);
-		if (::unlink(fullpath.c_str()) != 0) {
-			json_error(res, 404, "file not found or delete failed", req.isKeepAlive());
-			return true;
+		if (target_is_dir) {
+			if (!delete_directory_recursive(fullpath, err)) {
+				json_error(res, 500, err.c_str(), req.isKeepAlive());
+				return true;
+			}
+		} else {
+			if (::unlink(fullpath.c_str()) != 0) {
+				json_error(res, 404, "file not found or delete failed", req.isKeepAlive());
+				return true;
+			}
 		}
 
 		err.clear();
-		if (!delete_recycle_record(upload_dir, file_path, err)
-			|| !folder_unbind_file(upload_dir, file_path, err)
-			|| !tag_unbind_file(upload_dir, file_path, err))
+		if (!delete_recycle_record(upload_dir, file_path, err)) {
+			json_error(res, 500, err.c_str(), req.isKeepAlive());
+			return true;
+		}
+		if (!target_is_dir
+			&& (!folder_unbind_file(upload_dir, file_path, err)
+				|| !tag_unbind_file(upload_dir, file_path, err)))
 		{
 			json_error(res, 500, err.c_str(), req.isKeepAlive());
 			return true;
@@ -903,8 +1048,9 @@ bool RestoreAction::run(request_t& req, response_t& res,
 		json_error(res, 400, "restore only supports recycle files", req.isKeepAlive());
 		return true;
 	}
-	if (!upload_regular_file_exists(upload_dir, file_path)) {
-		json_error(res, 404, "recycle file not found", req.isKeepAlive());
+	const bool restore_is_dir = upload_directory_exists(upload_dir, file_path);
+	if (!restore_is_dir && !upload_regular_file_exists(upload_dir, file_path)) {
+		json_error(res, 404, "recycle item not found", req.isKeepAlive());
 		return true;
 	}
 
@@ -950,25 +1096,36 @@ bool RestoreAction::run(request_t& req, response_t& res,
 	const std::string from_full = join_upload_path(upload_dir, file_path);
 	const std::string to_full = join_upload_path(upload_dir, target_path);
 	if (::rename(from_full.c_str(), to_full.c_str()) != 0) {
-		json_error(res, 500, "restore file failed", req.isKeepAlive());
+		json_error(res, 500, restore_is_dir ? "restore folder failed" : "restore file failed", req.isKeepAlive());
 		return true;
 	}
 
 	bool tag_renamed = false;
-	if (!tag_rename_file(upload_dir, file_path, target_path, err)) {
+	if (!(restore_is_dir
+		? tag_rename_folder_prefix(upload_dir, file_path, target_path, err)
+		: tag_rename_file(upload_dir, file_path, target_path, err)))
+	{
 		(void) ::rename(to_full.c_str(), from_full.c_str());
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
 	}
 	tag_renamed = true;
 
-	if (!video_resume_rename_file(upload_dir, file_path, target_path, err)
-		|| !file_lock_rename_key(upload_dir, remote_file_lock_key(file_path),
-			remote_file_lock_key(target_path), err))
+	const bool rename_ok = restore_is_dir
+		? (video_resume_rename_folder_prefix(upload_dir, file_path, target_path, err)
+			&& folder_lock_rename_prefix(upload_dir, file_path, target_path, err))
+		: (video_resume_rename_file(upload_dir, file_path, target_path, err)
+			&& file_lock_rename_key(upload_dir, remote_file_lock_key(file_path),
+				remote_file_lock_key(target_path), err));
+	if (!rename_ok)
 	{
 		if (tag_renamed) {
 			std::string rollback_err;
-			tag_rename_file(upload_dir, target_path, file_path, rollback_err);
+			if (restore_is_dir) {
+				tag_rename_folder_prefix(upload_dir, target_path, file_path, rollback_err);
+			} else {
+				tag_rename_file(upload_dir, target_path, file_path, rollback_err);
+			}
 		}
 		(void) ::rename(to_full.c_str(), from_full.c_str());
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
@@ -977,10 +1134,16 @@ bool RestoreAction::run(request_t& req, response_t& res,
 
 	if (!delete_recycle_record(upload_dir, file_path, err)) {
 		std::string rollback_err;
-		file_lock_rename_key(upload_dir, remote_file_lock_key(target_path),
-			remote_file_lock_key(file_path), rollback_err);
-		video_resume_rename_file(upload_dir, target_path, file_path, rollback_err);
-		tag_rename_file(upload_dir, target_path, file_path, rollback_err);
+		if (restore_is_dir) {
+			folder_lock_rename_prefix(upload_dir, target_path, file_path, rollback_err);
+			video_resume_rename_folder_prefix(upload_dir, target_path, file_path, rollback_err);
+			tag_rename_folder_prefix(upload_dir, target_path, file_path, rollback_err);
+		} else {
+			file_lock_rename_key(upload_dir, remote_file_lock_key(target_path),
+				remote_file_lock_key(file_path), rollback_err);
+			video_resume_rename_file(upload_dir, target_path, file_path, rollback_err);
+			tag_rename_file(upload_dir, target_path, file_path, rollback_err);
+		}
 		(void) ::rename(to_full.c_str(), from_full.c_str());
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
@@ -991,6 +1154,7 @@ bool RestoreAction::run(request_t& req, response_t& res,
 	root.add_bool("ok", true);
 	root.add_text("file", file_path.c_str());
 	root.add_text("path", target_path.c_str());
+	root.add_bool("directory", restore_is_dir);
 	root.add_text("message", "restored");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
