@@ -98,7 +98,7 @@
       const folderCurrentPath = document.getElementById('folder-current-path');
       const folderCreateBtn = document.getElementById('folder-create-btn');
       const folderDeleteBtn = document.getElementById('folder-delete-btn');
-      const folderRootBtn = document.getElementById('folder-root-btn');
+      const folderRestoreBtn = document.getElementById('folder-restore-btn');
       const sortKey = document.getElementById('sort-key');
       const sortOrder = document.getElementById('sort-order');
       const sortButtons = Array.from(document.querySelectorAll('.sort-btn[data-sort-key]'));
@@ -3079,6 +3079,9 @@
         if (folderDeleteBtn) {
           folderDeleteBtn.disabled = !activeFolderPath || isRecycleRootFolderPath(activeFolderPath);
         }
+        if (folderRestoreBtn) {
+          folderRestoreBtn.disabled = !activeFolderPath || !isRecycleFolderPath(activeFolderPath) || isRecycleRootFolderPath(activeFolderPath);
+        }
         if (folderCurrentPath) {
           folderCurrentPath.textContent = getFolderLabel(activeFolderPath);
         }
@@ -3329,6 +3332,27 @@
         renderFolderTree();
         renderFiles(activeSourceFiles);
         showStatus('文件夹已移入回收站', 'warn');
+      }
+
+      async function restoreCurrentRecycleFolder() {
+        if (!activeFolderPath || !isRecycleFolderPath(activeFolderPath) || isRecycleRootFolderPath(activeFolderPath)) {
+          return;
+        }
+        const confirmed = await askConfirmDialog({
+          title: '恢复目录',
+          description: '确认恢复回收站中的目录「' + activeFolderPath + '」？将恢复到原路径（如冲突会自动改名）。',
+          confirmText: '恢复',
+          danger: false
+        });
+        if (!confirmed) {
+          return;
+        }
+        const result = await fetchJson(api.restore + '?file=' + encodeURIComponent(activeFolderPath));
+        const targetPath = String((result && result.path) || '');
+        activeFolderPath = RECYCLE_FOLDER_NAME;
+        ensureFolderPathExpanded(activeFolderPath);
+        await loadFiles();
+        showStatus('已恢复目录' + (targetPath ? ('：' + targetPath) : ''), 'ok');
       }
 
       async function moveFilesToFolder(filePaths, folderPath) {
@@ -5865,14 +5889,6 @@
         });
       }
 
-      if (folderRootBtn) {
-        folderRootBtn.addEventListener('click', function () {
-          activeFolderPath = '';
-          renderFolderTree();
-          renderFiles(activeSourceFiles);
-        });
-      }
-
       if (folderCreateBtn) {
         folderCreateBtn.addEventListener('click', async function () {
           try {
@@ -5891,6 +5907,16 @@
             await loadFiles();
           } catch (err) {
             showStatus('删除文件夹失败：' + err.message, 'err');
+          }
+        });
+      }
+
+      if (folderRestoreBtn) {
+        folderRestoreBtn.addEventListener('click', async function () {
+          try {
+            await restoreCurrentRecycleFolder();
+          } catch (err) {
+            showStatus('恢复文件夹失败：' + err.message, 'err');
           }
         });
       }
