@@ -19,6 +19,9 @@
         tagDelete: '/api/v1/tags/delete',
         tagBind: '/api/v1/tags/bind',
         tagUnbind: '/api/v1/tags/unbind',
+        tagLock: '/api/v1/tags/lock',
+        tagUnlock: '/api/v1/tags/unlock',
+        tagLockVerify: '/api/v1/tags/lock/verify',
         tagFiles: '/api/v1/tag-files',
         upload: '/api/v1/upload',
         del: '/api/v1/delete',
@@ -276,6 +279,10 @@
         return 'local-dir:' + String(path || '');
       }
 
+      function tagLockKey(tagId) {
+        return 'tag:' + String(tagId || '');
+      }
+
       function getFilePassword(path, local) {
         return unlockedFilePasswords.get(fileLockKey(path, local)) || '';
       }
@@ -320,12 +327,42 @@
         saveUnlockedFilePasswords();
       }
 
+      function getTagPassword(tagId) {
+        return unlockedFilePasswords.get(tagLockKey(tagId)) || '';
+      }
+
+      function setUnlockedTagPassword(tagId, password) {
+        const id = String(tagId || '');
+        if (!id) {
+          return;
+        }
+        unlockedFilePasswords.set(tagLockKey(id), String(password || ''));
+        saveUnlockedFilePasswords();
+      }
+
+      function deleteUnlockedTagPassword(tagId) {
+        const id = String(tagId || '');
+        if (!id) {
+          return;
+        }
+        unlockedFilePasswords.delete(tagLockKey(id));
+        saveUnlockedFilePasswords();
+      }
+
       function appendFilePassword(url, path, local) {
         const password = getFilePassword(path, local);
         if (!password) {
           return url;
         }
         return url + '&file_password=' + encodeURIComponent(password);
+      }
+
+      function appendTagPassword(url, tagId) {
+        const password = getTagPassword(tagId);
+        if (!password) {
+          return url;
+        }
+        return url + '&tag_password=' + encodeURIComponent(password);
       }
 
       function appendLocalDirPassword(url, path, paramName) {
@@ -1249,7 +1286,7 @@
       }
 
       async function loadAudioFilesForTag(tagId) {
-        const data = await fetchJson(api.tagFiles + '?tag_id=' + encodeURIComponent(tagId));
+        const data = await fetchJson(appendTagPassword(api.tagFiles + '?tag_id=' + encodeURIComponent(tagId), tagId));
         return (Array.isArray(data.files) ? data.files : []).filter(function (file) {
           return isAudioName(file && file.name);
         });
@@ -1271,6 +1308,35 @@
         document.body.appendChild(menu);
         clampFloatingMenuPosition(menu, clientX, clientY);
         activeAudioTagContextMenu = menu;
+      }
+
+      function openTagLockContextMenu(tagId, locked, clientX, clientY) {
+        closeFileContextMenu();
+        closeFolderContextMenu();
+        closeAudioTagContextMenu();
+
+        const id = String(tagId || '');
+        if (!id) {
+          return;
+        }
+
+        const menu = document.createElement('div');
+        menu.className = 'folder-context-menu file-context-menu';
+        menu.setAttribute('data-tag-lock-id', id);
+        let html = '';
+        if (locked) {
+          const unlocked = !!getTagPassword(id);
+          html += '<button type="button" class="folder-context-item" data-tag-lock-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + (unlocked ? '加锁' : '解锁') + '</button>';
+          html += '<button type="button" class="folder-context-item" data-tag-lock-action="remove-lock">去锁</button>';
+        } else {
+          html += '<button type="button" class="folder-context-item" data-tag-lock-action="lock">加锁</button>';
+        }
+        menu.innerHTML = html;
+        document.body.appendChild(menu);
+        menu.style.left = Math.round(clientX) + 'px';
+        menu.style.top = Math.round(clientY) + 'px';
+        clampFloatingMenuPosition(menu, clientX, clientY);
+        activeFileContextMenu = menu;
       }
 
       function renderAudioPlaylistItems(container, files, activeFileName) {
@@ -1854,6 +1920,7 @@
           id: String(node.id || makeTagId()),
           name: name.slice(0, 60),
           files: Array.from(new Set(files)),
+          locked: !!node.locked,
           children: children
         };
       }
@@ -1929,10 +1996,15 @@
 
         const nodeClass = activeFilterTagId === node.id ? 'tag-node active' : 'tag-node';
         const canDeleteTag = !isProtectedRestrictedRootTag(node, safeLevel);
+        const canLockTag = canDeleteTag;
         const isRenaming = activeTagRenameId === node.id && canRenameTagNode(node, safeLevel);
         const tagNameHtml = isRenaming
           ? '<input class="tag-rename-input" data-tag-rename-input="' + escapeHtml(node.id) + '" value="' + escapeHtml(node.name) + '" maxlength="60">'
           : '<span class="tag-node-name" data-tag-id="' + node.id + '">' + escapeHtml(node.name) + '</span>';
+        const tagUnlocked = !!getTagPassword(node.id);
+        const tagLockHtml = (canLockTag && node.locked)
+          ? '<span class="folder-lock-icon file-lock-inline tag-lock-inline' + (tagUnlocked ? ' unlocked' : '') + '" data-tag-lock-toggle="' + escapeHtml(node.id) + '" title="' + (tagUnlocked ? '点击重新加锁' : '点击解锁') + '" aria-label="' + (tagUnlocked ? '点击重新加锁' : '点击解锁') + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
+          : '';
         const actionHtml =
           '<div class="tag-actions">' +
             (canExpand
@@ -1944,13 +2016,14 @@
           '</div>';
 
         return (
-          '<div class="' + nodeClass + '" data-tag-id="' + node.id + '">' +
+          '<div class="' + nodeClass + '" data-tag-id="' + node.id + '" data-tag-locked="' + (node.locked ? '1' : '0') + '" data-tag-lockable="' + (canLockTag ? '1' : '0') + '">' +
             '<div class="tag-line">' +
               '<div class="tag-line-main" style="padding-left:' + indent + 'px;">' +
                 toggleBtn +
                 '<span class="tag-node-name-wrap" style="' + nameInlineStyle + '">' +
                   tagNameHtml +
                   restrictedBadgeHtml +
+                  tagLockHtml +
                 '</span>' +
               '</div>' +
               actionHtml +
@@ -2241,6 +2314,126 @@
 
       function canRenameTagNode(node, level) {
         return !!(node && node.id) && !isProtectedRestrictedRootTag(node, level);
+      }
+
+      function canLockTagNode(node, level) {
+        return !!(node && node.id) && !isProtectedRestrictedRootTag(node, level);
+      }
+
+      async function ensureTagUnlocked(tagId) {
+        const id = String(tagId || '');
+        if (!id) {
+          return false;
+        }
+        const meta = findTagMetaById(id);
+        if (!meta || !meta.node) {
+          showStatus('标签不存在，可能已被删除', 'err');
+          return false;
+        }
+        if (!meta.node.locked || getTagPassword(id)) {
+          return true;
+        }
+        return await handleTagLockAction('session-unlock', id, { silentSuccess: true });
+      }
+
+      async function handleTagLockAction(action, tagId, options) {
+        const id = String(tagId || '');
+        const opts = options || {};
+        if (!action || !id) {
+          return false;
+        }
+
+        const meta = findTagMetaById(id);
+        if (!meta || !meta.node) {
+          showStatus('标签不存在，可能已被删除', 'err');
+          return false;
+        }
+        if (!canLockTagNode(meta.node, meta.level)) {
+          showStatus('保留标签不能加锁', 'err');
+          return false;
+        }
+
+        const label = String(meta.node.name || id);
+        if (action === 'lock') {
+          const password = await askLockPassword({
+            title: '加锁标签',
+            description: '请为标签「' + label + '」设置锁密码。加锁后需要输入密码才能查看该标签下的文件。',
+            placeholder: '请输入新锁密码',
+            errorMessage: '加锁失败，请重新输入密码。',
+            statusErrorMessage: '加锁失败：密码错误或验证失败'
+          });
+          if (password === null) {
+            return false;
+          }
+          await fetchJson(api.tagLock + '?id=' + encodeURIComponent(id) + '&password=' + encodeURIComponent(password), { method: 'POST' });
+          deleteUnlockedTagPassword(id);
+          await loadTagTreeState();
+          if (activeFilterTagId === id) {
+            renderFiles([]);
+          }
+          renderTagTree();
+          showStatus('标签已加锁：' + label, 'ok');
+          return true;
+        }
+
+        if (action === 'session-unlock') {
+          const password = await askLockPassword({
+            title: '解锁标签',
+            description: '请输入标签「' + label + '」的锁密码。',
+            onSubmit: async function (passwordText) {
+              await fetchJson(api.tagLockVerify + '?id=' + encodeURIComponent(id) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
+            }
+          });
+          if (password === null) {
+            return false;
+          }
+          setUnlockedTagPassword(id, password);
+          await loadTagTreeState();
+          renderTagTree();
+          if (activeFilterTagId === id) {
+            await showFilesForTag(id);
+          }
+          if (!opts.silentSuccess) {
+            showStatus('标签已解锁（当前会话）：' + label, 'ok');
+          }
+          return true;
+        }
+
+        if (action === 'session-lock') {
+          deleteUnlockedTagPassword(id);
+          if (activeFilterTagId === id) {
+            renderFiles([]);
+          }
+          renderTagTree();
+          showStatus('标签已重新加锁：' + label, 'ok');
+          return true;
+        }
+
+        if (action === 'remove-lock') {
+          const password = await askLockPassword({
+            title: '去锁标签',
+            description: '请输入标签「' + label + '」的锁密码。验证成功后会永久移除该标签锁。',
+            errorMessage: '密码错误或去锁失败，请重新输入。',
+            statusErrorMessage: '去锁失败：密码错误或验证失败',
+            onSubmit: async function (passwordText) {
+              await fetchJson(api.tagUnlock + '?id=' + encodeURIComponent(id) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
+            }
+          });
+          if (password === null) {
+            return false;
+          }
+          deleteUnlockedTagPassword(id);
+          await loadTagTreeState();
+          if (activeFilterTagId === id) {
+            await showFilesForTag(id);
+          } else {
+            renderTagTree();
+          }
+          showStatus('标签已去锁：' + label, 'ok');
+          return true;
+        }
+
+        return false;
       }
 
       function canBindFileToTagOnClient(tagId, fileName) {
@@ -3346,7 +3539,7 @@
       async function showFilesForTag(tagId) {
         activeFilterTagId = tagId;
         setActivePanel('panel-files');
-        const data = await fetchJson(api.tagFiles + '?tag_id=' + encodeURIComponent(tagId));
+        const data = await fetchJson(appendTagPassword(api.tagFiles + '?tag_id=' + encodeURIComponent(tagId), tagId));
         renderFiles(Array.isArray(data.files) ? data.files.map(normalizeFileRecord) : []);
         renderTagTree();
       }
@@ -5814,6 +6007,19 @@
           if (e.target.closest('.tag-rename-input')) {
             return;
           }
+          const tagLockIcon = e.target.closest('.tag-lock-inline[data-tag-lock-toggle]');
+          if (tagLockIcon) {
+            e.preventDefault();
+            e.stopPropagation();
+            const tagId = tagLockIcon.getAttribute('data-tag-lock-toggle') || '';
+            const action = getTagPassword(tagId) ? 'session-lock' : 'session-unlock';
+            try {
+              await handleTagLockAction(action, tagId);
+            } catch (err) {
+              showStatus('标签锁操作失败：' + err.message, 'err');
+            }
+            return;
+          }
           const tagNameEl = e.target.closest('.tag-node-name[data-tag-id]');
           if (tagNameEl) {
             e.stopPropagation();
@@ -5833,6 +6039,9 @@
               if (activeFilterTagId === tagId) {
                 clearTagFileFilter();
               } else {
+                if (!(await ensureTagUnlocked(tagId))) {
+                  return;
+                }
                 await showFilesForTag(tagId);
               }
             } catch (err) {
@@ -5964,13 +6173,23 @@
           if (e.target.closest('.tag-rename-input')) {
             return;
           }
-          const tagNameEl = e.target.closest('.tag-node-name[data-tag-id]');
+          const tagNodeEl = e.target.closest('.tag-node[data-tag-id]');
+          const tagNameEl = e.target.closest('.tag-node-name[data-tag-id], .tag-lock-inline[data-tag-lock-toggle]');
           if (!tagNameEl) {
+            closeFileContextMenu();
             closeAudioTagContextMenu();
             return;
           }
-          const tagId = tagNameEl.getAttribute('data-tag-id') || '';
-          if (!tagId || getTagFileTypeConstraint(tagId) !== 'audio') {
+          const tagId = tagNameEl.getAttribute('data-tag-id') || tagNameEl.getAttribute('data-tag-lock-toggle') || '';
+          const meta = findTagMetaById(tagId);
+          if (meta && canLockTagNode(meta.node, meta.level)) {
+            e.preventDefault();
+            e.stopPropagation();
+            openTagLockContextMenu(tagId, !!meta.node.locked, e.clientX, e.clientY);
+            return;
+          }
+          if (!tagId || getTagFileTypeConstraint(tagId) !== 'audio' || !tagNodeEl) {
+            closeFileContextMenu();
             closeAudioTagContextMenu();
             return;
           }
@@ -6139,6 +6358,17 @@
           closeFileContextMenu();
           handleLocalDirContextAction(action, path).catch(function (err) {
             showStatus('本地目录锁操作失败：' + err.message, 'err');
+          });
+          return;
+        }
+        const tagLockMenuItem = e.target.closest('.folder-context-item[data-tag-lock-action]');
+        if (tagLockMenuItem && activeFileContextMenu && activeFileContextMenu.contains(tagLockMenuItem)) {
+          const menu = activeFileContextMenu;
+          const action = tagLockMenuItem.getAttribute('data-tag-lock-action') || '';
+          const tagId = menu.getAttribute('data-tag-lock-id') || '';
+          closeFileContextMenu();
+          handleTagLockAction(action, tagId).catch(function (err) {
+            showStatus('标签锁操作失败：' + err.message, 'err');
           });
           return;
         }

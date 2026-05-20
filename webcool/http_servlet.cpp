@@ -138,6 +138,9 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/files/lock/verify", &http_servlet::routeFileLockVerify },
 		{ "/api/v1/tags", &http_servlet::routeTagList },
 		{ "/api/v1/tags/rename", &http_servlet::routeTagRename },
+		{ "/api/v1/tags/lock", &http_servlet::routeTagLock },
+		{ "/api/v1/tags/unlock", &http_servlet::routeTagUnlock },
+		{ "/api/v1/tags/lock/verify", &http_servlet::routeTagLockVerify },
 		{ "/api/v1/tag-files", &http_servlet::routeTagFiles },
 		{ "/api/v1/upload", &http_servlet::routeUpload },
 	};
@@ -309,6 +312,18 @@ bool http_servlet::routeTagUnbind(request_t& req, response_t& res) {
 	return action::TagUnbindAction::run(req, res, upload_dir_);
 }
 
+bool http_servlet::routeTagLock(request_t& req, response_t& res) {
+	return action::TagLockAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeTagUnlock(request_t& req, response_t& res) {
+	return action::TagUnlockAction::run(req, res, upload_dir_);
+}
+
+bool http_servlet::routeTagLockVerify(request_t& req, response_t& res) {
+	return action::TagLockVerifyAction::run(req, res, upload_dir_);
+}
+
 bool http_servlet::routeTagFiles(request_t& req, response_t& res) {
 	return action::TagFilesAction::run(req, res, upload_dir_);
 }
@@ -350,6 +365,9 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/tags/delete", &http_servlet::routeTagDelete },
 		{ "/api/v1/tags/bind", &http_servlet::routeTagBind },
 		{ "/api/v1/tags/unbind", &http_servlet::routeTagUnbind },
+		{ "/api/v1/tags/lock", &http_servlet::routeTagLock },
+		{ "/api/v1/tags/unlock", &http_servlet::routeTagUnlock },
+		{ "/api/v1/tags/lock/verify", &http_servlet::routeTagLockVerify },
 	};
 	if (path != NULL) {
 		std::map<std::string, route_handler>::const_iterator it = routes.find(path);

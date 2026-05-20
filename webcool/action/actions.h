@@ -30,6 +30,13 @@ bool local_dir_lock_path_allows(const std::string& upload_dir,
 	bool& allowed, std::string& locked_path, std::string& err);
 bool local_dir_lock_path_has_lock(const std::string& upload_dir,
 	const std::string& path, bool& locked, std::string& err);
+bool named_lock_set(const std::string& upload_dir,
+	const std::string& key, const std::string& password, std::string& err);
+bool named_lock_remove(const std::string& upload_dir,
+	const std::string& key, const std::string& password, std::string& err);
+bool named_lock_verify(const std::string& upload_dir,
+	const std::string& key, const std::string& password, bool& allowed,
+	std::string& err);
 bool folder_bind_file(const std::string& upload_dir, const std::string& file_name,
 	long long folder_id, std::string& err);
 bool folder_unbind_file(const std::string& upload_dir,
@@ -298,6 +305,24 @@ public:
 };
 
 class TagUnbindAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class TagLockAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class TagUnlockAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class TagLockVerifyAction {
 public:
 	static bool run(request_t& req, response_t& res,
 		const std::string& upload_dir);

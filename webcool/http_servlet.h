@@ -71,6 +71,9 @@ private:
 	bool routeTagDelete(request_t& req, response_t& res);
 	bool routeTagBind(request_t& req, response_t& res);
 	bool routeTagUnbind(request_t& req, response_t& res);
+	bool routeTagLock(request_t& req, response_t& res);
+	bool routeTagUnlock(request_t& req, response_t& res);
+	bool routeTagLockVerify(request_t& req, response_t& res);
 	bool routeUpload(request_t& req, response_t& res);
 	bool routeTagFiles(request_t& req, response_t& res);
 };

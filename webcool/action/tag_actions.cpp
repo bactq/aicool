@@ -70,6 +70,7 @@ static const char* g_default_video_tag_name = "视频";
 static const char* g_default_audio_tag_name = "音频";
 static const char* g_default_image_tag_name = "图片";
 static const char* g_local_tag_file_prefix = "local:";
+static const char* g_tag_lock_prefix = "tag:";
 
 static bool is_local_tag_file_name(const std::string& file_name)
 {
@@ -87,6 +88,20 @@ static std::string local_tag_path_from_storage_name(const std::string& name)
 	return is_local_tag_file_name(name)
 		? name.substr(strlen(g_local_tag_file_prefix))
 		: name;
+}
+
+static std::string tag_lock_key(const std::string& tag_id)
+{
+	return std::string(g_tag_lock_prefix) + tag_id;
+}
+
+static std::string tag_lock_upload_dir()
+{
+	std::string::size_type pos = g_tag_db_file.rfind('/');
+	if (pos == std::string::npos) {
+		return ".";
+	}
+	return g_tag_db_file.substr(0, pos);
 }
 
 static bool normalize_existing_local_file_path(const char* input,
@@ -598,6 +613,12 @@ static void append_tag_json(acl::json& json, acl::json_node& arr,
 	acl::json_node& item = arr.add_child(false, true);
 	item.add_text("id", row.id.c_str());
 	item.add_text("name", row.name.c_str());
+	bool locked = false;
+	std::string lock_err;
+	if (file_lock_path_has_lock(tag_lock_upload_dir(), tag_lock_key(row.id), locked, lock_err))
+	{
+		item.add_bool("locked", locked);
+	}
 	acl::json_node& files = json.create_array();
 	item.add_child("files", files);
 	acl::json_node& children = json.create_array();
@@ -1331,6 +1352,112 @@ bool TagUnbindAction::run(request_t& req, response_t& res,
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
+static bool fetch_tag_for_lock_request(const std::string& upload_dir,
+	request_t& req, response_t& res, TagRow& row, std::string& tag_id,
+	std::string& err)
+{
+	if (!ensure_tag_db_for_request(upload_dir, err)) {
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return false;
+	}
+	tag_id = trim_copy(req.getParameter("id"));
+	if (!validate_tag_id(tag_id, err)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return false;
+	}
+	std::lock_guard<std::mutex> guard(g_tag_mutex);
+	acl::db_sqlite db(g_tag_db_file.c_str(), "utf-8");
+	if (!open_tag_db_locked(db, err)) {
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return false;
+	}
+	if (!fetch_tag_locked(db, tag_id, &row, err)) {
+		json_error(res, 404, err.empty() ? "tag not found" : err.c_str(),
+			req.isKeepAlive());
+		return false;
+	}
+	return true;
+}
+
+bool TagLockAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string tag_id, err;
+	TagRow row;
+	if (!fetch_tag_for_lock_request(upload_dir, req, res, row, tag_id, err)) {
+		return true;
+	}
+	if (is_protected_root_tag(row)) {
+		json_error(res, 400, "restricted root tags cannot be locked", req.isKeepAlive());
+		return true;
+	}
+	const std::string password = req.getParameter("password")
+		? req.getParameter("password")
+		: "";
+	if (!named_lock_set(upload_dir, tag_lock_key(tag_id), password, err)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("id", tag_id.c_str());
+	root.add_text("message", "tag locked");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool TagUnlockAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string tag_id, err;
+	TagRow row;
+	if (!fetch_tag_for_lock_request(upload_dir, req, res, row, tag_id, err)) {
+		return true;
+	}
+	const std::string password = req.getParameter("password")
+		? req.getParameter("password")
+		: "";
+	if (!named_lock_remove(upload_dir, tag_lock_key(tag_id), password, err)) {
+		json_error(res, err == "password is incorrect" ? 403 : 404,
+			err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("id", tag_id.c_str());
+	root.add_text("message", "tag lock removed");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool TagLockVerifyAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string tag_id, err;
+	TagRow row;
+	if (!fetch_tag_for_lock_request(upload_dir, req, res, row, tag_id, err)) {
+		return true;
+	}
+	bool allowed = false;
+	if (!named_lock_verify(upload_dir, tag_lock_key(tag_id),
+		req.getParameter("password") ? req.getParameter("password") : "",
+		allowed, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!allowed) {
+		json_error(res, 403, "password is incorrect", req.isKeepAlive());
+		return true;
+	}
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("id", tag_id.c_str());
+	root.add_text("message", "tag lock verified");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
 bool TagFilesAction::run(request_t& req, response_t& res,
 	const std::string& upload_dir)
 {
@@ -1364,6 +1491,19 @@ bool TagFilesAction::run(request_t& req, response_t& res,
 			return true;
 		}
 		tag_name = row.name;
+		bool tag_allowed = false;
+		std::string tag_lock_err;
+		if (!named_lock_verify(upload_dir, tag_lock_key(tag_id),
+			req.getParameter("tag_password") ? req.getParameter("tag_password") : "",
+			tag_allowed, tag_lock_err))
+		{
+			json_error(res, 500, tag_lock_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+		if (!tag_allowed) {
+			json_error(res, 403, "tag is locked", req.isKeepAlive());
+			return true;
+		}
 
 		acl::query query;
 		query.create("SELECT file_name FROM file_tag_rel WHERE tag_id=:tag_id"
