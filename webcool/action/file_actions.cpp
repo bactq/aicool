@@ -1426,7 +1426,9 @@ bool init_recycle_bin_db(const std::string& upload_dir, std::string& err) {
 	err.clear();
 
 	std::lock_guard<std::mutex> guard(g_recycle_mutex);
-	if (g_recycle_db_ready) {
+	acl::string next_db_file;
+	next_db_file.format("%s/.recycle_bin.db", upload_dir.c_str());
+	if (g_recycle_db_ready && g_recycle_db_file == next_db_file.c_str()) {
 		return true;
 	}
 
@@ -1447,9 +1449,7 @@ bool init_recycle_bin_db(const std::string& upload_dir, std::string& err) {
 	}
 	acl::db_handle::set_loadpath(sqlite_lib_path.c_str());
 
-	acl::string db_file;
-	db_file.format("%s/.recycle_bin.db", upload_dir.c_str());
-	g_recycle_db_file = db_file.c_str();
+	g_recycle_db_file = next_db_file.c_str();
 
 	if (!ensure_recycle_tables_locked(err)) {
 		return false;

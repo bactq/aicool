@@ -152,7 +152,9 @@ bool init_video_resume_db(const std::string& upload_dir, std::string& err) {
 	err.clear();
 
 	std::lock_guard<std::mutex> guard(g_resume_mutex);
-	if (g_resume_db_ready) {
+	acl::string next_db_file;
+	next_db_file.format("%s/.video_resume.db", upload_dir.c_str());
+	if (g_resume_db_ready && g_resume_db_file == next_db_file.c_str()) {
 		return true;
 	}
 
@@ -164,9 +166,7 @@ bool init_video_resume_db(const std::string& upload_dir, std::string& err) {
 
 	acl::db_handle::set_loadpath(sqlite_lib_path.c_str());
 
-	acl::string db_file;
-	db_file.format("%s/.video_resume.db", upload_dir.c_str());
-	g_resume_db_file = db_file.c_str();
+	g_resume_db_file = next_db_file.c_str();
 
 	if (!ensure_resume_table_exists_locked(err)) {
 		return false;

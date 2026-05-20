@@ -82,6 +82,7 @@ http_servlet::http_servlet(acl::socket_stream* stream,
 : acl::HttpServlet(stream, session)
 , upload_dir_(upload_dir)
 {
+	action::runtime_upload_dir_init(upload_dir ? upload_dir : "");
 }
 
 http_servlet::~http_servlet() {}
@@ -104,6 +105,9 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 
 	static const std::map<std::string, route_handler> routes = {
 		{ "/api/v1/admin/template/reload", &http_servlet::routeTemplateReload },
+		{ "/api/v1/admin/storage", &http_servlet::routeAdminStorageInfo },
+		{ "/api/v1/admin/storage/migrate", &http_servlet::routeAdminStorageMigrate },
+		{ "/api/v1/admin/storage/migrate/progress", &http_servlet::routeAdminStorageMigrateProgress },
 		{ "/api/v1/delete", &http_servlet::routeDelete },
 		{ "/api/v1/restore", &http_servlet::routeRestore },
 		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
@@ -156,44 +160,56 @@ bool http_servlet::routeTemplateReload(request_t& req, response_t& res) {
 	return action::TemplateReloadAction::run(req, res);
 }
 
+bool http_servlet::routeAdminStorageInfo(request_t& req, response_t& res) {
+	return action::AdminStorageInfoAction::run(req, res, action::runtime_upload_dir_get());
+}
+
+bool http_servlet::routeAdminStorageMigrate(request_t& req, response_t& res) {
+	return action::AdminStorageMigrateAction::run(req, res, action::runtime_upload_dir_get());
+}
+
+bool http_servlet::routeAdminStorageMigrateProgress(request_t& req, response_t& res) {
+	return action::AdminStorageMigrateProgressAction::run(req, res);
+}
+
 bool http_servlet::routeDelete(request_t& req, response_t& res) {
-	return action::DeleteAction::run(req, res, upload_dir_);
+	return action::DeleteAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeRestore(request_t& req, response_t& res) {
-	return action::RestoreAction::run(req, res, upload_dir_);
+	return action::RestoreAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeMoveFile(request_t& req, response_t& res) {
-	return action::MoveFileAction::run(req, res, upload_dir_);
+	return action::MoveFileAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeFiles(request_t& req, response_t& res) {
-	return action::FilesAction::run(req, res, upload_dir_);
+	return action::FilesAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeDownload(request_t& req, response_t& res) {
-	return action::DownloadAction::run(req, res, upload_dir_);
+	return action::DownloadAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeLocalDiskList(request_t& req, response_t& res) {
-	return action::LocalDiskListAction::run(req, res, upload_dir_);
+	return action::LocalDiskListAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeLocalDiskDownload(request_t& req, response_t& res) {
-	return action::LocalDiskDownloadAction::run(req, res, upload_dir_);
+	return action::LocalDiskDownloadAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeLocalDiskDelete(request_t& req, response_t& res) {
-	return action::LocalDiskDeleteAction::run(req, res, upload_dir_);
+	return action::LocalDiskDeleteAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeLocalDiskCreateDir(request_t& req, response_t& res) {
-	return action::LocalDiskCreateDirAction::run(req, res, upload_dir_);
+	return action::LocalDiskCreateDirAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeLocalDiskMove(request_t& req, response_t& res) {
-	return action::LocalDiskMoveAction::run(req, res, upload_dir_);
+	return action::LocalDiskMoveAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeLocalDiskOpenTrash(request_t& req, response_t& res) {
@@ -201,11 +217,11 @@ bool http_servlet::routeLocalDiskOpenTrash(request_t& req, response_t& res) {
 }
 
 bool http_servlet::routeLocalDiskOpenFile(request_t& req, response_t& res) {
-	return action::LocalDiskOpenFileAction::run(req, res, upload_dir_);
+	return action::LocalDiskOpenFileAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeLocalDiskImport(request_t& req, response_t& res) {
-	return action::LocalDiskImportAction::run(req, res, upload_dir_);
+	return action::LocalDiskImportAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeLocalDiskImportProgress(request_t& req, response_t& res) {
@@ -213,119 +229,119 @@ bool http_servlet::routeLocalDiskImportProgress(request_t& req, response_t& res)
 }
 
 bool http_servlet::routeUpload(request_t& req, response_t& res) {
-	return action::UploadAction::run(req, res, upload_dir_);
+	return action::UploadAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeVideoConvert(request_t& req, response_t& res) {
-	return action::VideoConvertAction::run(req, res, upload_dir_);
+	return action::VideoConvertAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeVideoConvertProgress(request_t& req, response_t& res) {
-	return action::VideoConvertProgressAction::run(req, res, upload_dir_);
+	return action::VideoConvertProgressAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeVideoConvertTasks(request_t& req, response_t& res) {
-	return action::VideoConvertTasksAction::run(req, res, upload_dir_);
+	return action::VideoConvertTasksAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeVideoConvertCancel(request_t& req, response_t& res) {
-	return action::VideoConvertCancelAction::run(req, res, upload_dir_);
+	return action::VideoConvertCancelAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeVideoProbe(request_t& req, response_t& res) {
-	return action::VideoProbeAction::run(req, res, upload_dir_);
+	return action::VideoProbeAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeVideoResumeGet(request_t& req, response_t& res) {
-	return action::VideoResumeGetAction::run(req, res, upload_dir_);
+	return action::VideoResumeGetAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeVideoResumeSet(request_t& req, response_t& res) {
-	return action::VideoResumeSetAction::run(req, res, upload_dir_);
+	return action::VideoResumeSetAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeFolderList(request_t& req, response_t& res) {
-	return action::FolderListAction::run(req, res, upload_dir_);
+	return action::FolderListAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeFolderCreate(request_t& req, response_t& res) {
-	return action::FolderCreateAction::run(req, res, upload_dir_);
+	return action::FolderCreateAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeFolderRename(request_t& req, response_t& res) {
-	return action::FolderRenameAction::run(req, res, upload_dir_);
+	return action::FolderRenameAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeFolderMove(request_t& req, response_t& res) {
-	return action::FolderMoveAction::run(req, res, upload_dir_);
+	return action::FolderMoveAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeFolderDelete(request_t& req, response_t& res) {
-	return action::FolderDeleteAction::run(req, res, upload_dir_);
+	return action::FolderDeleteAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeFolderLock(request_t& req, response_t& res) {
-	return action::FolderLockAction::run(req, res, upload_dir_);
+	return action::FolderLockAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeFolderUnlock(request_t& req, response_t& res) {
-	return action::FolderUnlockAction::run(req, res, upload_dir_);
+	return action::FolderUnlockAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeFolderLockVerify(request_t& req, response_t& res) {
-	return action::FolderLockVerifyAction::run(req, res, upload_dir_);
+	return action::FolderLockVerifyAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeFileLock(request_t& req, response_t& res) {
-	return action::FileLockAction::run(req, res, upload_dir_);
+	return action::FileLockAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeFileUnlock(request_t& req, response_t& res) {
-	return action::FileUnlockAction::run(req, res, upload_dir_);
+	return action::FileUnlockAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeFileLockVerify(request_t& req, response_t& res) {
-	return action::FileLockVerifyAction::run(req, res, upload_dir_);
+	return action::FileLockVerifyAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeTagList(request_t& req, response_t& res) {
-	return action::TagListAction::run(req, res, upload_dir_);
+	return action::TagListAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeTagCreate(request_t& req, response_t& res) {
-	return action::TagCreateAction::run(req, res, upload_dir_);
+	return action::TagCreateAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeTagRename(request_t& req, response_t& res) {
-	return action::TagRenameAction::run(req, res, upload_dir_);
+	return action::TagRenameAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeTagDelete(request_t& req, response_t& res) {
-	return action::TagDeleteAction::run(req, res, upload_dir_);
+	return action::TagDeleteAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeTagBind(request_t& req, response_t& res) {
-	return action::TagBindAction::run(req, res, upload_dir_);
+	return action::TagBindAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeTagUnbind(request_t& req, response_t& res) {
-	return action::TagUnbindAction::run(req, res, upload_dir_);
+	return action::TagUnbindAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeTagLock(request_t& req, response_t& res) {
-	return action::TagLockAction::run(req, res, upload_dir_);
+	return action::TagLockAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeTagUnlock(request_t& req, response_t& res) {
-	return action::TagUnlockAction::run(req, res, upload_dir_);
+	return action::TagUnlockAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeTagLockVerify(request_t& req, response_t& res) {
-	return action::TagLockVerifyAction::run(req, res, upload_dir_);
+	return action::TagLockVerifyAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeTagFiles(request_t& req, response_t& res) {
-	return action::TagFilesAction::run(req, res, upload_dir_);
+	return action::TagFilesAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -335,6 +351,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 	const char* path = req.getPathInfo();
 	static const std::map<std::string, route_handler> routes = {
 		{ "/api/v1/upload", &http_servlet::routeUpload },
+		{ "/api/v1/admin/storage/migrate", &http_servlet::routeAdminStorageMigrate },
 		{ "/api/v1/restore", &http_servlet::routeRestore },
 		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
 		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },

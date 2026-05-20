@@ -300,11 +300,13 @@
       background: #b93b47;
     }
 
-    .local-import-dialog-card {
+    .local-import-dialog-card,
+    .admin-storage-picker-card {
       width: min(520px, calc(100vw - 32px));
     }
 
-    .local-import-tree {
+    .local-import-tree,
+    .admin-storage-picker-tree {
       border: 1px solid #d8e5f2;
       border-radius: 10px;
       max-height: 46vh;
@@ -851,6 +853,222 @@
 
     .tool-row a:hover {
       text-decoration: underline;
+    }
+
+    .admin-shell {
+      display: grid;
+      grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+      gap: 16px;
+      align-items: stretch;
+      min-height: 360px;
+    }
+
+    .admin-command-bar {
+      border-right: 1px solid #d7e5f3;
+      padding-right: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .admin-command-btn {
+      border: 1px solid #c9ddf0;
+      background: #f5faff;
+      color: #2b4968;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      font-weight: 800;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .admin-command-btn:hover,
+    .admin-command-btn.active {
+      background: #e1f1ff;
+      border-color: #a9cdec;
+      color: #1f4165;
+    }
+
+    .admin-display {
+      min-width: 0;
+      padding-left: 2px;
+    }
+
+    .admin-view h2 {
+      margin: 0 0 6px;
+      color: #244769;
+      font-size: 22px;
+    }
+
+    .admin-view-desc {
+      margin: 0 0 16px;
+      color: #6d8095;
+      font-size: 13px;
+    }
+
+    .admin-storage-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 10px;
+      align-items: center;
+      max-width: 760px;
+    }
+
+    .admin-storage-input {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #c9ddf0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: #243f5c;
+      font-size: 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #fff;
+    }
+
+    .admin-storage-input:focus {
+      outline: none;
+      border-color: #76addd;
+      box-shadow: 0 0 0 3px rgba(118, 173, 221, 0.18);
+    }
+
+    .admin-storage-browse-btn,
+    .admin-storage-choose-btn {
+      border: 1px solid #e3c89d;
+      background: #fff7e8;
+      color: #8a5a00;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .admin-storage-browse-btn {
+      min-width: 44px;
+      padding-left: 12px;
+      padding-right: 12px;
+      letter-spacing: 1px;
+    }
+
+    .admin-storage-browse-btn:hover,
+    .admin-storage-choose-btn:hover {
+      background: #ffeecf;
+    }
+
+    .admin-storage-picker-current {
+      color: #244769;
+      font-weight: 800;
+      word-break: break-all;
+    }
+
+    .admin-storage-picker-node {
+      display: grid;
+      gap: 4px;
+    }
+
+    .admin-storage-picker-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 34px;
+      padding: 3px 6px;
+      border-radius: 8px;
+    }
+
+    .admin-storage-picker-line.active {
+      background: #dff0ff;
+      box-shadow: inset 0 0 0 1px #b8d8f2;
+    }
+
+    .admin-storage-picker-toggle {
+      width: 26px;
+      height: 26px;
+      border: 0;
+      background: transparent;
+      color: #4f6f8d;
+      font-size: 17px;
+      font-weight: 900;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+
+    .admin-storage-picker-toggle.placeholder {
+      color: #b7c7d6;
+      cursor: default;
+    }
+
+    .admin-storage-picker-entry {
+      min-width: 0;
+      flex: 1 1 auto;
+      border: 0;
+      background: transparent;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #243f5c;
+      font-size: 14px;
+      font-weight: 800;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .admin-storage-picker-entry:hover {
+      color: #0f69aa;
+    }
+
+    .admin-storage-picker-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .admin-storage-picker-children {
+      display: grid;
+      gap: 4px;
+    }
+
+    .admin-storage-progress {
+      margin-top: 18px;
+      max-width: 760px;
+      border: 1px solid #cfe0f0;
+      border-radius: 8px;
+      padding: 14px;
+      background: #f7fbff;
+    }
+
+    .admin-storage-progress-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      color: #294966;
+      font-size: 14px;
+    }
+
+    .admin-storage-progress-track {
+      margin-top: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #dfeaf5;
+      overflow: hidden;
+    }
+
+    .admin-storage-progress-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #3b82c4, #35a887);
+      transition: width 0.2s ease;
+    }
+
+    .admin-storage-progress-message {
+      margin: 10px 0 0;
+      color: #63798f;
+      font-size: 13px;
+      word-break: break-all;
     }
 
     .tag-section {
@@ -2657,10 +2875,22 @@
       .right-pane {
         padding: 20px;
       }
+
+      .admin-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .admin-command-bar {
+        border-right: none;
+        border-bottom: 1px solid #d7e5f3;
+        padding-right: 0;
+        padding-bottom: 12px;
+      }
     }
 
     @media (max-width: 640px) {
       .file-row { grid-template-columns: 1fr; gap: 6px; }
+      .admin-storage-row { grid-template-columns: 1fr; }
     }
 
     #file-table { display: none; }

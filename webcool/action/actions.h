@@ -13,6 +13,9 @@ bool init_video_resume_db(const std::string& upload_dir, std::string& err);
 bool init_category_folder_db(const std::string& upload_dir, std::string& err);
 bool init_tag_db(const std::string& upload_dir, std::string& err);
 bool init_recycle_bin_db(const std::string& upload_dir, std::string& err);
+void runtime_upload_dir_init(const std::string& upload_dir);
+std::string runtime_upload_dir_get();
+void runtime_upload_dir_set(const std::string& upload_dir);
 bool recycle_bin_insert_record(const std::string& upload_dir,
 	const std::string& recycle_rel, const std::string& original_path,
 	std::string& err);
@@ -72,6 +75,23 @@ public:
 };
 
 class TemplateReloadAction {
+public:
+	static bool run(request_t& req, response_t& res);
+};
+
+class AdminStorageInfoAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class AdminStorageMigrateAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class AdminStorageMigrateProgressAction {
 public:
 	static bool run(request_t& req, response_t& res);
 };
