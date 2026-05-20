@@ -794,12 +794,13 @@
             + '&password=' + encodeURIComponent(password);
           await fetchJson(url, { method: 'POST' });
           deleteUnlockedFilePassword(path, local);
-          if (local) {
-            await loadLocalDisk(activeLocalDiskPath || '');
-          } else if (activeFilterTagId) {
-            await showFilesForTag(activeFilterTagId);
+          setFileLockedState(path, local, true);
+          if (activeFilterTagId) {
+            renderFiles(activeSourceFiles);
+          } else if (local) {
+            renderLocalDiskItems(activeLocalDiskItems);
           } else {
-            await loadFiles();
+            renderFiles(activeSourceFiles);
           }
           showStatus('文件已加锁：' + fileLabel, 'ok');
           return;
@@ -821,7 +822,9 @@
             return;
           }
           setUnlockedFilePassword(path, local, password);
-          if (local) {
+          if (activeFilterTagId) {
+            renderFiles(activeSourceFiles);
+          } else if (local) {
             renderLocalDiskItems(activeLocalDiskItems);
           } else {
             renderFiles(activeSourceFiles);
@@ -831,7 +834,9 @@
         }
         if (action === 'session-lock') {
           deleteUnlockedFilePassword(path, local);
-          if (local) {
+          if (activeFilterTagId) {
+            renderFiles(activeSourceFiles);
+          } else if (local) {
             renderLocalDiskItems(activeLocalDiskItems);
           } else {
             renderFiles(activeSourceFiles);
@@ -858,12 +863,13 @@
             return;
           }
           deleteUnlockedFilePassword(path, local);
-          if (local) {
-            await loadLocalDisk(activeLocalDiskPath || '');
-          } else if (activeFilterTagId) {
-            await showFilesForTag(activeFilterTagId);
+          setFileLockedState(path, local, false);
+          if (activeFilterTagId) {
+            renderFiles(activeSourceFiles);
+          } else if (local) {
+            renderLocalDiskItems(activeLocalDiskItems);
           } else {
-            await loadFiles();
+            renderFiles(activeSourceFiles);
           }
           showStatus('文件已去锁：' + fileLabel, 'ok');
           return;
@@ -3979,6 +3985,36 @@
               item.locked = !!locked;
             }
           });
+        });
+      }
+
+      function setFileLockedState(path, local, locked) {
+        const target = String(path || '');
+        const isLocal = !!local;
+        if (!target) {
+          return;
+        }
+
+        function updateList(list) {
+          (Array.isArray(list) ? list : []).forEach(function (item) {
+            if (!item) {
+              return;
+            }
+            if (!!item.local === isLocal && getFilePath(item) === target) {
+              item.locked = !!locked;
+            }
+          });
+        }
+
+        updateList(allFiles);
+        updateList(activeSourceFiles);
+        activeLocalDiskItems.forEach(function (item) {
+          if (!item || item.directory) {
+            return;
+          }
+          if (String(item.path || '') === target) {
+            item.locked = !!locked;
+          }
         });
       }
 
