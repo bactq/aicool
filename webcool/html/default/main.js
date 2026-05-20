@@ -35,7 +35,6 @@
         localDiskMove: '/api/v1/local-disk/move',
         localDiskOpenTrash: '/api/v1/local-disk/open-trash',
         localDiskOpenFile: '/api/v1/local-disk/open-file',
-        openFile: '/api/v1/open-file',
         localDiskImport: '/api/v1/local-disk/import',
         localDiskImportProgress: '/api/v1/local-disk/import/progress',
         reloadTpl: '/api/v1/admin/template/reload',
@@ -54,11 +53,6 @@
       const uploadForm = document.getElementById('upload-form');
       const reloadBtn = document.getElementById('reload-template-btn');
       const adminStorageTab = document.getElementById('admin-storage-tab');
-      const adminLanguageTab = document.getElementById('admin-language-tab');
-      const adminStorageView = document.getElementById('admin-storage-view');
-      const adminLanguageView = document.getElementById('admin-language-view');
-      const adminLanguageSelect = document.getElementById('admin-language-select');
-      const adminLanguageApplyBtn = document.getElementById('admin-language-apply-btn');
       const adminStoragePath = document.getElementById('admin-storage-path');
       const adminStorageBrowseBtn = document.getElementById('admin-storage-browse-btn');
       const adminStorageChooseBtn = document.getElementById('admin-storage-choose-btn');
@@ -170,10 +164,6 @@
       const TAG_TREE_STORAGE_KEY = 'webcool:file-tags:v1';
       const FOLDER_UNLOCK_SESSION_STORAGE_KEY = 'webcool:folder-unlocks:v1';
       const FILE_UNLOCK_SESSION_STORAGE_KEY = 'webcool:file-unlocks:v1';
-      const LANGUAGE_STORAGE_KEY = 'webcool:language:v1';
-      const UI_LANG = (document.documentElement.getAttribute('lang') || 'zh-CN').toLowerCase().indexOf('en') === 0
-        ? 'en'
-        : 'zh';
       const TAG_MAX_LEVEL = 3;
       const AUDIO_PLAY_MODE_LABELS = {
         random: '随机播放',
@@ -657,10 +647,6 @@
           html += '<button type="button" class="folder-context-item" data-file-menu-action="open-local-player">使用本地播放器播放</button>';
           html += '<button type="button" class="folder-context-item" data-file-menu-action="choose-local-player">选择本地播放器</button>';
         }
-        if (!local && isVideo) {
-          html += '<button type="button" class="folder-context-item" data-file-menu-action="open-remote-player">使用本地播放器播放</button>';
-          html += '<button type="button" class="folder-context-item" data-file-menu-action="choose-remote-player">选择本地播放器</button>';
-        }
         menu.innerHTML = html;
         document.body.appendChild(menu);
         menu.style.left = Math.round(clientX) + 'px';
@@ -939,21 +925,6 @@
           let url = api.localDiskOpenFile + '?chooser=1&path=' + encodeURIComponent(path);
           url = appendFilePassword(url, path, true);
           url = appendLocalDirPassword(url, localDiskParentPath(path));
-          await fetchJson(url, { method: 'POST' });
-          showStatus('已打开本地播放器选择窗口：' + fileLabel, 'ok');
-        }
-        if (action === 'open-remote-player') {
-          let url = api.openFile + '?file=' + encodeURIComponent(path);
-          url = withFolderPassword(url, parentFolderPathFromFilePath(path));
-          url = appendFilePassword(url, path, false);
-          await fetchJson(url, { method: 'POST' });
-          showStatus('已调用本地播放器：' + fileLabel, 'ok');
-          return;
-        }
-        if (action === 'choose-remote-player') {
-          let url = api.openFile + '?chooser=1&file=' + encodeURIComponent(path);
-          url = withFolderPassword(url, parentFolderPathFromFilePath(path));
-          url = appendFilePassword(url, path, false);
           await fetchJson(url, { method: 'POST' });
           showStatus('已打开本地播放器选择窗口：' + fileLabel, 'ok');
         }
@@ -5732,63 +5703,6 @@
         return data;
       }
 
-      function activateAdminView(name) {
-        const isLanguage = name === 'language';
-        if (adminStorageTab) {
-          adminStorageTab.classList.toggle('active', !isLanguage);
-        }
-        if (adminLanguageTab) {
-          adminLanguageTab.classList.toggle('active', isLanguage);
-        }
-        if (adminStorageView) {
-          adminStorageView.hidden = isLanguage;
-        }
-        if (adminLanguageView) {
-          adminLanguageView.hidden = !isLanguage;
-        }
-        if (!isLanguage) {
-          loadAdminStoragePath();
-        }
-      }
-
-      function localizedPageUrl(lang) {
-        return '/';
-      }
-
-      function applyLanguageSetting() {
-        if (!adminLanguageSelect) {
-          return;
-        }
-        const nextLang = adminLanguageSelect.value === 'en' ? 'en' : 'zh';
-        try {
-          localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLang);
-        } catch (_) {}
-        if (nextLang === UI_LANG) {
-          showStatus('语言设置已保存', 'ok');
-          if (window.WebCoolI18n && typeof window.WebCoolI18n.apply === 'function') {
-            window.WebCoolI18n.apply(document);
-          }
-          return;
-        }
-        window.location.href = localizedPageUrl(nextLang);
-      }
-
-      function redirectToSavedLanguageIfNeeded() {
-        let savedLang = '';
-        try {
-          savedLang = localStorage.getItem(LANGUAGE_STORAGE_KEY) || '';
-        } catch (_) {}
-        if (savedLang !== 'en' && savedLang !== 'zh') {
-          return;
-        }
-        const path = window.location.pathname || '';
-        if (savedLang !== UI_LANG) {
-          window.location.replace(localizedPageUrl(savedLang));
-        }
-      }
-
-      redirectToSavedLanguageIfNeeded();
-
       function setAdminStorageProgress(visible, percent, message) {
         if (!adminStorageProgress) {
           return;
@@ -6873,22 +6787,9 @@
 
       if (adminStorageTab) {
         adminStorageTab.addEventListener('click', function () {
-          activateAdminView('storage');
+          adminStorageTab.classList.add('active');
+          loadAdminStoragePath();
         });
-      }
-
-      if (adminLanguageTab) {
-        adminLanguageTab.addEventListener('click', function () {
-          activateAdminView('language');
-        });
-      }
-
-      if (adminLanguageSelect) {
-        adminLanguageSelect.value = UI_LANG;
-      }
-
-      if (adminLanguageApplyBtn) {
-        adminLanguageApplyBtn.addEventListener('click', applyLanguageSetting);
       }
 
       if (adminStorageBrowseBtn) {

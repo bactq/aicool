@@ -33,12 +33,16 @@ private:
 	std::string upload_dir_;
 
 	bool routeTemplateReload(request_t& req, response_t& res);
+	bool routeAdminStorageInfo(request_t& req, response_t& res);
+	bool routeAdminStorageMigrate(request_t& req, response_t& res);
+	bool routeAdminStorageMigrateProgress(request_t& req, response_t& res);
 	bool routeDelete(request_t& req, response_t& res);
 	bool routeRestore(request_t& req, response_t& res);
 	bool routeMoveFile(request_t& req, response_t& res);
 	bool routeFiles(request_t& req, response_t& res);
 	bool routeDownload(request_t& req, response_t& res);
 	bool routeOpenFile(request_t& req, response_t& res);
+	bool routeImageSave(request_t& req, response_t& res);
 	bool routeLocalDiskList(request_t& req, response_t& res);
 	bool routeLocalDiskDownload(request_t& req, response_t& res);
 	bool routeLocalDiskDelete(request_t& req, response_t& res);

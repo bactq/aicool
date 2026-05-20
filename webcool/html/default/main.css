@@ -915,30 +915,6 @@
       max-width: 760px;
     }
 
-    .admin-language-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      max-width: 520px;
-    }
-
-    .admin-language-select {
-      min-width: 220px;
-      border: 1px solid #c9ddf0;
-      border-radius: 8px;
-      padding: 10px 12px;
-      color: #243f5c;
-      font-size: 14px;
-      font-weight: 700;
-      background: #fff;
-    }
-
-    .admin-language-select:focus {
-      outline: none;
-      border-color: #76addd;
-      box-shadow: 0 0 0 3px rgba(118, 173, 221, 0.18);
-    }
-
     .admin-storage-input {
       width: 100%;
       box-sizing: border-box;
@@ -3084,8 +3060,6 @@
     @media (max-width: 640px) {
       .file-row { grid-template-columns: 1fr; gap: 6px; }
       .admin-storage-row { grid-template-columns: 1fr; }
-      .admin-language-row { align-items: stretch; flex-direction: column; }
-      .admin-language-select { width: 100%; min-width: 0; }
     }
 
     #file-table { display: none; }

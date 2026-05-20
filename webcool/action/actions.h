@@ -13,11 +13,20 @@ bool init_video_resume_db(const std::string& upload_dir, std::string& err);
 bool init_category_folder_db(const std::string& upload_dir, std::string& err);
 bool init_tag_db(const std::string& upload_dir, std::string& err);
 bool init_recycle_bin_db(const std::string& upload_dir, std::string& err);
+void runtime_upload_dir_init(const std::string& upload_dir);
+std::string runtime_upload_dir_get();
+void runtime_upload_dir_set(const std::string& upload_dir);
+bool recycle_bin_insert_record(const std::string& upload_dir,
+	const std::string& recycle_rel, const std::string& original_path,
+	std::string& err);
 bool folder_lock_path_allows(const std::string& upload_dir,
 	const std::string& relative_path, const std::string& password,
 	bool& allowed, std::string& locked_path, std::string& err);
 bool folder_lock_path_has_lock(const std::string& upload_dir,
 	const std::string& relative_path, bool& locked, std::string& err);
+bool folder_lock_rename_prefix(const std::string& upload_dir,
+	const std::string& old_prefix, const std::string& new_prefix,
+	std::string& err);
 bool file_lock_path_allows(const std::string& upload_dir,
 	const std::string& file_key, const std::string& password,
 	bool& allowed, std::string& err);
@@ -70,6 +79,23 @@ public:
 	static bool run(request_t& req, response_t& res);
 };
 
+class AdminStorageInfoAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class AdminStorageMigrateAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class AdminStorageMigrateProgressAction {
+public:
+	static bool run(request_t& req, response_t& res);
+};
+
 class FilesAction {
 public:
 	static bool run(request_t& req, response_t& res,
@@ -101,6 +127,12 @@ public:
 };
 
 class OpenFileAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class ImageSaveAction {
 public:
 	static bool run(request_t& req, response_t& res,
 		const std::string& upload_dir);

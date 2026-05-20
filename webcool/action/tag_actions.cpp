@@ -736,7 +736,9 @@ static bool is_protected_root_tag(const TagRow& row) {
 bool init_tag_db(const std::string& upload_dir, std::string& err) {
 	err.clear();
 	std::lock_guard<std::mutex> guard(g_tag_mutex);
-	if (g_tag_db_ready) {
+	acl::string next_db_file;
+	next_db_file.format("%s/.tag_catalog.db", upload_dir.c_str());
+	if (g_tag_db_ready && g_tag_db_file == next_db_file.c_str()) {
 		return true;
 	}
 
@@ -751,9 +753,7 @@ bool init_tag_db(const std::string& upload_dir, std::string& err) {
 		return false;
 	}
 
-	acl::string db_file;
-	db_file.format("%s/.tag_catalog.db", upload_dir.c_str());
-	g_tag_db_file = db_file.c_str();
+	g_tag_db_file = next_db_file.c_str();
 
 	if (!ensure_tag_tables_locked(err)) {
 		return false;

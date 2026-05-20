@@ -3,8 +3,10 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -169,28 +171,6 @@ static void append_folder_json(acl::json& json, acl::json_node& arr,
 	item.add_number("folder_count", locked && !unlocked ? 0 : (long long) node.children.size());
 }
 
-static bool folder_is_empty(const std::string& full_path, bool& empty,
-	std::string& err)
-{
-	err.clear();
-	empty = true;
-	DIR* dir = opendir(full_path.c_str());
-	if (dir == NULL) {
-		err = strerror(errno);
-		return false;
-	}
-	struct dirent* entry = NULL;
-	while ((entry = readdir(dir)) != NULL) {
-		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-			continue;
-		}
-		empty = false;
-		break;
-	}
-	closedir(dir);
-	return true;
-}
-
 static bool is_same_or_child_path(const std::string& base_path,
 	const std::string& test_path)
 {
@@ -206,6 +186,43 @@ static bool is_same_or_child_path(const std::string& base_path,
 }
 
 static std::mutex g_folder_lock_mutex;
+static unsigned long g_folder_recycle_seq = 0;
+
+static std::string make_folder_recycle_unique_name(
+	const std::string& original_name)
+{
+	const time_t now = time(NULL);
+	char buf[128];
+	++g_folder_recycle_seq;
+	snprintf(buf, sizeof(buf), "%lld_%d_folder_%lu_%s",
+		(long long) now, (int) getpid(), g_folder_recycle_seq,
+		original_name.c_str());
+	return std::string(buf);
+}
+
+static bool alloc_recycle_folder_target(const std::string& upload_dir,
+	const std::string& original_name, std::string& recycle_rel,
+	std::string& err)
+{
+	err.clear();
+	recycle_rel.clear();
+	if (!make_dir_recursive(join_upload_path(upload_dir, recycle_folder_name()).c_str())) {
+		err = "cannot access recycle folder";
+		return false;
+	}
+	for (int i = 0; i < 1024; ++i) {
+		const std::string unique_name = make_folder_recycle_unique_name(original_name);
+		const std::string candidate = std::string(recycle_folder_name()) + "/" + unique_name;
+		if (!upload_regular_file_exists(upload_dir, candidate)
+			&& !upload_directory_exists(upload_dir, candidate))
+		{
+			recycle_rel = candidate;
+			return true;
+		}
+	}
+	err = "cannot allocate recycle folder name";
+	return false;
+}
 
 static std::string folder_locks_file_path(const std::string& upload_dir) {
 	return upload_dir + "/.folder_locks.txt";
@@ -393,6 +410,13 @@ bool folder_lock_path_has_lock(const std::string& upload_dir,
 	return true;
 }
 
+bool folder_lock_rename_prefix(const std::string& upload_dir,
+	const std::string& old_prefix, const std::string& new_prefix,
+	std::string& err)
+{
+	return rename_folder_locks_prefix(upload_dir, old_prefix, new_prefix, err);
+}
+
 bool folder_bind_file(const std::string&, const std::string&, long long,
 	std::string& err)
 {
@@ -559,7 +583,7 @@ bool FolderRenameAction::run(request_t& req, response_t& res,
 		json_error(res, 400, err.c_str(), req.isKeepAlive());
 		return true;
 	}
-	if (is_recycle_root_path(old_path)) {
+	if (is_recycle_file_path(old_path)) {
 		json_error(res, 409, "recycle folder is protected", req.isKeepAlive());
 		return true;
 	}
@@ -660,7 +684,7 @@ bool FolderDeleteAction::run(request_t& req, response_t& res,
 		json_error(res, 400, err.c_str(), req.isKeepAlive());
 		return true;
 	}
-	if (is_recycle_root_path(path)) {
+	if (is_recycle_file_path(path)) {
 		json_error(res, 409, "recycle folder is protected", req.isKeepAlive());
 		return true;
 	}
@@ -682,18 +706,53 @@ bool FolderDeleteAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
-	std::string full = join_upload_path(upload_dir, path);
-	bool empty = false;
-	if (!folder_is_empty(full, empty, err)) {
+	const std::string folder_name = base_name_from_relative_path(path);
+	std::string recycle_path;
+	if (!alloc_recycle_folder_target(upload_dir, folder_name, recycle_path, err)) {
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
 	}
-	if (!empty) {
-		json_error(res, 409, "folder is not empty", req.isKeepAlive());
+	const std::string from_full = join_upload_path(upload_dir, path);
+	const std::string to_full = join_upload_path(upload_dir, recycle_path);
+	if (::rename(from_full.c_str(), to_full.c_str()) != 0) {
+		json_error(res, 500, "move folder to recycle bin failed", req.isKeepAlive());
 		return true;
 	}
-	if (::rmdir(full.c_str()) != 0) {
-		json_error(res, 500, "delete folder failed", req.isKeepAlive());
+
+	if (!rename_folder_locks_prefix(upload_dir, path, recycle_path, err)) {
+		(void) ::rename(to_full.c_str(), from_full.c_str());
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	bool tag_updated = false;
+	std::string rename_err;
+	if (!tag_rename_folder_prefix(upload_dir, path, recycle_path, rename_err)) {
+		std::string rollback_err;
+		rename_folder_locks_prefix(upload_dir, recycle_path, path, rollback_err);
+		(void) ::rename(to_full.c_str(), from_full.c_str());
+		json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	tag_updated = true;
+	if (!video_resume_rename_folder_prefix(upload_dir, path, recycle_path, rename_err)) {
+		if (tag_updated) {
+			std::string rollback_err;
+			tag_rename_folder_prefix(upload_dir, recycle_path, path, rollback_err);
+		}
+		std::string lock_rollback_err;
+		rename_folder_locks_prefix(upload_dir, recycle_path, path, lock_rollback_err);
+		(void) ::rename(to_full.c_str(), from_full.c_str());
+		json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!recycle_bin_insert_record(upload_dir, recycle_path, path, err)) {
+		std::string rollback_err;
+		video_resume_rename_folder_prefix(upload_dir, recycle_path, path, rollback_err);
+		tag_rename_folder_prefix(upload_dir, recycle_path, path, rollback_err);
+		rename_folder_locks_prefix(upload_dir, recycle_path, path, rollback_err);
+		(void) ::rename(to_full.c_str(), from_full.c_str());
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
 	}
 
@@ -701,7 +760,8 @@ bool FolderDeleteAction::run(request_t& req, response_t& res,
 	acl::json_node& root = json.create_node();
 	root.add_bool("ok", true);
 	root.add_text("path", path.c_str());
-	root.add_text("message", "folder deleted");
+	root.add_text("recycle_path", recycle_path.c_str());
+	root.add_text("message", "folder moved to recycle bin");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
@@ -714,7 +774,7 @@ bool FolderLockAction::run(request_t& req, response_t& res,
 		json_error(res, 400, err.c_str(), req.isKeepAlive());
 		return true;
 	}
-	if (is_recycle_root_path(path)) {
+	if (is_recycle_file_path(path)) {
 		json_error(res, 409, "recycle folder is protected", req.isKeepAlive());
 		return true;
 	}
@@ -845,7 +905,7 @@ bool FolderMoveAction::run(request_t& req, response_t& res,
 		json_error(res, 400, err.c_str(), req.isKeepAlive());
 		return true;
 	}
-	if (is_recycle_root_path(source_path)) {
+	if (is_recycle_file_path(source_path)) {
 		json_error(res, 409, "recycle folder is protected", req.isKeepAlive());
 		return true;
 	}

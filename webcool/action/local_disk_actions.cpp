@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <map>
 #include <mutex>
+#include <set>
 #include <stdlib.h>
 #include <string>
 #include <thread>
@@ -36,6 +37,7 @@ struct local_entry_t {
 struct local_import_file_t {
 	std::string source;
 	std::string name;
+	std::string relative_path;
 	long long size;
 };
 
@@ -616,6 +618,83 @@ static std::string unique_upload_path(const std::string& upload_dir,
 	return "";
 }
 
+static std::string unique_upload_directory_relative(
+	const std::string& upload_dir, const std::string& folder_path,
+	const std::string& name)
+{
+	std::string candidate = folder_path.empty() ? name : (folder_path + "/" + name);
+	std::string full = join_upload_path(upload_dir, candidate);
+	struct stat st;
+	if (stat(full.c_str(), &st) != 0 && errno == ENOENT) {
+		return candidate;
+	}
+	for (int i = 1; i < 10000; ++i) {
+		const std::string next_name = name + "." + std::to_string(i);
+		candidate = folder_path.empty() ? next_name : (folder_path + "/" + next_name);
+		full = join_upload_path(upload_dir, candidate);
+		if (stat(full.c_str(), &st) != 0 && errno == ENOENT) {
+			return candidate;
+		}
+	}
+	return "";
+}
+
+static std::string join_relative_path(const std::string& parent,
+	const std::string& name)
+{
+	return parent.empty() ? name : (parent + "/" + name);
+}
+
+static bool collect_local_import_directory(const std::string& source_dir,
+	const std::string& remote_dir, std::vector<std::string>& dirs,
+	std::vector<local_import_file_t>& files, std::string& err)
+{
+	dirs.push_back(remote_dir);
+	DIR* dir = opendir(source_dir.c_str());
+	if (dir == NULL) {
+		err = strerror(errno);
+		return false;
+	}
+
+	struct dirent* entry = NULL;
+	while ((entry = readdir(dir)) != NULL) {
+		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+			continue;
+		}
+		const std::string child_source = join_local_path(source_dir, entry->d_name);
+		struct stat st;
+		if (lstat(child_source.c_str(), &st) != 0) {
+			err = strerror(errno);
+			closedir(dir);
+			return false;
+		}
+		if (S_ISLNK(st.st_mode)) {
+			continue;
+		}
+		const std::string child_remote = join_relative_path(remote_dir, entry->d_name);
+		if (S_ISDIR(st.st_mode)) {
+			if (!collect_local_import_directory(child_source, child_remote,
+				dirs, files, err))
+			{
+				closedir(dir);
+				return false;
+			}
+			continue;
+		}
+		if (!S_ISREG(st.st_mode)) {
+			continue;
+		}
+		local_import_file_t file;
+		file.source = child_source;
+		file.name = child_remote;
+		file.relative_path = child_remote;
+		file.size = (long long) st.st_size;
+		files.push_back(file);
+	}
+	closedir(dir);
+	return true;
+}
+
 static std::string create_local_import_task_id()
 {
 	std::lock_guard<std::mutex> guard(g_local_import_mutex);
@@ -685,6 +764,7 @@ static bool copy_regular_file_with_progress(const std::string& source,
 
 static void run_local_import_task(const std::string& task_id,
 	const std::string& upload_dir, const std::string& folder_path,
+	const std::vector<std::string>& dirs,
 	const std::vector<local_import_file_t>& files)
 {
 	local_import_task_t task;
@@ -704,17 +784,28 @@ static void run_local_import_task(const std::string& task_id,
 	}
 	update_local_import_task(task_id, task);
 
+	for (size_t i = 0; i < dirs.size(); ++i) {
+		const std::string full_dir = join_upload_path(upload_dir, dirs[i]);
+		if (!make_dir_recursive(full_dir.c_str())) {
+			task.state = "failed";
+			task.error = "cannot create target directory";
+			update_local_import_task(task_id, task);
+			return;
+		}
+	}
+
 	for (size_t i = 0; i < files.size(); ++i) {
 		task.message = std::string("上传中：") + files[i].name;
 		task.file_states[i] = "running";
 		update_local_import_task(task_id, task);
 
-		std::string relative_path;
-		const std::string dest = unique_upload_path(upload_dir,
-			folder_path, files[i].name, relative_path);
-		if (dest.empty()) {
+		const std::string relative_path = files[i].relative_path.empty()
+			? (folder_path.empty() ? files[i].name : (folder_path + "/" + files[i].name))
+			: files[i].relative_path;
+		const std::string dest = join_upload_path(upload_dir, relative_path);
+		if (!make_dir_recursive(parent_path(dest).c_str())) {
 			task.state = "failed";
-			task.error = "cannot create unique target file name";
+			task.error = "cannot create target parent directory";
 			update_local_import_task(task_id, task);
 			return;
 		}
@@ -1523,7 +1614,8 @@ bool LocalDiskImportAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
-	std::vector<local_import_file_t> files;
+	std::vector<std::string> sources;
+	std::vector<bool> source_is_dir;
 	for (size_t i = 0; i < raw_paths.size(); ++i) {
 		std::string source;
 		if (!normalize_local_path(raw_paths[i].c_str(), source, err)) {
@@ -1532,16 +1624,107 @@ bool LocalDiskImportAction::run(request_t& req, response_t& res,
 		}
 
 		struct stat st;
+		if (stat(source.c_str(), &st) != 0) {
+			json_error(res, 400, "local path not found", req.isKeepAlive());
+			return true;
+		}
+		if (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode)) {
+			json_error(res, 400, "unsupported local path", req.isKeepAlive());
+			return true;
+		}
+		sources.push_back(source);
+		source_is_dir.push_back(S_ISDIR(st.st_mode));
+	}
+
+	std::vector<std::string> filtered_sources;
+	std::vector<bool> filtered_is_dir;
+	for (size_t i = 0; i < sources.size(); ++i) {
+		bool covered_by_parent = false;
+		for (size_t j = 0; j < sources.size(); ++j) {
+			if (i == j || !source_is_dir[j]) {
+				continue;
+			}
+			if (is_same_or_child_path(sources[j], sources[i])
+				&& sources[j] != sources[i])
+			{
+				covered_by_parent = true;
+				break;
+			}
+		}
+		if (!covered_by_parent) {
+			filtered_sources.push_back(sources[i]);
+			filtered_is_dir.push_back(source_is_dir[i]);
+		}
+	}
+
+	std::vector<std::string> dirs;
+	std::vector<local_import_file_t> files;
+	std::set<std::string> used_relative_paths;
+	for (size_t i = 0; i < filtered_sources.size(); ++i) {
+		const std::string source = filtered_sources[i];
+		if (filtered_is_dir[i]) {
+			std::string remote_dir = unique_upload_directory_relative(
+				upload_dir, folder_path, local_base_name(source));
+			if (remote_dir.empty()) {
+				json_error(res, 500, "cannot create unique target directory name",
+					req.isKeepAlive());
+				return true;
+			}
+			if (used_relative_paths.find(remote_dir) != used_relative_paths.end()) {
+				const std::string base_name = local_base_name(source);
+				for (int n = 1; n < 10000; ++n) {
+					const std::string candidate = folder_path.empty()
+						? (base_name + "." + std::to_string(n))
+						: (folder_path + "/" + base_name + "." + std::to_string(n));
+					if (used_relative_paths.find(candidate) == used_relative_paths.end()) {
+						remote_dir = candidate;
+						break;
+					}
+				}
+			}
+			if (!collect_local_import_directory(source, remote_dir, dirs, files, err)) {
+				json_error(res, 500, err.c_str(), req.isKeepAlive());
+				return true;
+			}
+			used_relative_paths.insert(remote_dir);
+			for (size_t j = 0; j < files.size(); ++j) {
+				used_relative_paths.insert(files[j].relative_path);
+			}
+			continue;
+		}
+
+		struct stat st;
 		if (stat(source.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
 			json_error(res, 400, "local file not found", req.isKeepAlive());
 			return true;
 		}
-
+		std::string relative_path;
+		if (unique_upload_path(upload_dir, folder_path, local_base_name(source),
+			relative_path).empty())
+		{
+			json_error(res, 500, "cannot create unique target file name",
+				req.isKeepAlive());
+			return true;
+		}
+		if (used_relative_paths.find(relative_path) != used_relative_paths.end()) {
+			const std::string base_name = local_base_name(source);
+			for (int n = 1; n < 10000; ++n) {
+				const std::string candidate = folder_path.empty()
+					? (base_name + "." + std::to_string(n))
+					: (folder_path + "/" + base_name + "." + std::to_string(n));
+				if (used_relative_paths.find(candidate) == used_relative_paths.end()) {
+					relative_path = candidate;
+					break;
+				}
+			}
+		}
 		local_import_file_t file;
 		file.source = source;
 		file.name = local_base_name(source);
+		file.relative_path = relative_path;
 		file.size = (long long) st.st_size;
 		files.push_back(file);
+		used_relative_paths.insert(relative_path);
 	}
 
 	const std::string task_id = create_local_import_task_id();
@@ -1560,7 +1743,7 @@ bool LocalDiskImportAction::run(request_t& req, response_t& res,
 		task.file_states.push_back("pending");
 	}
 	update_local_import_task(task_id, task);
-	std::thread(run_local_import_task, task_id, upload_dir, folder_path, files).detach();
+	std::thread(run_local_import_task, task_id, upload_dir, folder_path, dirs, files).detach();
 
 	acl::json json;
 	acl::json_node& root = json.create_node();
@@ -1568,6 +1751,7 @@ bool LocalDiskImportAction::run(request_t& req, response_t& res,
 	root.add_text("task_id", task_id.c_str());
 	root.add_number("count", 0);
 	root.add_number("total_files", (long long) files.size());
+	root.add_number("total_dirs", (long long) dirs.size());
 	root.add_number("total_bytes", task.total_bytes);
 	root.add_text("folder_path", folder_path.c_str());
 	return sendJson(res, 200, root, req.isKeepAlive());
