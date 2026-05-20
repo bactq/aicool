@@ -248,6 +248,40 @@ static bool is_current_trash_files_path(const std::string& path)
 }
 #endif
 
+static bool recursive_rmdir(const std::string& path)
+{
+	DIR* dir = opendir(path.c_str());
+	if (!dir) {
+		return false;
+	}
+	struct dirent* entry;
+	while ((entry = readdir(dir)) != nullptr) {
+		if (strcmp(entry->d_name, ".") == 0
+			|| strcmp(entry->d_name, "..") == 0) {
+			continue;
+		}
+		std::string child = path + "/" + entry->d_name;
+		struct stat st;
+		if (lstat(child.c_str(), &st) != 0) {
+			closedir(dir);
+			return false;
+		}
+		if (S_ISDIR(st.st_mode)) {
+			if (!recursive_rmdir(child)) {
+				closedir(dir);
+				return false;
+			}
+		} else {
+			if (unlink(child.c_str()) != 0) {
+				closedir(dir);
+				return false;
+			}
+		}
+	}
+	closedir(dir);
+	return rmdir(path.c_str()) == 0;
+}
+
 static std::string unique_child_path(const std::string& parent,
 	const std::string& name)
 {
@@ -381,6 +415,56 @@ static bool run_open_command(std::string& err)
 	return true;
 }
 
+static void set_display_env(void)
+{
+	// When webcool runs as a background service (e.g. via systemd or
+	// a wrapper script), the DISPLAY and DBUS_SESSION_BUS_ADDRESS
+	// variables are typically missing.  Without them xdg-open and
+	// other GUI helpers cannot launch graphical programs.  Try to
+	// inherit from the desktop session; fall back to :0.
+	const char *display = getenv("DISPLAY");
+	if (!display || display[0] == '\0') {
+		// Try to detect the active X11 display from the desktop session.
+		// loginctl stores the display for each session.
+		struct stat st;
+		if (stat("/tmp/.X11-unix/X0", &st) == 0) {
+			setenv("DISPLAY", ":0", 1);
+		} else if (stat("/tmp/.X11-unix", &st) == 0) {
+			// Find the first X socket available
+			DIR *d = opendir("/tmp/.X11-unix");
+			if (d) {
+				struct dirent *de;
+				while ((de = readdir(d)) != NULL) {
+					if (de->d_name[0] == 'X') {
+						char buf[16];
+						snprintf(buf, sizeof(buf), ":%s",
+							de->d_name + 1);
+						setenv("DISPLAY", buf, 1);
+						break;
+					}
+				}
+				closedir(d);
+			}
+		}
+	}
+	const char *dbus = getenv("DBUS_SESSION_BUS_ADDRESS");
+	if (!dbus || dbus[0] == '\0') {
+		// Default per-user D-Bus address
+		const char *uid_s = getenv("UID");
+		uid_t uid = uid_s ? (uid_t)atoi(uid_s) : getuid();
+		char addr[128];
+		snprintf(addr, sizeof(addr),
+			"unix:path=/run/user/%u/bus", (unsigned)uid);
+		setenv("DBUS_SESSION_BUS_ADDRESS", addr, 1);
+	}
+	const char *runtime = getenv("XDG_RUNTIME_DIR");
+	if (!runtime || runtime[0] == '\0') {
+		char rd[64];
+		snprintf(rd, sizeof(rd), "/run/user/%u", (unsigned)getuid());
+		setenv("XDG_RUNTIME_DIR", rd, 1);
+	}
+}
+
 static bool run_open_file_command(const std::string& path,
 	bool choose_app, std::string& err)
 {
@@ -391,19 +475,55 @@ static bool run_open_file_command(const std::string& path,
 		return false;
 	}
 	if (pid == 0) {
+		set_display_env();
 #ifdef __APPLE__
 		if (choose_app) {
 			execlp("osascript", "osascript",
 				"-e", "on run argv",
 				"-e", "set targetPath to item 1 of argv",
-				"-e", "set chosenApp to choose application with prompt \"选择本地播放器\"",
-				"-e", "set appName to name of chosenApp",
-				"-e", "do shell script \"open -a \" & quoted form of appName & \" \" & quoted form of targetPath",
+			"-e", "set chosenApp to choose application with prompt \"选择本地播放器\"",
+			"-e", "set appName to name of chosenApp",
+			"-e", "do shell script \"open -a \" & quoted form of appName & \" \" & quoted form of targetPath",
 				"-e", "end run",
 				path.c_str(), (char*) NULL);
 		}
 		execlp("open", "open", path.c_str(), (char*) NULL);
 #else
+		if (choose_app) {
+			// Use zenity to show an application chooser dialog,
+			// then open the file with the selected application.
+			// zenity --file-selection --filename can pick a .desktop
+			// or binary; we use a simple approach: let the user
+			// pick an executable, then run it with the file path.
+			char cmd[4096];
+			snprintf(cmd, sizeof(cmd),
+				"zenity --file-selection "
+				"--title='选择本地播放器' "
+				"--filename=/usr/bin/ "
+				"2>/dev/null");
+			FILE *fp = popen(cmd, "r");
+			if (!fp) {
+				_exit(127);
+			}
+			char chosen[2048];
+			if (!fgets(chosen, sizeof(chosen), fp)) {
+				pclose(fp);
+				_exit(1);
+			}
+			pclose(fp);
+			// Strip trailing newline
+			size_t len = strlen(chosen);
+			while (len > 0 && (chosen[len-1] == '\n'
+				|| chosen[len-1] == '\r')) {
+				chosen[--len] = '\0';
+			}
+			if (len == 0) {
+				// User cancelled
+				_exit(0);
+			}
+			execlp(chosen, chosen, path.c_str(), (char*) NULL);
+			_exit(127);
+		}
 		execlp("xdg-open", "xdg-open", path.c_str(), (char*) NULL);
 		execlp("gio", "gio", "open", path.c_str(), (char*) NULL);
 #endif
@@ -1094,9 +1214,8 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res,
 
 	std::string trash_path;
 	if (is_dir) {
-		if (::rmdir(path.c_str()) != 0) {
-			json_error(res, errno == ENOTEMPTY ? 409 : 500,
-				errno == ENOTEMPTY ? "directory is not empty" : strerror(errno),
+		if (!recursive_rmdir(path)) {
+			json_error(res, 500, strerror(errno),
 				req.isKeepAlive());
 			return true;
 		}
