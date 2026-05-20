@@ -5352,8 +5352,16 @@
         } else {
           const showNav = Array.isArray(opts.gallery) && opts.gallery.length > 1;
           mediaHtml = '<div class="preview-image-toolbar">' +
-              '<button class="preview-edit-btn" type="button" data-image-edit="rotate-left" title="向左旋转90度" aria-label="向左旋转90度">↶</button>' +
-              '<button class="preview-edit-btn" type="button" data-image-edit="rotate-right" title="向右旋转90度" aria-label="向右旋转90度">↷</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="rotate-left" title="向左旋转90度" aria-label="向左旋转90度">' +
+                '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+                  '<rect x="8" y="9.5" width="9" height="9" rx="1.8"></rect><path d="M6 4.8v4.4h4.4"></path><path d="M6 9.2a6.5 6.5 0 0 1 10.5-3.8"></path>' +
+                '</svg>' +
+              '</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="rotate-right" title="向右旋转90度" aria-label="向右旋转90度">' +
+                '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+                  '<rect x="7" y="9.5" width="9" height="9" rx="1.8"></rect><path d="M18 4.8v4.4h-4.4"></path><path d="M18 9.2A6.5 6.5 0 0 0 7.5 5.4"></path>' +
+                '</svg>' +
+              '</button>' +
               '<button class="preview-edit-btn" type="button" data-image-edit="crop" title="剪切" aria-label="剪切">✂</button>' +
               '<button class="preview-edit-btn" type="button" data-image-edit="apply-crop" title="应用剪切" aria-label="应用剪切">✓</button>' +
               '<button class="preview-edit-btn" type="button" data-image-edit="cancel-crop" title="取消剪切" aria-label="取消剪切">×</button>' +
