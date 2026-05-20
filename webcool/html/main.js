@@ -3828,10 +3828,12 @@
         const media = win.querySelector('video, audio');
         if (media) {
           const resumeFile = media.getAttribute('data-resume-file') || '';
-          if (resumeFile) {
+          if (resumeFile && media.getAttribute('data-resume-media-ready') === '1') {
             clearScheduledVideoResumeSave(resumeFile);
             const ms = Math.max(0, Math.round((Number(media.currentTime) || 0) * 1000));
             saveVideoResumePosition(resumeFile, ms).catch(function () {});
+          } else if (resumeFile) {
+            clearScheduledVideoResumeSave(resumeFile);
           }
           media.setAttribute('data-resume-closing', '1');
           media.pause();
@@ -4001,6 +4003,7 @@
         let lastSavedSec = -1;
 
         video.addEventListener('loadedmetadata', function () {
+          video.setAttribute('data-resume-media-ready', '1');
           if (restored) {
             return;
           }
@@ -4027,7 +4030,8 @@
         });
 
         video.addEventListener('timeupdate', function () {
-          if (video.getAttribute('data-resume-closing') === '1') {
+          if (video.getAttribute('data-resume-closing') === '1'
+            || video.getAttribute('data-resume-media-ready') !== '1') {
             return;
           }
 
@@ -4045,7 +4049,8 @@
         });
 
         video.addEventListener('pause', function () {
-          if (video.getAttribute('data-resume-closing') === '1') {
+          if (video.getAttribute('data-resume-closing') === '1'
+            || video.getAttribute('data-resume-media-ready') !== '1') {
             return;
           }
           const sec = Math.floor(Number(video.currentTime) || 0);
@@ -4053,7 +4058,8 @@
         });
 
         video.addEventListener('ended', function () {
-          if (video.getAttribute('data-resume-closing') === '1') {
+          if (video.getAttribute('data-resume-closing') === '1'
+            || video.getAttribute('data-resume-media-ready') !== '1') {
             return;
           }
           scheduleSaveVideoResumePosition(key, 0);
@@ -4063,7 +4069,11 @@
       async function loadFiles() {
         try {
           let filesUrl = api.files;
-          const activePassword = getFolderPasswordForPath(activeFolderPath);
+          let activePassword = getFolderPasswordForPath(activeFolderPath);
+          if (activeFolderPath && getFolderLockAncestorPath(activeFolderPath) && !activePassword) {
+            activeFolderPath = '';
+            activePassword = '';
+          }
           if (activeFolderPath) {
             filesUrl += '?folder=' + encodeURIComponent(activeFolderPath);
             if (activePassword) {
