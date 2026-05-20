@@ -186,7 +186,7 @@ bool http_servlet::routeLocalDiskDelete(request_t& req, response_t& res) {
 }
 
 bool http_servlet::routeLocalDiskCreateDir(request_t& req, response_t& res) {
-	return action::LocalDiskCreateDirAction::run(req, res);
+	return action::LocalDiskCreateDirAction::run(req, res, upload_dir_);
 }
 
 bool http_servlet::routeLocalDiskMove(request_t& req, response_t& res) {

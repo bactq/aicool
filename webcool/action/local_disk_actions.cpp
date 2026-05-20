@@ -413,6 +413,33 @@ static std::string local_file_lock_key(const std::string& path) {
 	return std::string("local:") + path;
 }
 
+static std::string local_dir_lock_key(const std::string& path) {
+	return std::string("local-dir:") + path;
+}
+
+static bool ensure_local_dir_unlocked_for_request(const std::string& upload_dir,
+	request_t& req, response_t& res, const std::string& path,
+	const char* error_message, const char* param_name = "local_dir_password")
+{
+	bool allowed = false;
+	std::string locked_path;
+	std::string err;
+	const char* password = req.getParameter(param_name);
+	if (!local_dir_lock_path_allows(upload_dir, path,
+		password ? password : "",
+		allowed, locked_path, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return false;
+	}
+	if (!allowed) {
+		json_error(res, 403, error_message ? error_message : "directory is locked",
+			req.isKeepAlive());
+		return false;
+	}
+	return true;
+}
+
 static void split_local_paths(const char* input, std::vector<std::string>& paths)
 {
 	paths.clear();
@@ -769,6 +796,11 @@ bool LocalDiskListAction::run(request_t& req, response_t& res,
 		json_error(res, 404, "directory not found", req.isKeepAlive());
 		return true;
 	}
+	if (!ensure_local_dir_unlocked_for_request(upload_dir, req, res, path,
+		"directory is locked"))
+	{
+		return true;
+	}
 
 	DIR* dir = opendir(path.c_str());
 	if (dir == NULL) {
@@ -849,7 +881,13 @@ bool LocalDiskListAction::run(request_t& req, response_t& res,
 		item.add_text("path", entries[i].path.c_str());
 		item.add_bool("directory", entries[i].directory);
 		item.add_bool("empty_directory", entries[i].empty_directory);
-		if (!entries[i].directory) {
+		if (entries[i].directory) {
+			bool locked = false;
+			std::string lock_err;
+			if (local_dir_lock_path_has_lock(upload_dir, entries[i].path, locked, lock_err)) {
+				item.add_bool("locked", locked);
+			}
+		} else {
 			bool locked = false;
 			std::string lock_err;
 			if (file_lock_path_has_lock(upload_dir, local_file_lock_key(entries[i].path), locked, lock_err)) {
@@ -876,6 +914,18 @@ bool LocalDiskDownloadAction::run(request_t& req, response_t& res,
 	struct stat st;
 	if (stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
 		return sendText(res, 404, "file not found\n", req.isKeepAlive());
+	}
+	bool dir_allowed = false;
+	std::string locked_dir;
+	std::string dir_lock_err;
+	if (!local_dir_lock_path_allows(upload_dir, parent_path(path),
+		req.getParameter("local_dir_password") ? req.getParameter("local_dir_password") : "",
+		dir_allowed, locked_dir, dir_lock_err))
+	{
+		return sendText(res, 500, dir_lock_err.c_str(), req.isKeepAlive());
+	}
+	if (!dir_allowed) {
+		return sendText(res, 403, "directory is locked\n", req.isKeepAlive());
 	}
 	bool file_lock_allowed = false;
 	std::string lock_err;
@@ -1001,6 +1051,12 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res,
 		json_error(res, 400, "only files and directories can be deleted", req.isKeepAlive());
 		return true;
 	}
+	if (!ensure_local_dir_unlocked_for_request(upload_dir, req, res,
+		is_dir ? path : parent_path(path),
+		is_dir ? "directory is locked" : "parent directory is locked"))
+	{
+		return true;
+	}
 	if (is_file) {
 		bool file_lock_allowed = false;
 		std::string lock_err;
@@ -1047,7 +1103,8 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res,
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
-bool LocalDiskCreateDirAction::run(request_t& req, response_t& res)
+bool LocalDiskCreateDirAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
 {
 	std::string parent;
 	std::string err;
@@ -1059,6 +1116,11 @@ bool LocalDiskCreateDirAction::run(request_t& req, response_t& res)
 	struct stat st;
 	if (stat(parent.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
 		json_error(res, 404, "parent directory not found", req.isKeepAlive());
+		return true;
+	}
+	if (!ensure_local_dir_unlocked_for_request(upload_dir, req, res, parent,
+		"parent directory is locked"))
+	{
 		return true;
 	}
 
@@ -1151,10 +1213,21 @@ bool LocalDiskMoveAction::run(request_t& req, response_t& res,
 			req.isKeepAlive());
 		return true;
 	}
+	if (!ensure_local_dir_unlocked_for_request(upload_dir, req, res,
+		source_is_dir ? source : parent_path(source),
+		source_is_dir ? "source directory is locked" : "source parent directory is locked"))
+	{
+		return true;
+	}
 
 	struct stat target_st;
 	if (stat(target.c_str(), &target_st) != 0 || !S_ISDIR(target_st.st_mode)) {
 		json_error(res, 404, "target directory not found", req.isKeepAlive());
+		return true;
+	}
+	if (!ensure_local_dir_unlocked_for_request(upload_dir, req, res, target,
+		"target directory is locked", "target_local_dir_password"))
+	{
 		return true;
 	}
 	if (source_is_dir && is_same_or_child_path(source, target)) {
@@ -1198,6 +1271,13 @@ bool LocalDiskMoveAction::run(request_t& req, response_t& res,
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
 	}
+	if (source_is_dir && !file_lock_rename_key(upload_dir,
+		local_dir_lock_key(source), local_dir_lock_key(dest), err))
+	{
+		(void) ::rename(dest.c_str(), source.c_str());
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
 
 	acl::json json;
 	acl::json_node& root = json.create_node();
@@ -1236,6 +1316,11 @@ bool LocalDiskOpenFileAction::run(request_t& req, response_t& res,
 	struct stat st;
 	if (stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
 		json_error(res, 404, "file not found", req.isKeepAlive());
+		return true;
+	}
+	if (!ensure_local_dir_unlocked_for_request(upload_dir, req, res,
+		parent_path(path), "parent directory is locked"))
+	{
 		return true;
 	}
 	bool file_lock_allowed = false;
