@@ -603,6 +603,11 @@ static bool is_text_file(const char* filename) {
 		|| strcasecmp(dot, ".proto") == 0);
 }
 
+static bool is_pdf_file(const char* filename) {
+	const char* dot = filename ? strrchr(filename, '.') : NULL;
+	return dot != NULL && strcasecmp(dot, ".pdf") == 0;
+}
+
 static const char* image_content_type(const char* filename) {
 	const char* dot = filename ? strrchr(filename, '.') : NULL;
 	if (dot == NULL) {
@@ -681,6 +686,10 @@ static const char* text_content_type(const char* filename) {
 		return "text/csv; charset=utf-8";
 	}
 	return "text/plain; charset=utf-8";
+}
+
+static const char* document_content_type(const char* filename) {
+	return is_pdf_file(filename) ? "application/pdf" : "application/octet-stream";
 }
 
 static bool parse_range_value(const char* s, long long& out) {
@@ -1425,8 +1434,9 @@ bool DownloadAction::run(request_t& req, response_t& res,
 	const bool is_video = is_video_file(basename.c_str());
 	const bool is_audio = is_audio_file(basename.c_str());
 	const bool is_text = is_text_file(basename.c_str());
+	const bool is_pdf = is_pdf_file(basename.c_str());
 	const char* preview = req.getParameter("preview");
-	const bool inline_preview = (is_image || is_video || is_audio || is_text)
+	const bool inline_preview = (is_image || is_video || is_audio || is_text || is_pdf)
 		&& preview != NULL && strcmp(preview, "1") == 0;
 	const char* range = req.getHeader("Range");
 	long long range_begin = 0;
@@ -1462,6 +1472,8 @@ bool DownloadAction::run(request_t& req, response_t& res,
 		ctype = audio_content_type(basename.c_str());
 	} else if (is_text) {
 		ctype = text_content_type(basename.c_str());
+	} else if (is_pdf) {
+		ctype = document_content_type(basename.c_str());
 	}
 
 	long long send_begin = has_range ? range_begin : 0;

@@ -834,6 +834,7 @@ static const char* content_type_for_file(const std::string& name) {
 	if (ends_with_ignore_case(name, ".wav")) return "audio/wav";
 	if (ends_with_ignore_case(name, ".ogg")) return "audio/ogg";
 	if (ends_with_ignore_case(name, ".flac")) return "audio/flac";
+	if (ends_with_ignore_case(name, ".pdf")) return "application/pdf";
 	if (ends_with_ignore_case(name, ".txt") || ends_with_ignore_case(name, ".md")
 		|| ends_with_ignore_case(name, ".log") || ends_with_ignore_case(name, ".csv")
 		|| ends_with_ignore_case(name, ".json") || ends_with_ignore_case(name, ".xml")
