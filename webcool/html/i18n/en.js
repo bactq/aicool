@@ -1,5 +1,6 @@
 (function () {
   var textMap = {
+    // Shared window-control labels; keep keys aligned with zh.js.
     '文件管理控制台': 'File Management Console',
     '文件控制台': 'File Console',
     '左帧用于功能切换，右帧展示对应内容与操作结果。': 'Use the left pane to switch features; the right pane shows content and actions.',
@@ -103,6 +104,8 @@
     '最大化': 'Maximize',
     '最小化': 'Minimize',
     '复原': 'Restore',
+    '向左旋转90度': 'Rotate left 90 degrees',
+    '向右旋转90度': 'Rotate right 90 degrees',
     '上一张': 'Previous image',
     '下一张': 'Next image',
     '剪切': 'Crop',
@@ -394,7 +397,40 @@
     ,'目录操作失败：': 'Folder operation failed: '
     ,'验证中...': 'Verifying...'
     ,'打开音频播放列表失败：': 'Failed to open audio playlist: '
+    ,'已向左旋转 90 度，点击“保存到服务”写入文件。': 'Rotated left 90 degrees. Click Save to service to write the file.'
+    ,'已向右旋转 90 度，点击“保存到服务”写入文件。': 'Rotated right 90 degrees. Click Save to service to write the file.'
   };
+
+  var phraseEntries = Object.keys(textMap)
+    .filter(function (key) { return key && key.length > 1; })
+    .sort(function (a, b) { return b.length - a.length; })
+    .map(function (key) { return [key, textMap[key]]; });
+
+  var patternMap = [
+    [/^(\d+) 个文件$/, function (_, n) { return n + (n === '1' ? ' file' : ' files'); }],
+    [/^([\d,]+) 字节$/, '$1 bytes'],
+    [/^当前视图：目录：(.+) \/ 范围：全部文件$/, 'Current view: Folder: $1 / Scope: all files'],
+    [/^当前视图：标签：(.+) \/ 范围：标签内全部文件$/, 'Current view: Tag: $1 / Scope: all tagged files'],
+    [/^当前路径：(.+)$/, 'Current path: $1'],
+    [/^图片预览：(.+)$/, 'Image Preview: $1'],
+    [/^视频播放：(.+)$/, 'Video Playback: $1'],
+    [/^音频播放：(.+)$/, 'Audio Playback: $1'],
+    [/^文本查看：(.+)$/, 'Text View: $1'],
+    [/^状态：(.+)$/, 'Status: $1'],
+    [/^原因：(.+)$/, 'Reason: $1'],
+    [/^加载(.+)失败：(.+)$/, 'Failed to load $1: $2'],
+    [/^(.+)失败：(.+)$/, '$1 failed: $2']
+  ];
+
+  function applyPhraseMap(text) {
+    var result = String(text == null ? '' : text);
+    phraseEntries.forEach(function (entry) {
+      if (result.indexOf(entry[0]) >= 0) {
+        result = result.split(entry[0]).join(entry[1]);
+      }
+    });
+    return result;
+  }
 
   function translateText(text) {
     var raw = String(text == null ? '' : text);
@@ -404,33 +440,41 @@
       ? textMap[raw]
       : textMap[trimmed];
     if (!translated) {
-      translated = trimmed
-        .replace(/^(\d+) 个文件$/, function (_, n) { return n + (n === '1' ? ' file' : ' files'); })
-        .replace(/^([\d,]+) 字节$/, '$1 bytes')
-        .replace(/^当前视图：目录：(.+) \/ 范围：全部文件$/, 'Current view: Folder: $1 / Scope: all files')
-        .replace(/^当前视图：标签：(.+) \/ 范围：标签内全部文件$/, 'Current view: Tag: $1 / Scope: all tagged files')
-        .replace(/^当前路径：(.+)$/, 'Current path: $1')
-        .replace(/^图片预览：(.+)$/, 'Image Preview: $1')
-        .replace(/^视频播放：(.+)$/, 'Video Playback: $1')
-        .replace(/^音频播放：(.+)$/, 'Audio Playback: $1')
-        .replace(/^文本查看：(.+)$/, 'Text View: $1')
-        .replace(/^状态：(.+)$/, 'Status: $1')
-        .replace(/^原因：(.+)$/, 'Reason: $1')
-        .replace(/^加载(.+)失败：(.+)$/, 'Failed to load $1: $2')
-        .replace(/^(.+)失败：(.+)$/, '$1 failed: $2');
+      for (var i = 0; i < patternMap.length; i += 1) {
+        if (patternMap[i][0].test(trimmed)) {
+          translated = trimmed.replace(patternMap[i][0], patternMap[i][1]);
+          break;
+        }
+      }
+    }
+    if (!translated) {
+      translated = applyPhraseMap(trimmed);
     }
     if (translated === trimmed) return raw;
     return raw.replace(trimmed, translated);
   }
 
+  function shouldTranslateValue(el) {
+    if (!el || !el.tagName || el.tagName.toUpperCase() !== 'INPUT') {
+      return false;
+    }
+    var type = String(el.getAttribute('type') || 'text').toLowerCase();
+    return type === 'button' || type === 'submit' || type === 'reset';
+  }
+
   function translateAttributes(el) {
     if (!el || !el.getAttribute) return;
-    ['title', 'aria-label', 'alt', 'placeholder', 'value'].forEach(function (name) {
+    ['title', 'aria-label', 'alt', 'placeholder'].forEach(function (name) {
       if (!el.hasAttribute(name)) return;
       var value = el.getAttribute(name);
       var next = translateText(value);
       if (next !== value) el.setAttribute(name, next);
     });
+    if (shouldTranslateValue(el) && el.hasAttribute('value')) {
+      var value = el.getAttribute('value');
+      var next = translateText(value);
+      if (next !== value) el.setAttribute('value', next);
+    }
   }
 
   function translateNode(node) {
@@ -488,9 +532,24 @@
 
   window.WebCoolI18n = {
     lang: 'en',
+    dictionary: textMap,
     t: translateText,
     apply: apply
   };
+
+  if (!window.__webcoolNativeConfirm) {
+    window.__webcoolNativeConfirm = window.confirm;
+    window.confirm = function (message) {
+      return window.__webcoolNativeConfirm.call(window, translateText(message));
+    };
+  }
+
+  if (!window.__webcoolNativePrompt) {
+    window.__webcoolNativePrompt = window.prompt;
+    window.prompt = function (message, defaultValue) {
+      return window.__webcoolNativePrompt.call(window, translateText(message), defaultValue);
+    };
+  }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start);
