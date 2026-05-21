@@ -50,8 +50,9 @@ The root Makefile will first build the required libraries under third-party/acl,
 
 For webcool binary packages (`webcool/package`):
 
-- The installer bundles ffmpeg into `/opt/webcool/bin/ffmpeg`.
-- During install, if `/usr/local/bin/ffmpeg` does not exist, it will be copied from `/opt/webcool/bin/ffmpeg`.
+- The installer keeps runtime files inside `/opt/webcool`.
+- ffmpeg is bundled at `/opt/webcool/bin/ffmpeg`.
+- `/usr/local/bin/webcool` is only a launcher entry to start `/opt/webcool/webcool`.
 - You can override runtime ffmpeg path with:
 
 ```bash
@@ -114,8 +115,9 @@ make
 
 针对 webcool 二进制安装包（`webcool/package`）：
 
-- 安装包会内置 ffmpeg 到 `/opt/webcool/bin/ffmpeg`。
-- 安装时若 `/usr/local/bin/ffmpeg` 不存在，会从 `/opt/webcool/bin/ffmpeg` 复制过去。
+- 安装包会把运行文件集中放在 `/opt/webcool` 下。
+- ffmpeg 内置在 `/opt/webcool/bin/ffmpeg`。
+- `/usr/local/bin/webcool` 仅作为启动入口，实际启动的是 `/opt/webcool/webcool`。
 - 运行时可通过下面参数手动覆盖 ffmpeg 路径：
 
 ```bash

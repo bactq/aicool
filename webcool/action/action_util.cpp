@@ -72,8 +72,8 @@ std::string choose_sqlite_lib_path() {
 	}
 
 	const std::vector<std::string> candidates = {
-		"/usr/local/lib/sqlite3.so",
 		"/opt/webcool/lib/sqlite3.so",
+		"/usr/local/lib/sqlite3.so",
 		"../third-party/sqlite/lib/sqlite3.so",
 		"third-party/sqlite/lib/sqlite3.so",
 	};

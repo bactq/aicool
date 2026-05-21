@@ -34,7 +34,7 @@ static acl::fiber_event_t    g_event_type    = acl::FIBER_EVENT_T_KERNEL;
 static char                  g_upload_dir[256] = "./uploads";
 static char                  g_sqlite_lib[512] = "";
 static char                  g_ffmpeg_path[512] = "";
-static const char*           g_webcool_version = "1.0.4";
+static const char*           g_webcool_version = "1.0.5";
 
 static void apply_default_upload_dir(bool upload_dir_specified) {
 #ifdef MACOSX
