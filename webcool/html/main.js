@@ -10,6 +10,9 @@
     '/webcool/html/js/07-admin-storage.js',
     '/webcool/html/js/08-events-bootstrap.js'
   ];
+  const moduleIds = modules.map(function (url) {
+    return url.slice(url.lastIndexOf('/') + 1);
+  });
 
   function showLoadError(err) {
     console.error('Failed to load WebCool modules:', err);
@@ -20,18 +23,37 @@
     }
   }
 
-  async function loadModuleText(url) {
-    const response = await fetch(url, { cache: 'no-cache' });
-    if (!response.ok) {
-      throw new Error(url + ' http ' + response.status);
-    }
-    return response.text();
+  function loadModuleScript(url) {
+    return new Promise(function (resolve, reject) {
+      const script = document.createElement('script');
+      script.src = url;
+      script.async = false;
+      script.onload = resolve;
+      script.onerror = function () {
+        reject(new Error(url + ' load failed'));
+      };
+      document.head.appendChild(script);
+    });
   }
 
-  Promise.all(modules.map(loadModuleText))
-    .then(function (parts) {
-      const code = parts.join('\n');
-      (0, eval)(code + '\n//# sourceURL=webcool-main-modules.js');
+  modules.reduce(function (chain, url) {
+    return chain.then(function () {
+      return loadModuleScript(url);
+    });
+  }, Promise.resolve())
+    .then(function () {
+      const registry = window.WebCoolModuleRegistry;
+      if (!registry || !registry.modules) {
+        throw new Error('module registry is empty');
+      }
+      const parts = moduleIds.map(function (id) {
+        if (!Object.prototype.hasOwnProperty.call(registry.modules, id)) {
+          throw new Error(id + ' not registered');
+        }
+        return registry.modules[id];
+      });
+      const code = '(function () {\n' + parts.join('\n') + '\n})();';
+      (0, eval)(code + '\n//# sourceURL=webcool-main-runtime.js');
     })
     .catch(showLoadError);
 })();

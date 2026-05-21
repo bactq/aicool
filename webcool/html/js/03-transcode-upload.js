@@ -1,369 +1,374 @@
-      }
-
-      function removeFileRefsFromAllTags(fileName) {
-        return 0;
-      }
-
-      function pruneTagRefsByCurrentFiles() {
-        const available = getFileNameSet();
-        let changed = false;
-        walkTagNodes(tagTree, function (node) {
-          const before = node.files.length;
-          node.files = node.files.filter(function (it) {
-            return available.has(it);
-          });
-          if (before !== node.files.length) {
-            changed = true;
-          }
-          return false;
-        }, 1, null, tagTree);
-        return changed;
-      }
-
-      function showManualTranscodePrompt(candidates) {
-        const list = Array.isArray(candidates) ? candidates : [];
-        if (!list.length) {
-          return;
-        }
-
-        statusBox.className = 'status show warn';
-        statusBox.innerHTML =
-          '<div>' + t('检测到以下视频建议转码（需你确认后才会开始）：') + '</div>' +
-          '<div class="transcode-list">' +
-          list.map(function (item) {
-            const name = String(item.name || '');
-            const reason = String(item.reason || t('浏览器兼容性不足'));
-            const encoded = encodeURIComponent(name);
-            return (
-              '<div class="transcode-item" data-transcode-item="' + encoded + '">' +
-                '<div class="transcode-item-head">' +
-                  '<div>' +
-                    '<div class="transcode-item-name">' + escapeHtml(name) + '</div>' +
-                    '<div class="transcode-item-reason">' + t('原因：') + escapeHtml(reason) + '</div>' +
-                  '</div>' +
-                  '<div class="transcode-actions">' +
-                    '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '">' + t('确认转码') + '</button>' +
-                    '<button type="button" class="transcode-cancel-btn" data-cancel-file="' + encoded + '" disabled>' + t('取消转码') + '</button>' +
-                    '<button type="button" class="transcode-confirm-btn" data-confirm-transcode="' + encoded + '" hidden>' + t('确认') + '</button>' +
-                    '<div class="transcode-progress"><div class="transcode-progress-fill" data-progress-fill="' + encoded + '"></div></div>' +
-                    '<span class="transcode-progress-text" data-progress-text="' + encoded + '">' + t('等待确认') + '</span>' +
-                  '</div>' +
-                '</div>' +
-              '</div>'
-            );
-          }).join('') +
-          '</div>';
-      }
-
-      function updateTranscodeProgress(encodedName, percent, text) {
-        const fill = statusBox.querySelector('[data-progress-fill="' + encodedName + '"]');
-        const label = statusBox.querySelector('[data-progress-text="' + encodedName + '"]');
-        if (fill) {
-          fill.style.width = Math.max(0, Math.min(100, percent || 0)) + '%';
-        }
-        if (label) {
-          label.textContent = text || '';
-        }
-      }
-
-      function setTranscodeVisualState(encodedName, state) {
-        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
-        const fill = statusBox.querySelector('[data-progress-fill="' + encodedName + '"]');
-        if (item) {
-          item.classList.remove('state-running', 'state-done', 'state-failed', 'state-cancelled');
-          if (state) {
-            item.classList.add('state-' + state);
-          }
-        }
-        if (fill) {
-          fill.classList.remove('state-done', 'state-failed', 'state-cancelled');
-          if (state === 'done' || state === 'failed' || state === 'cancelled') {
-            fill.classList.add('state-' + state);
-          }
-        }
-      }
-
-      function setTranscodeTaskId(encodedName, taskId) {
-        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
-        if (!item) {
-          return;
-        }
-        if (taskId) {
-          item.setAttribute('data-task-id', taskId);
-        } else {
-          item.removeAttribute('data-task-id');
-        }
-      }
-
-      function getTranscodeTaskId(encodedName) {
-        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
-        return item ? (item.getAttribute('data-task-id') || '') : '';
-      }
-
-      function setTranscodeButtons(encodedName, options) {
-        const opts = options || {};
-        const startBtn = statusBox.querySelector('[data-transcode-file="' + encodedName + '"]');
-        const cancelBtn = statusBox.querySelector('[data-cancel-file="' + encodedName + '"]');
-        const confirmBtn = statusBox.querySelector('[data-confirm-transcode="' + encodedName + '"]');
-        if (startBtn && typeof opts.startDisabled === 'boolean') {
-          startBtn.disabled = opts.startDisabled;
-        }
-        if (cancelBtn && typeof opts.cancelDisabled === 'boolean') {
-          cancelBtn.disabled = opts.cancelDisabled;
-        }
-        if (confirmBtn && typeof opts.confirmVisible === 'boolean') {
-          confirmBtn.hidden = !opts.confirmVisible;
-        }
-      }
-
-      function dismissTranscodeItem(encodedName) {
-        stopTranscodePolling(encodedName);
-        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
-        if (item && item.parentNode) {
-          item.parentNode.removeChild(item);
-        }
-        if (!statusBox.querySelector('[data-transcode-item]')) {
-          statusBox.className = 'status';
-          statusBox.textContent = '';
-        }
-      }
-
-      function upsertTranscodeTaskItem(item) {
-        if (!item || !item.name) {
-          return;
-        }
-
-        const encoded = encodeURIComponent(String(item.name));
-        if (!statusBox.querySelector('.transcode-list')) {
-          statusBox.className = 'status show warn';
-          statusBox.innerHTML =
-            '<div>' + t('检测到以下视频建议转码（需你确认后才会开始）：') + '</div>' +
-            '<div class="transcode-list"></div>';
-        }
-
-        const listEl = statusBox.querySelector('.transcode-list');
-        if (!listEl) {
-          return;
-        }
-
-        let row = statusBox.querySelector('[data-transcode-item="' + encoded + '"]');
-        if (!row) {
-          row = document.createElement('div');
-          row.className = 'transcode-item state-running';
-          row.setAttribute('data-transcode-item', encoded);
-          row.innerHTML =
-            '<div class="transcode-item-head">' +
-              '<div>' +
-                '<div class="transcode-item-name"></div>' +
-                '<div class="transcode-item-reason"></div>' +
-              '</div>' +
-              '<div class="transcode-actions">' +
-                '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '" disabled>' + t('确认转码') + '</button>' +
-                '<button type="button" class="transcode-cancel-btn" data-cancel-file="' + encoded + '">' + t('取消转码') + '</button>' +
-                '<button type="button" class="transcode-confirm-btn" data-confirm-transcode="' + encoded + '" hidden>' + t('确认') + '</button>' +
-                '<div class="transcode-progress"><div class="transcode-progress-fill" data-progress-fill="' + encoded + '"></div></div>' +
-                '<span class="transcode-progress-text" data-progress-text="' + encoded + '"></span>' +
-              '</div>' +
-            '</div>';
-          listEl.appendChild(row);
-        }
-
-        const title = row.querySelector('.transcode-item-name');
-        if (title) {
-          title.textContent = String(item.name);
-        }
-
-        const reason = row.querySelector('.transcode-item-reason');
-        if (reason) {
-          reason.textContent = t('状态：') + String(item.message || t('后台转码中'));
-        }
-
-        setTranscodeTaskId(encoded, String(item.task_id || ''));
-        setTranscodeButtons(encoded, { startDisabled: true, cancelDisabled: !!item.cancel_requested });
-        setTranscodeVisualState(encoded, item.cancel_requested ? 'cancelled' : 'running');
-        updateTranscodeProgress(encoded, Number(item.progress || 0), String(item.message || '转码中'));
-      }
-
-      async function recoverRunningTranscodeTasks() {
-        try {
-          const data = await fetchJson(api.convertTasks);
-          const tasks = Array.isArray(data.tasks) ? data.tasks : [];
-          for (let i = 0; i < tasks.length; i += 1) {
-            const task = tasks[i];
-            if (!task || !task.task_id || !task.name) {
-              continue;
-            }
-            upsertTranscodeTaskItem(task);
-            const encoded = encodeURIComponent(String(task.name));
-            stopTranscodePolling(encoded);
-            const timer = setInterval(function () {
-              pollTranscodeProgress(encoded, String(task.task_id));
-            }, 1000);
-            transcodeProgressTimers.set(encoded, timer);
-            await pollTranscodeProgress(encoded, String(task.task_id));
-          }
-        } catch (_) {
-        }
-      }
-
-      function setTranscodeReason(encodedName, text) {
-        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
-        if (!item) {
-          return;
-        }
-        const reason = item.querySelector('.transcode-item-reason');
-        if (reason) {
-          reason.textContent = text || '';
-        }
-      }
-
-      function stopTranscodePolling(encodedName) {
-        const timer = transcodeProgressTimers.get(encodedName);
-        if (timer) {
-          clearInterval(timer);
-          transcodeProgressTimers.delete(encodedName);
-        }
-      }
-
-      async function pollTranscodeProgress(encodedName, taskId) {
-        try {
-          const data = await fetchJson(api.convertProgress + '?task_id=' + encodeURIComponent(taskId));
-          const progress = Number(data.progress || 0);
-          updateTranscodeProgress(encodedName, progress, (data.message || t('转码中')) + ' ' + Math.max(0, Math.min(100, Math.round(progress))) + '%');
-
-          if (data.done) {
-            stopTranscodePolling(encodedName);
-            setTranscodeTaskId(encodedName, '');
-            if (data.success) {
-              setTranscodeVisualState(encodedName, 'done');
-              updateTranscodeProgress(encodedName, 100, t('已完成'));
-              setTranscodeReason(encodedName, t('状态：已完成，输出文件 ') + String(data.name || decodeURIComponent(encodedName)));
-              setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true, confirmVisible: true });
-              await loadFiles();
-            } else {
-              const cancelled = data.cancel_requested || String(data.message || '').indexOf('取消') >= 0;
-              setTranscodeVisualState(encodedName, cancelled ? 'cancelled' : 'failed');
-              updateTranscodeProgress(encodedName, progress, cancelled ? t('已取消') : t('失败'));
-              setTranscodeReason(encodedName, cancelled
-                ? t('状态：已取消')
-                : t('状态：失败，') + String(data.error || data.message || t('未知错误')));
-              setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
-            }
-          }
-        } catch (err) {
-          stopTranscodePolling(encodedName);
-          setTranscodeTaskId(encodedName, '');
-          setTranscodeVisualState(encodedName, 'failed');
-          updateTranscodeProgress(encodedName, 0, t('进度查询失败'));
-          setTranscodeReason(encodedName, t('状态：进度查询失败，') + err.message);
-          setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
-        }
-      }
-
-      async function cancelManualTranscode(encodedName) {
-        const taskId = getTranscodeTaskId(encodedName);
-        if (!taskId) {
-          setTranscodeReason(encodedName, t('状态：找不到任务号，无法取消'));
-          return;
-        }
-
-        try {
-          setTranscodeButtons(encodedName, { cancelDisabled: true });
-          await fetchJson(api.convertCancel + '?task_id=' + encodeURIComponent(taskId), {
-            method: 'POST'
-          });
-          setTranscodeVisualState(encodedName, 'cancelled');
-          updateTranscodeProgress(encodedName, 0, t('取消中'));
-          setTranscodeReason(encodedName, t('状态：已发送取消请求，等待后台停止'));
-        } catch (err) {
-          setTranscodeVisualState(encodedName, 'failed');
-          setTranscodeReason(encodedName, t('状态：取消失败，') + err.message);
-          setTranscodeButtons(encodedName, { cancelDisabled: false });
-        }
-      }
-
-      async function startManualTranscode(encodedName) {
-        setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true });
-
-        const fileName = decodeURIComponent(encodedName);
-        try {
-          setTranscodeVisualState(encodedName, 'running');
-          updateTranscodeProgress(encodedName, 0, t('任务创建中...'));
-          setTranscodeReason(encodedName, t('状态：正在请求后台启动转码任务'));
-          const data = await fetchJson(api.convertVideo + '?file=' + encodeURIComponent(fileName), {
-            method: 'POST'
-          });
-
-          if (data.completed) {
-            setTranscodeVisualState(encodedName, 'done');
-            updateTranscodeProgress(encodedName, 100, t('无需转码'));
-            setTranscodeReason(encodedName, t('状态：文件已经可直接播放'));
-            setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true, confirmVisible: true });
-            return;
-          }
-
-          if (!data.task_id) {
-            throw new Error('missing task id');
-          }
-
-          setTranscodeTaskId(encodedName, String(data.task_id));
-          setTranscodeReason(encodedName, t('状态：后台任务已启动，任务号 ') + String(data.task_id));
-          updateTranscodeProgress(encodedName, Number(data.progress || 0), t('已启动'));
-          setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: false });
-          stopTranscodePolling(encodedName);
-          const timer = setInterval(function () {
-            pollTranscodeProgress(encodedName, data.task_id);
-          }, 1000);
-          transcodeProgressTimers.set(encodedName, timer);
-          await pollTranscodeProgress(encodedName, data.task_id);
-        } catch (err) {
-          stopTranscodePolling(encodedName);
-          setTranscodeTaskId(encodedName, '');
-          setTranscodeVisualState(encodedName, 'failed');
-          updateTranscodeProgress(encodedName, 0, t('失败：') + err.message);
-          setTranscodeReason(encodedName, t('状态：失败，') + err.message);
-          setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
-        }
-      }
-
-      function resetStatus() {
-        transcodeProgressTimers.forEach(function (timer) {
-          clearInterval(timer);
-        });
-        transcodeProgressTimers.clear();
-        statusBox.className = 'status';
-        statusBox.textContent = '';
-      }
-
-      function setUploadProgress(percent, text) {
-        const p = Math.max(0, Math.min(100, Number(percent) || 0));
-        uploadProgress.style.display = 'block';
-        uploadProgressFill.style.width = p + '%';
-        uploadProgressText.textContent = text || (t('上传中 ') + p + '%');
-      }
-
-      function hideUploadProgress() {
-        uploadProgress.style.display = 'none';
-        uploadProgressFill.style.width = '0%';
-        uploadProgressText.textContent = t('准备上传...');
-      }
-
-      function safeTime(file) {
-        const n = Number(file.uploaded_at || 0);
-        return Number.isFinite(n) ? n : 0;
-      }
-
-      function safeSize(file) {
-        const n = Number(file.size || 0);
-        return Number.isFinite(n) ? n : 0;
-      }
-
-      function formatNumber(num) {
-        return String(Number(num) || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-      }
-
-      function normalizeFolderNode(node) {
-        const item = node && typeof node === 'object' ? node : {};
-        const children = Array.isArray(item.children) ? item.children.map(normalizeFolderNode) : [];
-        return {
-          name: String(item.name || ''),
+(function () {
+  window.WebCoolModuleRegistry = window.WebCoolModuleRegistry || { modules: {}, order: [], define: function (id, source) { if (!this.modules[id]) this.order.push(id); this.modules[id] = source; } };
+  window.WebCoolModuleRegistry.define("03-transcode-upload.js", [
+    "      }",
+    "",
+    "      function removeFileRefsFromAllTags(fileName) {",
+    "        return 0;",
+    "      }",
+    "",
+    "      function pruneTagRefsByCurrentFiles() {",
+    "        const available = getFileNameSet();",
+    "        let changed = false;",
+    "        walkTagNodes(tagTree, function (node) {",
+    "          const before = node.files.length;",
+    "          node.files = node.files.filter(function (it) {",
+    "            return available.has(it);",
+    "          });",
+    "          if (before !== node.files.length) {",
+    "            changed = true;",
+    "          }",
+    "          return false;",
+    "        }, 1, null, tagTree);",
+    "        return changed;",
+    "      }",
+    "",
+    "      function showManualTranscodePrompt(candidates) {",
+    "        const list = Array.isArray(candidates) ? candidates : [];",
+    "        if (!list.length) {",
+    "          return;",
+    "        }",
+    "",
+    "        statusBox.className = 'status show warn';",
+    "        statusBox.innerHTML =",
+    "          '<div>' + t('检测到以下视频建议转码（需你确认后才会开始）：') + '</div>' +",
+    "          '<div class=\"transcode-list\">' +",
+    "          list.map(function (item) {",
+    "            const name = String(item.name || '');",
+    "            const reason = String(item.reason || t('浏览器兼容性不足'));",
+    "            const encoded = encodeURIComponent(name);",
+    "            return (",
+    "              '<div class=\"transcode-item\" data-transcode-item=\"' + encoded + '\">' +",
+    "                '<div class=\"transcode-item-head\">' +",
+    "                  '<div>' +",
+    "                    '<div class=\"transcode-item-name\">' + escapeHtml(name) + '</div>' +",
+    "                    '<div class=\"transcode-item-reason\">' + t('原因：') + escapeHtml(reason) + '</div>' +",
+    "                  '</div>' +",
+    "                  '<div class=\"transcode-actions\">' +",
+    "                    '<button type=\"button\" class=\"transcode-btn\" data-transcode-file=\"' + encoded + '\">' + t('确认转码') + '</button>' +",
+    "                    '<button type=\"button\" class=\"transcode-cancel-btn\" data-cancel-file=\"' + encoded + '\" disabled>' + t('取消转码') + '</button>' +",
+    "                    '<button type=\"button\" class=\"transcode-confirm-btn\" data-confirm-transcode=\"' + encoded + '\" hidden>' + t('确认') + '</button>' +",
+    "                    '<div class=\"transcode-progress\"><div class=\"transcode-progress-fill\" data-progress-fill=\"' + encoded + '\"></div></div>' +",
+    "                    '<span class=\"transcode-progress-text\" data-progress-text=\"' + encoded + '\">' + t('等待确认') + '</span>' +",
+    "                  '</div>' +",
+    "                '</div>' +",
+    "              '</div>'",
+    "            );",
+    "          }).join('') +",
+    "          '</div>';",
+    "      }",
+    "",
+    "      function updateTranscodeProgress(encodedName, percent, text) {",
+    "        const fill = statusBox.querySelector('[data-progress-fill=\"' + encodedName + '\"]');",
+    "        const label = statusBox.querySelector('[data-progress-text=\"' + encodedName + '\"]');",
+    "        if (fill) {",
+    "          fill.style.width = Math.max(0, Math.min(100, percent || 0)) + '%';",
+    "        }",
+    "        if (label) {",
+    "          label.textContent = text || '';",
+    "        }",
+    "      }",
+    "",
+    "      function setTranscodeVisualState(encodedName, state) {",
+    "        const item = statusBox.querySelector('[data-transcode-item=\"' + encodedName + '\"]');",
+    "        const fill = statusBox.querySelector('[data-progress-fill=\"' + encodedName + '\"]');",
+    "        if (item) {",
+    "          item.classList.remove('state-running', 'state-done', 'state-failed', 'state-cancelled');",
+    "          if (state) {",
+    "            item.classList.add('state-' + state);",
+    "          }",
+    "        }",
+    "        if (fill) {",
+    "          fill.classList.remove('state-done', 'state-failed', 'state-cancelled');",
+    "          if (state === 'done' || state === 'failed' || state === 'cancelled') {",
+    "            fill.classList.add('state-' + state);",
+    "          }",
+    "        }",
+    "      }",
+    "",
+    "      function setTranscodeTaskId(encodedName, taskId) {",
+    "        const item = statusBox.querySelector('[data-transcode-item=\"' + encodedName + '\"]');",
+    "        if (!item) {",
+    "          return;",
+    "        }",
+    "        if (taskId) {",
+    "          item.setAttribute('data-task-id', taskId);",
+    "        } else {",
+    "          item.removeAttribute('data-task-id');",
+    "        }",
+    "      }",
+    "",
+    "      function getTranscodeTaskId(encodedName) {",
+    "        const item = statusBox.querySelector('[data-transcode-item=\"' + encodedName + '\"]');",
+    "        return item ? (item.getAttribute('data-task-id') || '') : '';",
+    "      }",
+    "",
+    "      function setTranscodeButtons(encodedName, options) {",
+    "        const opts = options || {};",
+    "        const startBtn = statusBox.querySelector('[data-transcode-file=\"' + encodedName + '\"]');",
+    "        const cancelBtn = statusBox.querySelector('[data-cancel-file=\"' + encodedName + '\"]');",
+    "        const confirmBtn = statusBox.querySelector('[data-confirm-transcode=\"' + encodedName + '\"]');",
+    "        if (startBtn && typeof opts.startDisabled === 'boolean') {",
+    "          startBtn.disabled = opts.startDisabled;",
+    "        }",
+    "        if (cancelBtn && typeof opts.cancelDisabled === 'boolean') {",
+    "          cancelBtn.disabled = opts.cancelDisabled;",
+    "        }",
+    "        if (confirmBtn && typeof opts.confirmVisible === 'boolean') {",
+    "          confirmBtn.hidden = !opts.confirmVisible;",
+    "        }",
+    "      }",
+    "",
+    "      function dismissTranscodeItem(encodedName) {",
+    "        stopTranscodePolling(encodedName);",
+    "        const item = statusBox.querySelector('[data-transcode-item=\"' + encodedName + '\"]');",
+    "        if (item && item.parentNode) {",
+    "          item.parentNode.removeChild(item);",
+    "        }",
+    "        if (!statusBox.querySelector('[data-transcode-item]')) {",
+    "          statusBox.className = 'status';",
+    "          statusBox.textContent = '';",
+    "        }",
+    "      }",
+    "",
+    "      function upsertTranscodeTaskItem(item) {",
+    "        if (!item || !item.name) {",
+    "          return;",
+    "        }",
+    "",
+    "        const encoded = encodeURIComponent(String(item.name));",
+    "        if (!statusBox.querySelector('.transcode-list')) {",
+    "          statusBox.className = 'status show warn';",
+    "          statusBox.innerHTML =",
+    "            '<div>' + t('检测到以下视频建议转码（需你确认后才会开始）：') + '</div>' +",
+    "            '<div class=\"transcode-list\"></div>';",
+    "        }",
+    "",
+    "        const listEl = statusBox.querySelector('.transcode-list');",
+    "        if (!listEl) {",
+    "          return;",
+    "        }",
+    "",
+    "        let row = statusBox.querySelector('[data-transcode-item=\"' + encoded + '\"]');",
+    "        if (!row) {",
+    "          row = document.createElement('div');",
+    "          row.className = 'transcode-item state-running';",
+    "          row.setAttribute('data-transcode-item', encoded);",
+    "          row.innerHTML =",
+    "            '<div class=\"transcode-item-head\">' +",
+    "              '<div>' +",
+    "                '<div class=\"transcode-item-name\"></div>' +",
+    "                '<div class=\"transcode-item-reason\"></div>' +",
+    "              '</div>' +",
+    "              '<div class=\"transcode-actions\">' +",
+    "                '<button type=\"button\" class=\"transcode-btn\" data-transcode-file=\"' + encoded + '\" disabled>' + t('确认转码') + '</button>' +",
+    "                '<button type=\"button\" class=\"transcode-cancel-btn\" data-cancel-file=\"' + encoded + '\">' + t('取消转码') + '</button>' +",
+    "                '<button type=\"button\" class=\"transcode-confirm-btn\" data-confirm-transcode=\"' + encoded + '\" hidden>' + t('确认') + '</button>' +",
+    "                '<div class=\"transcode-progress\"><div class=\"transcode-progress-fill\" data-progress-fill=\"' + encoded + '\"></div></div>' +",
+    "                '<span class=\"transcode-progress-text\" data-progress-text=\"' + encoded + '\"></span>' +",
+    "              '</div>' +",
+    "            '</div>';",
+    "          listEl.appendChild(row);",
+    "        }",
+    "",
+    "        const title = row.querySelector('.transcode-item-name');",
+    "        if (title) {",
+    "          title.textContent = String(item.name);",
+    "        }",
+    "",
+    "        const reason = row.querySelector('.transcode-item-reason');",
+    "        if (reason) {",
+    "          reason.textContent = t('状态：') + String(item.message || t('后台转码中'));",
+    "        }",
+    "",
+    "        setTranscodeTaskId(encoded, String(item.task_id || ''));",
+    "        setTranscodeButtons(encoded, { startDisabled: true, cancelDisabled: !!item.cancel_requested });",
+    "        setTranscodeVisualState(encoded, item.cancel_requested ? 'cancelled' : 'running');",
+    "        updateTranscodeProgress(encoded, Number(item.progress || 0), String(item.message || '转码中'));",
+    "      }",
+    "",
+    "      async function recoverRunningTranscodeTasks() {",
+    "        try {",
+    "          const data = await fetchJson(api.convertTasks);",
+    "          const tasks = Array.isArray(data.tasks) ? data.tasks : [];",
+    "          for (let i = 0; i < tasks.length; i += 1) {",
+    "            const task = tasks[i];",
+    "            if (!task || !task.task_id || !task.name) {",
+    "              continue;",
+    "            }",
+    "            upsertTranscodeTaskItem(task);",
+    "            const encoded = encodeURIComponent(String(task.name));",
+    "            stopTranscodePolling(encoded);",
+    "            const timer = setInterval(function () {",
+    "              pollTranscodeProgress(encoded, String(task.task_id));",
+    "            }, 1000);",
+    "            transcodeProgressTimers.set(encoded, timer);",
+    "            await pollTranscodeProgress(encoded, String(task.task_id));",
+    "          }",
+    "        } catch (_) {",
+    "        }",
+    "      }",
+    "",
+    "      function setTranscodeReason(encodedName, text) {",
+    "        const item = statusBox.querySelector('[data-transcode-item=\"' + encodedName + '\"]');",
+    "        if (!item) {",
+    "          return;",
+    "        }",
+    "        const reason = item.querySelector('.transcode-item-reason');",
+    "        if (reason) {",
+    "          reason.textContent = text || '';",
+    "        }",
+    "      }",
+    "",
+    "      function stopTranscodePolling(encodedName) {",
+    "        const timer = transcodeProgressTimers.get(encodedName);",
+    "        if (timer) {",
+    "          clearInterval(timer);",
+    "          transcodeProgressTimers.delete(encodedName);",
+    "        }",
+    "      }",
+    "",
+    "      async function pollTranscodeProgress(encodedName, taskId) {",
+    "        try {",
+    "          const data = await fetchJson(api.convertProgress + '?task_id=' + encodeURIComponent(taskId));",
+    "          const progress = Number(data.progress || 0);",
+    "          updateTranscodeProgress(encodedName, progress, (data.message || t('转码中')) + ' ' + Math.max(0, Math.min(100, Math.round(progress))) + '%');",
+    "",
+    "          if (data.done) {",
+    "            stopTranscodePolling(encodedName);",
+    "            setTranscodeTaskId(encodedName, '');",
+    "            if (data.success) {",
+    "              setTranscodeVisualState(encodedName, 'done');",
+    "              updateTranscodeProgress(encodedName, 100, t('已完成'));",
+    "              setTranscodeReason(encodedName, t('状态：已完成，输出文件 ') + String(data.name || decodeURIComponent(encodedName)));",
+    "              setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true, confirmVisible: true });",
+    "              await loadFiles();",
+    "            } else {",
+    "              const cancelled = data.cancel_requested || String(data.message || '').indexOf('取消') >= 0;",
+    "              setTranscodeVisualState(encodedName, cancelled ? 'cancelled' : 'failed');",
+    "              updateTranscodeProgress(encodedName, progress, cancelled ? t('已取消') : t('失败'));",
+    "              setTranscodeReason(encodedName, cancelled",
+    "                ? t('状态：已取消')",
+    "                : t('状态：失败，') + String(data.error || data.message || t('未知错误')));",
+    "              setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });",
+    "            }",
+    "          }",
+    "        } catch (err) {",
+    "          stopTranscodePolling(encodedName);",
+    "          setTranscodeTaskId(encodedName, '');",
+    "          setTranscodeVisualState(encodedName, 'failed');",
+    "          updateTranscodeProgress(encodedName, 0, t('进度查询失败'));",
+    "          setTranscodeReason(encodedName, t('状态：进度查询失败，') + err.message);",
+    "          setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });",
+    "        }",
+    "      }",
+    "",
+    "      async function cancelManualTranscode(encodedName) {",
+    "        const taskId = getTranscodeTaskId(encodedName);",
+    "        if (!taskId) {",
+    "          setTranscodeReason(encodedName, t('状态：找不到任务号，无法取消'));",
+    "          return;",
+    "        }",
+    "",
+    "        try {",
+    "          setTranscodeButtons(encodedName, { cancelDisabled: true });",
+    "          await fetchJson(api.convertCancel + '?task_id=' + encodeURIComponent(taskId), {",
+    "            method: 'POST'",
+    "          });",
+    "          setTranscodeVisualState(encodedName, 'cancelled');",
+    "          updateTranscodeProgress(encodedName, 0, t('取消中'));",
+    "          setTranscodeReason(encodedName, t('状态：已发送取消请求，等待后台停止'));",
+    "        } catch (err) {",
+    "          setTranscodeVisualState(encodedName, 'failed');",
+    "          setTranscodeReason(encodedName, t('状态：取消失败，') + err.message);",
+    "          setTranscodeButtons(encodedName, { cancelDisabled: false });",
+    "        }",
+    "      }",
+    "",
+    "      async function startManualTranscode(encodedName) {",
+    "        setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true });",
+    "",
+    "        const fileName = decodeURIComponent(encodedName);",
+    "        try {",
+    "          setTranscodeVisualState(encodedName, 'running');",
+    "          updateTranscodeProgress(encodedName, 0, t('任务创建中...'));",
+    "          setTranscodeReason(encodedName, t('状态：正在请求后台启动转码任务'));",
+    "          const data = await fetchJson(api.convertVideo + '?file=' + encodeURIComponent(fileName), {",
+    "            method: 'POST'",
+    "          });",
+    "",
+    "          if (data.completed) {",
+    "            setTranscodeVisualState(encodedName, 'done');",
+    "            updateTranscodeProgress(encodedName, 100, t('无需转码'));",
+    "            setTranscodeReason(encodedName, t('状态：文件已经可直接播放'));",
+    "            setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true, confirmVisible: true });",
+    "            return;",
+    "          }",
+    "",
+    "          if (!data.task_id) {",
+    "            throw new Error('missing task id');",
+    "          }",
+    "",
+    "          setTranscodeTaskId(encodedName, String(data.task_id));",
+    "          setTranscodeReason(encodedName, t('状态：后台任务已启动，任务号 ') + String(data.task_id));",
+    "          updateTranscodeProgress(encodedName, Number(data.progress || 0), t('已启动'));",
+    "          setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: false });",
+    "          stopTranscodePolling(encodedName);",
+    "          const timer = setInterval(function () {",
+    "            pollTranscodeProgress(encodedName, data.task_id);",
+    "          }, 1000);",
+    "          transcodeProgressTimers.set(encodedName, timer);",
+    "          await pollTranscodeProgress(encodedName, data.task_id);",
+    "        } catch (err) {",
+    "          stopTranscodePolling(encodedName);",
+    "          setTranscodeTaskId(encodedName, '');",
+    "          setTranscodeVisualState(encodedName, 'failed');",
+    "          updateTranscodeProgress(encodedName, 0, t('失败：') + err.message);",
+    "          setTranscodeReason(encodedName, t('状态：失败，') + err.message);",
+    "          setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });",
+    "        }",
+    "      }",
+    "",
+    "      function resetStatus() {",
+    "        transcodeProgressTimers.forEach(function (timer) {",
+    "          clearInterval(timer);",
+    "        });",
+    "        transcodeProgressTimers.clear();",
+    "        statusBox.className = 'status';",
+    "        statusBox.textContent = '';",
+    "      }",
+    "",
+    "      function setUploadProgress(percent, text) {",
+    "        const p = Math.max(0, Math.min(100, Number(percent) || 0));",
+    "        uploadProgress.style.display = 'block';",
+    "        uploadProgressFill.style.width = p + '%';",
+    "        uploadProgressText.textContent = text || (t('上传中 ') + p + '%');",
+    "      }",
+    "",
+    "      function hideUploadProgress() {",
+    "        uploadProgress.style.display = 'none';",
+    "        uploadProgressFill.style.width = '0%';",
+    "        uploadProgressText.textContent = t('准备上传...');",
+    "      }",
+    "",
+    "      function safeTime(file) {",
+    "        const n = Number(file.uploaded_at || 0);",
+    "        return Number.isFinite(n) ? n : 0;",
+    "      }",
+    "",
+    "      function safeSize(file) {",
+    "        const n = Number(file.size || 0);",
+    "        return Number.isFinite(n) ? n : 0;",
+    "      }",
+    "",
+    "      function formatNumber(num) {",
+    "        return String(Number(num) || 0).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');",
+    "      }",
+    "",
+    "      function normalizeFolderNode(node) {",
+    "        const item = node && typeof node === 'object' ? node : {};",
+    "        const children = Array.isArray(item.children) ? item.children.map(normalizeFolderNode) : [];",
+    "        return {",
+    "          name: String(item.name || ''),"
+  ].join("\n"));
+})();
