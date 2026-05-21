@@ -2602,6 +2602,15 @@
       transform: none !important;
     }
 
+    .floating-preview.is-minimized {
+      min-height: 0;
+      resize: none;
+    }
+
+    .floating-preview.is-minimized .preview-body {
+      display: none;
+    }
+
     .preview-body {
       padding: 12px;
       overflow: auto;

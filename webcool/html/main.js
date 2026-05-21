@@ -1,4 +1,11 @@
 (function () {
+      function t(text) {
+        if (window.WebCoolI18n && typeof window.WebCoolI18n.t === 'function') {
+          return window.WebCoolI18n.t(text);
+        }
+        return String(text == null ? '' : text);
+      }
+
       const api = {
         files: '/api/v1/files',
         folders: '/api/v1/folders',
@@ -175,9 +182,9 @@
         : 'zh';
       const TAG_MAX_LEVEL = 3;
       const AUDIO_PLAY_MODE_LABELS = {
-        random: '随机播放',
-        sequential: '顺序播放',
-        loop: '循环播放'
+        random: t('随机播放'),
+        sequential: t('顺序播放'),
+        loop: t('循环播放')
       };
       const AUDIO_PLAY_MODE_ICONS = {
         random: '⤮',
@@ -440,7 +447,7 @@
       }
 
       function getFolderLabel(path) {
-        return path ? path : '根目录';
+        return path ? path : t('根目录');
       }
 
       function isRecycleFolderPath(path) {
@@ -592,8 +599,8 @@
           return true;
         }
         const password = await askLockPassword({
-          title: '解锁目录',
-          description: '请输入目录「' + lockedPath + '」的锁密码。',
+          title: t('解锁目录'),
+          description: t('请输入目录「') + lockedPath + t('」的锁密码。'),
           onSubmit: async function (passwordText) {
             await fetchJson(
               api.folderLockVerify + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(passwordText),
@@ -614,9 +621,9 @@
         }
         const path = String(node.path || '');
         if (unlockedFolderPasswords.has(path)) {
-          return '<span class="folder-lock-icon unlocked" title="点击重新加锁" aria-label="点击重新加锁" data-folder-lock-toggle="' + escapeHtml(path) + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>';
+          return '<span class="folder-lock-icon unlocked" title="' + escapeHtml(t('点击重新加锁')) + '" aria-label="' + escapeHtml(t('点击重新加锁')) + '" data-folder-lock-toggle="' + escapeHtml(path) + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>';
         }
-        return '<span class="folder-lock-icon" title="已加锁" aria-label="已加锁"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>';
+        return '<span class="folder-lock-icon" title="' + escapeHtml(t('已加锁')) + '" aria-label="' + escapeHtml(t('已加锁')) + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>';
       }
 
       function closeFolderContextMenu() {
@@ -647,14 +654,14 @@
         menu.setAttribute('data-file-local', local ? '1' : '0');
         let html = '';
         if (locked) {
-          html += '<button type="button" class="folder-context-item" data-file-menu-action="' + (isUnlocked ? 'session-lock' : 'session-unlock') + '">' + (isUnlocked ? '加锁' : '解锁') + '</button>';
-          html += '<button type="button" class="folder-context-item" data-file-menu-action="remove-lock">去锁</button>';
+          html += '<button type="button" class="folder-context-item" data-file-menu-action="' + (isUnlocked ? 'session-lock' : 'session-unlock') + '">' + t(isUnlocked ? '加锁' : '解锁') + '</button>';
+          html += '<button type="button" class="folder-context-item" data-file-menu-action="remove-lock">' + t('去锁') + '</button>';
         } else {
-          html += '<button type="button" class="folder-context-item" data-file-menu-action="lock">加锁</button>';
+          html += '<button type="button" class="folder-context-item" data-file-menu-action="lock">' + t('加锁') + '</button>';
         }
         if (local && isVideo) {
-          html += '<button type="button" class="folder-context-item" data-file-menu-action="open-local-player">使用本地播放器播放</button>';
-          html += '<button type="button" class="folder-context-item" data-file-menu-action="choose-local-player">选择本地播放器</button>';
+          html += '<button type="button" class="folder-context-item" data-file-menu-action="open-local-player">' + t('使用本地播放器播放') + '</button>';
+          html += '<button type="button" class="folder-context-item" data-file-menu-action="choose-local-player">' + t('选择本地播放器') + '</button>';
         }
         menu.innerHTML = html;
         document.body.appendChild(menu);
@@ -670,7 +677,7 @@
           return '';
         }
         const unlocked = !!getLocalDirPassword(dirPath);
-        return '<span class="folder-lock-icon file-lock-inline local-dir-lock-inline' + (unlocked ? ' unlocked' : '') + '" title="' + (unlocked ? '点击重新加锁' : '点击解锁') + '" aria-label="' + (unlocked ? '点击重新加锁' : '点击解锁') + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>';
+        return '<span class="folder-lock-icon file-lock-inline local-dir-lock-inline' + (unlocked ? ' unlocked' : '') + '" title="' + escapeHtml(t(unlocked ? '点击重新加锁' : '点击解锁')) + '" aria-label="' + escapeHtml(t(unlocked ? '点击重新加锁' : '点击解锁')) + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>';
       }
 
       function openLocalDirContextMenu(path, locked, clientX, clientY) {
@@ -686,10 +693,10 @@
         menu.setAttribute('data-local-dir-path', dirPath);
         let html = '';
         if (locked) {
-          html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + (unlocked ? '加锁' : '解锁') + '</button>';
-          html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="remove-lock">去锁</button>';
+          html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + t(unlocked ? '加锁' : '解锁') + '</button>';
+          html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="remove-lock">' + t('去锁') + '</button>';
         } else {
-          html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="lock">加锁</button>';
+          html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="lock">' + t('加锁') + '</button>';
         }
         menu.innerHTML = html;
         document.body.appendChild(menu);
@@ -709,13 +716,13 @@
         menu.className = 'folder-context-menu';
         menu.setAttribute('data-folder-path', path);
         const lockActionsHtml = node.locked
-          ? '<button type="button" class="folder-context-item" data-folder-menu-action="' + (unlockedFolderPasswords.has(path) ? 'session-lock' : 'session-unlock') + '">' + (unlockedFolderPasswords.has(path) ? '加锁' : '解锁') + '</button>' +
-            '<button type="button" class="folder-context-item" data-folder-menu-action="remove-lock">去锁</button>'
-          : '<button type="button" class="folder-context-item" data-folder-menu-action="lock">加锁</button>';
+          ? '<button type="button" class="folder-context-item" data-folder-menu-action="' + (unlockedFolderPasswords.has(path) ? 'session-lock' : 'session-unlock') + '">' + t(unlockedFolderPasswords.has(path) ? '加锁' : '解锁') + '</button>' +
+            '<button type="button" class="folder-context-item" data-folder-menu-action="remove-lock">' + t('去锁') + '</button>'
+          : '<button type="button" class="folder-context-item" data-folder-menu-action="lock">' + t('加锁') + '</button>';
         menu.innerHTML =
-          '<button type="button" class="folder-context-item" data-folder-menu-action="create">新建子目录</button>' +
-          '<button type="button" class="folder-context-item" data-folder-menu-action="delete">删除</button>' +
-          '<button type="button" class="folder-context-item" data-folder-menu-action="rename">改名</button>' +
+          '<button type="button" class="folder-context-item" data-folder-menu-action="create">' + t('新建子目录') + '</button>' +
+          '<button type="button" class="folder-context-item" data-folder-menu-action="delete">' + t('删除') + '</button>' +
+          '<button type="button" class="folder-context-item" data-folder-menu-action="rename">' + t('改名') + '</button>' +
           lockActionsHtml;
         document.body.appendChild(menu);
         menu.style.left = Math.round(clientX) + 'px';
@@ -736,7 +743,7 @@
         } else {
           renderFiles(activeSourceFiles);
         }
-        showStatus('目录已重新加锁：' + target, 'ok');
+        showStatus(t('目录已重新加锁：') + target, 'ok');
       }
 
       async function handleFolderContextAction(action, path) {
@@ -748,11 +755,11 @@
             return;
           }
           const password = await askLockPassword({
-            title: '加锁目录',
-            description: '请为目录「' + path + '」设置锁密码。加锁后需要输入密码才能访问。',
-            placeholder: '请输入新锁密码',
-            errorMessage: '加锁失败，请重新输入密码。',
-            statusErrorMessage: '加锁失败：密码错误或验证失败'
+            title: t('加锁目录'),
+            description: t('请为目录「') + path + t('」设置锁密码。加锁后需要输入密码才能访问。'),
+            placeholder: t('请输入新锁密码'),
+            errorMessage: t('加锁失败，请重新输入密码。'),
+            statusErrorMessage: t('加锁失败：密码错误或验证失败')
           });
           if (password === null) {
             return;
@@ -761,13 +768,13 @@
           setFolderNodeLockedState(path, true);
           setUnlockedFolderPassword(path, password);
           await loadFiles();
-          showStatus('目录已加锁：' + path, 'ok');
+          showStatus(t('目录已加锁：') + path, 'ok');
           return;
         }
         if (action === 'session-unlock') {
           const password = await askLockPassword({
-            title: '解锁目录',
-            description: '请输入目录「' + path + '」的锁密码。',
+            title: t('解锁目录'),
+            description: t('请输入目录「') + path + t('」的锁密码。'),
             onSubmit: async function (passwordText) {
               return fetchJson(api.folderLockVerify + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
             }
@@ -779,7 +786,7 @@
           activeFolderPath = path;
           ensureFolderPathExpanded(activeFolderPath);
           await loadFiles();
-          showStatus('目录已解锁（当前会话）：' + path, 'ok');
+          showStatus(t('目录已解锁（当前会话）：') + path, 'ok');
           return;
         }
         if (action === 'session-lock') {
@@ -788,10 +795,10 @@
         }
         if (action === 'remove-lock') {
           const password = await askLockPassword({
-            title: '去锁目录',
-            description: '请输入目录「' + path + '」的锁密码。验证成功后会永久移除该目录锁。',
-            errorMessage: '密码错误或去锁失败，请重新输入。',
-            statusErrorMessage: '去锁失败：密码错误或验证失败',
+            title: t('去锁目录'),
+            description: t('请输入目录「') + path + t('」的锁密码。验证成功后会永久移除该目录锁。'),
+            errorMessage: t('密码错误或去锁失败，请重新输入。'),
+            statusErrorMessage: t('去锁失败：密码错误或验证失败'),
             onSubmit: async function (passwordText) {
               await fetchJson(api.folderUnlock + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
             }
@@ -801,7 +808,7 @@
           }
           deleteUnlockedFolderPassword(path);
           await loadFiles();
-          showStatus('目录已去锁：' + path, 'ok');
+          showStatus(t('目录已去锁：') + path, 'ok');
           return;
         }
         if (!(await ensureFolderUnlocked(path))) {
@@ -826,11 +833,11 @@
         const fileLabel = local ? path : path;
         if (action === 'lock') {
           const password = await askLockPassword({
-            title: '加锁文件',
-            description: '请为文件「' + fileLabel + '」设置锁密码。',
-            placeholder: '请输入新锁密码',
-            errorMessage: '加锁失败，请重新输入密码。',
-            statusErrorMessage: '加锁失败：密码错误或验证失败'
+            title: t('加锁文件'),
+            description: t('请为文件「') + fileLabel + t('」设置锁密码。'),
+            placeholder: t('请输入新锁密码'),
+            errorMessage: t('加锁失败，请重新输入密码。'),
+            statusErrorMessage: t('加锁失败：密码错误或验证失败')
           });
           if (password === null) {
             return;
@@ -850,13 +857,13 @@
           } else {
             renderFiles(activeSourceFiles);
           }
-          showStatus('文件已加锁：' + fileLabel, 'ok');
+          showStatus(t('文件已加锁：') + fileLabel, 'ok');
           return;
         }
         if (action === 'session-unlock') {
           const password = await askLockPassword({
-            title: '解锁文件',
-            description: '请输入文件「' + fileLabel + '」的锁密码。',
+            title: t('解锁文件'),
+            description: t('请输入文件「') + fileLabel + t('」的锁密码。'),
             onSubmit: async function (passwordText) {
               const url = api.fileLockVerify
                 + (local
@@ -877,7 +884,7 @@
           } else {
             renderFiles(activeSourceFiles);
           }
-          showStatus('文件已解锁（当前会话）：' + fileLabel, 'ok');
+          showStatus(t('文件已解锁（当前会话）：') + fileLabel, 'ok');
           return;
         }
         if (action === 'session-lock') {
@@ -889,15 +896,15 @@
           } else {
             renderFiles(activeSourceFiles);
           }
-          showStatus('文件已重新加锁：' + fileLabel, 'ok');
+          showStatus(t('文件已重新加锁：') + fileLabel, 'ok');
           return;
         }
         if (action === 'remove-lock') {
           const password = await askLockPassword({
-            title: '去锁文件',
-            description: '请输入文件「' + fileLabel + '」的锁密码。验证成功后会永久移除该文件锁。',
-            errorMessage: '密码错误或去锁失败，请重新输入。',
-            statusErrorMessage: '去锁失败：密码错误或验证失败',
+            title: t('去锁文件'),
+            description: t('请输入文件「') + fileLabel + t('」的锁密码。验证成功后会永久移除该文件锁。'),
+            errorMessage: t('密码错误或去锁失败，请重新输入。'),
+            statusErrorMessage: t('去锁失败：密码错误或验证失败'),
             onSubmit: async function (passwordText) {
               const url = api.fileUnlock
                 + (local
@@ -919,7 +926,7 @@
           } else {
             renderFiles(activeSourceFiles);
           }
-          showStatus('文件已去锁：' + fileLabel, 'ok');
+          showStatus(t('文件已去锁：') + fileLabel, 'ok');
           return;
         }
         if (action === 'open-local-player') {
@@ -927,7 +934,7 @@
           url = appendFilePassword(url, path, true);
           url = appendLocalDirPassword(url, localDiskParentPath(path));
           await fetchJson(url, { method: 'POST' });
-          showStatus('已调用本地播放器：' + fileLabel, 'ok');
+          showStatus(t('已调用本地播放器：') + fileLabel, 'ok');
           return;
         }
         if (action === 'choose-local-player') {
@@ -935,7 +942,7 @@
           url = appendFilePassword(url, path, true);
           url = appendLocalDirPassword(url, localDiskParentPath(path));
           await fetchJson(url, { method: 'POST' });
-          showStatus('已打开本地播放器选择窗口：' + fileLabel, 'ok');
+          showStatus(t('已打开本地播放器选择窗口：') + fileLabel, 'ok');
         }
       }
 
@@ -946,11 +953,11 @@
         }
         if (action === 'lock') {
           const password = await askLockPassword({
-            title: '加锁本地目录',
-            description: '请为本地目录「' + dirPath + '」设置锁密码。加锁后需要输入密码才能访问。',
-            placeholder: '请输入新锁密码',
-            errorMessage: '加锁失败，请重新输入密码。',
-            statusErrorMessage: '加锁失败：密码错误或验证失败'
+            title: t('加锁本地目录'),
+            description: t('请为本地目录「') + dirPath + t('」设置锁密码。加锁后需要输入密码才能访问。'),
+            placeholder: t('请输入新锁密码'),
+            errorMessage: t('加锁失败，请重新输入密码。'),
+            statusErrorMessage: t('加锁失败：密码错误或验证失败')
           });
           if (password === null) {
             return;
@@ -963,13 +970,13 @@
             ? localDiskParentPath(dirPath)
             : (activeLocalDiskPath || '');
           await loadLocalDisk(nextPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, nextPath) });
-          showStatus('本地目录已加锁：' + dirPath, 'ok');
+          showStatus(t('本地目录已加锁：') + dirPath, 'ok');
           return;
         }
         if (action === 'session-unlock') {
           const password = await askLockPassword({
-            title: '解锁本地目录',
-            description: '请输入本地目录「' + dirPath + '」的锁密码。',
+            title: t('解锁本地目录'),
+            description: t('请输入本地目录「') + dirPath + t('」的锁密码。'),
             onSubmit: async function (passwordText) {
               await fetchJson(api.fileLockVerify + '?local=1&dir=1&path=' + encodeURIComponent(dirPath) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
             }
@@ -979,7 +986,7 @@
           }
           setUnlockedLocalDirPassword(dirPath, password);
           await loadLocalDisk(dirPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, dirPath) });
-          showStatus('本地目录已解锁（当前会话）：' + dirPath, 'ok');
+          showStatus(t('本地目录已解锁（当前会话）：') + dirPath, 'ok');
           return;
         }
         if (action === 'session-lock') {
@@ -989,15 +996,15 @@
           } else {
             renderLocalDiskItems(activeLocalDiskItems);
           }
-          showStatus('本地目录已重新加锁：' + dirPath, 'ok');
+          showStatus(t('本地目录已重新加锁：') + dirPath, 'ok');
           return;
         }
         if (action === 'remove-lock') {
           const password = await askLockPassword({
-            title: '去锁本地目录',
-            description: '请输入本地目录「' + dirPath + '」的锁密码。验证成功后会永久移除该目录锁。',
-            errorMessage: '密码错误或去锁失败，请重新输入。',
-            statusErrorMessage: '去锁失败：密码错误或验证失败',
+            title: t('去锁本地目录'),
+            description: t('请输入本地目录「') + dirPath + t('」的锁密码。验证成功后会永久移除该目录锁。'),
+            errorMessage: t('密码错误或去锁失败，请重新输入。'),
+            statusErrorMessage: t('去锁失败：密码错误或验证失败'),
             onSubmit: async function (passwordText) {
               await fetchJson(api.fileUnlock + '?local=1&dir=1&path=' + encodeURIComponent(dirPath) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
             }
@@ -1008,7 +1015,7 @@
           deleteUnlockedLocalDirPassword(dirPath);
           setLocalDiskDirLockedState(dirPath, false);
           await loadLocalDisk(activeLocalDiskPath || '', { resetTreeRoot: false });
-          showStatus('本地目录已去锁：' + dirPath, 'ok');
+          showStatus(t('本地目录已去锁：') + dirPath, 'ok');
         }
       }
 
@@ -1021,8 +1028,8 @@
           return true;
         }
         const password = await askLockPassword({
-          title: '解锁本地目录',
-          description: '请输入本地目录「' + dirPath + '」的锁密码。',
+          title: t('解锁本地目录'),
+          description: t('请输入本地目录「') + dirPath + t('」的锁密码。'),
           onSubmit: async function (passwordText) {
             await fetchJson(api.fileLockVerify + '?local=1&dir=1&path=' + encodeURIComponent(dirPath) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
           }
@@ -1164,9 +1171,9 @@
         const rawSelectedCount = Array.isArray(folderPaths) ? folderPaths.length : 0;
         const ignoredCount = rawSelectedCount > selected.length ? (rawSelectedCount - selected.length) : 0;
         const confirmed = await askConfirmDialog({
-          title: '移入回收站',
-          description: '确认将选中的 ' + selected.length + ' 个文件夹及其全部内容移入回收站？',
-          confirmText: '移入回收站',
+          title: t('移入回收站'),
+          description: t('确认将选中的 ') + selected.length + t(' 个文件夹及其全部内容移入回收站？'),
+          confirmText: t('移入回收站'),
           danger: true
         });
         if (!confirmed) {
@@ -1201,8 +1208,8 @@
         const isCollapsed = !!collapsed;
         shell.classList.toggle('sidebar-collapsed', isCollapsed);
         sidebarToggleBtn.textContent = isCollapsed ? '▶' : '◀';
-        sidebarToggleBtn.setAttribute('aria-label', isCollapsed ? '展开左侧栏' : '收起左侧栏');
-        sidebarToggleBtn.setAttribute('title', isCollapsed ? '展开左侧栏' : '收起左侧栏');
+        sidebarToggleBtn.setAttribute('aria-label', isCollapsed ? t('展开左侧栏') : t('收起左侧栏'));
+        sidebarToggleBtn.setAttribute('title', isCollapsed ? t('展开左侧栏') : t('收起左侧栏'));
       }
 
       function setActivePanel(panelId) {
@@ -1270,7 +1277,7 @@
           }
 
           const timer = setTimeout(function () {
-            cleanup(false, '加载元数据超时');
+            cleanup(false, t('加载元数据超时'));
           }, timeoutMs || 8000);
 
           video.preload = 'metadata';
@@ -1284,7 +1291,7 @@
 
           video.onerror = function () {
             clearTimeout(timer);
-            cleanup(false, '浏览器不支持该视频编码或容器');
+            cleanup(false, t('浏览器不支持该视频编码或容器'));
           };
 
           video.src = src;
@@ -1311,11 +1318,11 @@
           const audioProbe = await checkVideoAudio(name);
 
           let needConvert = !probe.ok;
-          let reason = probe.reason || '无法解析视频';
+          let reason = probe.reason || t('无法解析视频');
 
           if (audioProbe && audioProbe.ok && audioProbe.has_audio && audioProbe.browser_audio_supported === false) {
             needConvert = true;
-            reason = '音频编码 ' + (audioProbe.audio_codec || 'unknown') + ' 浏览器不支持';
+            reason = t('音频编码 ') + (audioProbe.audio_codec || 'unknown') + t(' 浏览器不支持');
           }
 
           if (needConvert) {
@@ -1468,10 +1475,10 @@
           html += '<hr class="tag-context-sep">';
           if (lockInfo.locked) {
             const unlocked = !!getTagPassword(tagId);
-            html += '<button type="button" class="folder-context-item" data-tag-lock-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + (unlocked ? '加锁' : '解锁') + '</button>';
-            html += '<button type="button" class="folder-context-item" data-tag-lock-action="remove-lock">去锁</button>';
+            html += '<button type="button" class="folder-context-item" data-tag-lock-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + t(unlocked ? '加锁' : '解锁') + '</button>';
+            html += '<button type="button" class="folder-context-item" data-tag-lock-action="remove-lock">' + t('去锁') + '</button>';
           } else {
-            html += '<button type="button" class="folder-context-item" data-tag-lock-action="lock">加锁</button>';
+            html += '<button type="button" class="folder-context-item" data-tag-lock-action="lock">' + t('加锁') + '</button>';
           }
           menu.setAttribute('data-tag-lock-id', tagId);
           activeFileContextMenu = menu;
@@ -1502,10 +1509,10 @@
         let html = '';
         if (locked) {
           const unlocked = !!getTagPassword(id);
-          html += '<button type="button" class="folder-context-item" data-tag-lock-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + (unlocked ? '加锁' : '解锁') + '</button>';
-          html += '<button type="button" class="folder-context-item" data-tag-lock-action="remove-lock">去锁</button>';
+          html += '<button type="button" class="folder-context-item" data-tag-lock-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + t(unlocked ? '加锁' : '解锁') + '</button>';
+          html += '<button type="button" class="folder-context-item" data-tag-lock-action="remove-lock">' + t('去锁') + '</button>';
         } else {
-          html += '<button type="button" class="folder-context-item" data-tag-lock-action="lock">加锁</button>';
+          html += '<button type="button" class="folder-context-item" data-tag-lock-action="lock">' + t('加锁') + '</button>';
         }
         menu.innerHTML = html;
         document.body.appendChild(menu);
@@ -1532,7 +1539,7 @@
       function renderAudioPlayModeButtons(activeMode) {
         return ['random', 'sequential', 'loop'].map(function (modeKey) {
           const activeClass = modeKey === activeMode ? 'audio-mode-btn active' : 'audio-mode-btn';
-          const label = AUDIO_PLAY_MODE_LABELS[modeKey] || '播放方式';
+          const label = AUDIO_PLAY_MODE_LABELS[modeKey] || t('播放方式');
           const icon = AUDIO_PLAY_MODE_ICONS[modeKey] || '?';
           return '<button type="button" class="' + activeClass + '" data-audio-mode="' + modeKey + '" title="' + escapeHtml(label) + '" aria-label="' + escapeHtml(label) + '">' +
             '<span class="audio-mode-btn-icon">' + icon + '</span>' +
@@ -1549,7 +1556,7 @@
 
         const displayFiles = sortAudioFilesForPlaylist(files);
         if (!displayFiles.length) {
-          throw new Error('该标签下没有可播放的音频文件');
+          throw new Error(t('该标签下没有可播放的音频文件'));
         }
 
         const win = document.createElement('div');
@@ -1559,10 +1566,10 @@
 
         win.innerHTML =
           '<div class="preview-head">' +
-            '<div class="preview-title">' + escapeHtml((AUDIO_PLAY_MODE_LABELS[mode] || '音频播放') + '：' + (tagName || '音频标签')) + '</div>' +
+            '<div class="preview-title">' + escapeHtml((AUDIO_PLAY_MODE_LABELS[mode] || t('音频播放')) + t('：') + (tagName || t('音频标签'))) + '</div>' +
             '<div class="preview-head-actions">' +
-              '<button class="preview-window-btn" type="button" data-window-action="minimize" title="最小化" aria-label="最小化">−</button>' +
-              '<button class="preview-window-btn" type="button" data-window-action="maximize" title="最大化" aria-label="最大化">□</button>' +
+              '<button class="preview-window-btn" type="button" data-window-action="minimize" title="' + escapeHtml(t('最小化')) + '" aria-label="' + escapeHtml(t('最小化')) + '">−</button>' +
+              '<button class="preview-window-btn" type="button" data-window-action="maximize" title="' + escapeHtml(t('最大化')) + '" aria-label="' + escapeHtml(t('最大化')) + '">□</button>' +
               '<button class="preview-close" type="button" title="关闭" aria-label="关闭">×</button>' +
             '</div>' +
           '</div>' +
@@ -1574,8 +1581,8 @@
             '<audio class="preview-audio audio-playlist-player" controls preload="metadata"></audio>' +
             '<div class="audio-playlist-panel">' +
               '<div class="audio-playlist-panel-head">' +
-                '<div class="audio-playlist-summary">共 <span class="audio-playlist-count"></span> 个音频文件</div>' +
-                '<button type="button" class="audio-playlist-toggle-btn" title="收起远程磁盘" aria-label="收起远程磁盘">▾</button>' +
+                '<div class="audio-playlist-summary">' + t('共 ') + '<span class="audio-playlist-count"></span>' + t(' 个音频文件') + '</div>' +
+                '<button type="button" class="audio-playlist-toggle-btn" title="' + escapeHtml(t('收起远程磁盘')) + '" aria-label="' + escapeHtml(t('收起远程磁盘')) + '">▾</button>' +
               '</div>' +
               '<div class="audio-playlist-items"></div>' +
             '</div>' +
@@ -1647,8 +1654,8 @@
           if (maximizeBtn) {
             const restoreMode = win.classList.contains('is-minimized') || win.classList.contains('is-maximized');
             maximizeBtn.textContent = restoreMode ? '❐' : '□';
-            maximizeBtn.title = restoreMode ? '恢复窗口' : '最大化';
-            maximizeBtn.setAttribute('aria-label', restoreMode ? '恢复窗口' : '最大化');
+            maximizeBtn.title = restoreMode ? t('复原') : t('最大化');
+            maximizeBtn.setAttribute('aria-label', restoreMode ? t('复原') : t('最大化'));
           }
         }
 
@@ -1661,7 +1668,7 @@
         function syncAudioWindowTitle() {
           const titleEl = win.querySelector('.preview-title');
           if (titleEl) {
-            titleEl.textContent = (AUDIO_PLAY_MODE_LABELS[currentMode] || '音频播放') + '：' + (tagName || '音频标签');
+            titleEl.textContent = (AUDIO_PLAY_MODE_LABELS[currentMode] || t('音频播放')) + t('：') + (tagName || t('音频标签'));
           }
         }
 
@@ -1671,8 +1678,8 @@
           }
           if (playlistToggleBtn) {
             playlistToggleBtn.textContent = isPlaylistCollapsed ? '▸' : '▾';
-            playlistToggleBtn.title = isPlaylistCollapsed ? '展开远程磁盘' : '收起远程磁盘';
-            playlistToggleBtn.setAttribute('aria-label', isPlaylistCollapsed ? '展开远程磁盘' : '收起远程磁盘');
+            playlistToggleBtn.title = isPlaylistCollapsed ? t('展开远程磁盘') : t('收起远程磁盘');
+            playlistToggleBtn.setAttribute('aria-label', isPlaylistCollapsed ? t('展开远程磁盘') : t('收起远程磁盘'));
           }
         }
 
@@ -1877,6 +1884,15 @@
           e.preventDefault();
         });
 
+        head.addEventListener('dblclick', function (e) {
+          if (e.target.closest('.preview-close') || e.target.closest('.preview-window-btn')) {
+            return;
+          }
+          e.preventDefault();
+          bringToFront(win);
+          maximizeAudioWindow();
+        });
+
         syncAudioWindowButtons();
 
         syncAudioModeUI();
@@ -1894,7 +1910,7 @@
       async function startAudioPlaylistFromTag(tagId, tagName, mode) {
         const files = await loadAudioFilesForTag(tagId);
         if (!files.length) {
-          throw new Error('该标签下没有音频文件');
+          throw new Error(t('该标签下没有音频文件'));
         }
         openAudioPlaylistWindow(tagId, tagName, mode, files);
       }
@@ -1927,13 +1943,13 @@
         }
 
         const opts = options || {};
-        tagDialogTitle.textContent = String(opts.title || '新建标签');
-        tagDialogDesc.textContent = String(opts.description || '请输入标签名称。');
+        tagDialogTitle.textContent = String(opts.title || t('新建标签'));
+        tagDialogDesc.textContent = String(opts.description || t('请输入标签名称。'));
         if (tagDialogLabel) {
-          tagDialogLabel.textContent = String(opts.label || '标签名称');
+          tagDialogLabel.textContent = String(opts.label || t('标签名称'));
         }
         tagDialogInput.value = String(opts.initialValue || '');
-        tagDialogInput.placeholder = String(opts.placeholder || '请输入标签名称');
+        tagDialogInput.placeholder = String(opts.placeholder || t('请输入标签名称'));
         tagDialog.hidden = false;
         document.body.style.overflow = 'hidden';
 
@@ -1979,10 +1995,10 @@
         }
 
         const opts = options || {};
-        lockDialogTitle.textContent = String(opts.title || '解锁目录');
-        lockDialogDesc.textContent = String(opts.description || '请输入目录锁密码。');
+        lockDialogTitle.textContent = String(opts.title || t('解锁目录'));
+        lockDialogDesc.textContent = String(opts.description || t('请输入目录锁密码。'));
         lockDialogInput.value = '';
-        lockDialogInput.placeholder = String(opts.placeholder || '请输入锁密码');
+        lockDialogInput.placeholder = String(opts.placeholder || t('请输入锁密码'));
         setLockDialogError('');
         lockDialog.hidden = false;
         document.body.style.overflow = 'hidden';
@@ -1996,8 +2012,8 @@
           activeLockDialogState = {
             resolve: resolve,
             onSubmit: typeof opts.onSubmit === 'function' ? opts.onSubmit : null,
-            errorMessage: String(opts.errorMessage || '密码错误或验证失败，请重新输入。'),
-            statusErrorMessage: String(opts.statusErrorMessage || '解锁失败：密码错误或验证失败')
+            errorMessage: String(opts.errorMessage || t('密码错误或验证失败，请重新输入。')),
+            statusErrorMessage: String(opts.statusErrorMessage || t('解锁失败：密码错误或验证失败'))
           };
         });
       }
@@ -2023,13 +2039,13 @@
           closeConfirmDialog(false);
         }
         const opts = options || {};
-        confirmDialogTitle.textContent = String(opts.title || '确认操作');
-        confirmDialogDesc.textContent = String(opts.description || '请确认是否继续。');
+        confirmDialogTitle.textContent = String(opts.title || t('确认操作'));
+        confirmDialogDesc.textContent = String(opts.description || t('请确认是否继续。'));
         if (confirmDialogCancelBtn) {
-          confirmDialogCancelBtn.textContent = String(opts.cancelText || '取消');
+          confirmDialogCancelBtn.textContent = String(opts.cancelText || t('取消'));
         }
         if (confirmDialogConfirmBtn) {
-          confirmDialogConfirmBtn.textContent = String(opts.confirmText || '确认');
+          confirmDialogConfirmBtn.textContent = String(opts.confirmText || t('确认'));
           confirmDialogConfirmBtn.classList.toggle('danger', opts.danger !== false);
         }
         confirmDialog.hidden = false;
@@ -2159,7 +2175,7 @@
         const toggleSymbol = getTagNodeToggleSymbol(node, safeLevel);
         const restrictedRootType = getRestrictedRootTagType(node, safeLevel);
         const restrictedBadgeHtml = restrictedRootType
-          ? '<span class="tag-limit-badge ' + restrictedRootType + '">' + (restrictedRootType === 'video' ? '仅视频' : (restrictedRootType === 'audio' ? '仅音频' : '仅图片')) + '</span>'
+          ? '<span class="tag-limit-badge ' + restrictedRootType + '">' + (restrictedRootType === 'video' ? t('仅视频') : (restrictedRootType === 'audio' ? t('仅音频') : t('仅图片'))) + '</span>'
           : '';
 
         let childHtml = '';
@@ -2183,15 +2199,15 @@
           : '<span class="tag-node-name" data-tag-id="' + node.id + '">' + escapeHtml(node.name) + '</span>';
         const tagUnlocked = !!getTagPassword(node.id);
         const tagLockHtml = (canLockTag && node.locked)
-          ? '<span class="folder-lock-icon file-lock-inline tag-lock-inline' + (tagUnlocked ? ' unlocked' : '') + '" data-tag-lock-toggle="' + escapeHtml(node.id) + '" title="' + (tagUnlocked ? '点击重新加锁' : '点击解锁') + '" aria-label="' + (tagUnlocked ? '点击重新加锁' : '点击解锁') + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
+          ? '<span class="folder-lock-icon file-lock-inline tag-lock-inline' + (tagUnlocked ? ' unlocked' : '') + '" data-tag-lock-toggle="' + escapeHtml(node.id) + '" title="' + escapeHtml(t(tagUnlocked ? '点击重新加锁' : '点击解锁')) + '" aria-label="' + escapeHtml(t(tagUnlocked ? '点击重新加锁' : '点击解锁')) + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
           : '';
         const actionHtml =
           '<div class="tag-actions">' +
             (canExpand
-              ? '<button type="button" class="tag-inline-btn" data-tag-create="' + node.id + '" data-tag-level="' + safeLevel + '" title="新增子标签">+</button>'
+              ? '<button type="button" class="tag-inline-btn" data-tag-create="' + node.id + '" data-tag-level="' + safeLevel + '" title="' + escapeHtml(t('新增子标签')) + '">+</button>'
               : '') +
             (canDeleteTag
-              ? '<button type="button" class="tag-inline-btn danger" data-tag-delete="' + node.id + '" title="删除标签">-</button>'
+              ? '<button type="button" class="tag-inline-btn danger" data-tag-delete="' + node.id + '" title="' + escapeHtml(t('删除标签')) + '">-</button>'
               : '') +
           '</div>';
 
@@ -2218,7 +2234,7 @@
           return;
         }
         filesTagToggleBtn.textContent = '+';
-        filesTagToggleBtn.setAttribute('title', '新增一级标签');
+        filesTagToggleBtn.setAttribute('title', t('新增一级标签'));
       }
 
       function renderTagTree() {
@@ -2298,8 +2314,8 @@
         menu.setAttribute('data-quick-tag-files', targetFiles.join('\n'));
         menu.setAttribute('data-quick-tag-local', opts.local ? '1' : '0');
         menu.innerHTML = tagTree.length
-          ? '<div class="quick-tag-title">' + (targetFiles.length > 1 ? ('给 ' + targetFiles.length + ' 个文件加入标签') : '加入标签') + '</div>' + buildQuickTagTreeHtml(tagTree, targetFiles, 1)
-          : '<div class="quick-tag-empty">当前没有标签</div>';
+          ? '<div class="quick-tag-title">' + (targetFiles.length > 1 ? (t('给 ') + targetFiles.length + t(' 个文件加入标签')) : t('加入标签')) + '</div>' + buildQuickTagTreeHtml(tagTree, targetFiles, 1)
+          : '<div class="quick-tag-empty">' + t('当前没有标签') + '</div>';
         document.body.appendChild(menu);
         const rect = button.getBoundingClientRect();
         menu.style.left = Math.round(rect.left) + 'px';
@@ -2364,7 +2380,7 @@
 
         const nextName = String(input.value || '').trim();
         if (!nextName) {
-          showStatus('标签名称不能为空', 'err');
+          showStatus(t('标签名称不能为空'), 'err');
           input.focus();
           return;
         }
@@ -2388,9 +2404,9 @@
           } else {
             updateFileViewContext();
           }
-          showStatus('标签已改名：' + nextName, 'ok');
+          showStatus(t('标签已改名：') + nextName, 'ok');
         } catch (err) {
-          showStatus('标签改名失败：' + err.message, 'err');
+          showStatus(t('标签改名失败：') + err.message, 'err');
           input.focus();
           input.select();
         } finally {
@@ -2543,7 +2559,7 @@
         }
         const meta = findTagMetaById(id);
         if (!meta || !meta.node) {
-          showStatus('标签不存在，可能已被删除', 'err');
+          showStatus(t('标签不存在，可能已被删除'), 'err');
           return false;
         }
         if (!meta.node.locked || getTagPassword(id)) {
@@ -2561,22 +2577,22 @@
 
         const meta = findTagMetaById(id);
         if (!meta || !meta.node) {
-          showStatus('标签不存在，可能已被删除', 'err');
+          showStatus(t('标签不存在，可能已被删除'), 'err');
           return false;
         }
         if (!canLockTagNode(meta.node, meta.level)) {
-          showStatus('保留标签不能加锁', 'err');
+          showStatus(t('保留标签不能加锁'), 'err');
           return false;
         }
 
         const label = String(meta.node.name || id);
         if (action === 'lock') {
           const password = await askLockPassword({
-            title: '加锁标签',
-            description: '请为标签「' + label + '」设置锁密码。加锁后需要输入密码才能查看该标签下的文件。',
-            placeholder: '请输入新锁密码',
-            errorMessage: '加锁失败，请重新输入密码。',
-            statusErrorMessage: '加锁失败：密码错误或验证失败'
+            title: t('加锁标签'),
+            description: t('请为标签「') + label + t('」设置锁密码。加锁后需要输入密码才能查看该标签下的文件。'),
+            placeholder: t('请输入新锁密码'),
+            errorMessage: t('加锁失败，请重新输入密码。'),
+            statusErrorMessage: t('加锁失败：密码错误或验证失败')
           });
           if (password === null) {
             return false;
@@ -2588,14 +2604,14 @@
             renderFiles([]);
           }
           renderTagTree();
-          showStatus('标签已加锁：' + label, 'ok');
+          showStatus(t('标签已加锁：') + label, 'ok');
           return true;
         }
 
         if (action === 'session-unlock') {
           const password = await askLockPassword({
-            title: '解锁标签',
-            description: '请输入标签「' + label + '」的锁密码。',
+            title: t('解锁标签'),
+            description: t('请输入标签「') + label + t('」的锁密码。'),
             onSubmit: async function (passwordText) {
               await fetchJson(api.tagLockVerify + '?id=' + encodeURIComponent(id) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
             }
@@ -2610,7 +2626,7 @@
             await showFilesForTag(id);
           }
           if (!opts.silentSuccess) {
-            showStatus('标签已解锁（当前会话）：' + label, 'ok');
+            showStatus(t('标签已解锁（当前会话）：') + label, 'ok');
           }
           return true;
         }
@@ -2621,16 +2637,16 @@
             renderFiles([]);
           }
           renderTagTree();
-          showStatus('标签已重新加锁：' + label, 'ok');
+          showStatus(t('标签已重新加锁：') + label, 'ok');
           return true;
         }
 
         if (action === 'remove-lock') {
           const password = await askLockPassword({
-            title: '去锁标签',
-            description: '请输入标签「' + label + '」的锁密码。验证成功后会永久移除该标签锁。',
-            errorMessage: '密码错误或去锁失败，请重新输入。',
-            statusErrorMessage: '去锁失败：密码错误或验证失败',
+            title: t('去锁标签'),
+            description: t('请输入标签「') + label + t('」的锁密码。验证成功后会永久移除该标签锁。'),
+            errorMessage: t('密码错误或去锁失败，请重新输入。'),
+            statusErrorMessage: t('去锁失败：密码错误或验证失败'),
             onSubmit: async function (passwordText) {
               await fetchJson(api.tagUnlock + '?id=' + encodeURIComponent(id) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
             }
@@ -2645,7 +2661,7 @@
           } else {
             renderTagTree();
           }
-          showStatus('标签已去锁：' + label, 'ok');
+          showStatus(t('标签已去锁：') + label, 'ok');
           return true;
         }
 
@@ -2658,13 +2674,13 @@
           return { ok: true, message: '' };
         }
         if (constraint === 'video' && !isVideoName(fileName)) {
-          return { ok: false, message: '视频标签及其子标签只能引用视频文件（mp4/avi/mkv/rmvb）' };
+          return { ok: false, message: t('视频标签及其子标签只能引用视频文件（mp4/avi/mkv/rmvb）') };
         }
         if (constraint === 'audio' && !isAudioName(fileName)) {
-          return { ok: false, message: '音频标签及其子标签只能引用音频文件（mp3/m4a/aac/wav/ogg/flac）' };
+          return { ok: false, message: t('音频标签及其子标签只能引用音频文件（mp3/m4a/aac/wav/ogg/flac）') };
         }
         if (constraint === 'image' && !isImageName(fileName)) {
-          return { ok: false, message: '图片标签及其子标签只能引用图片文件（png/jpg/jpeg/gif）' };
+          return { ok: false, message: t('图片标签及其子标签只能引用图片文件（png/jpg/jpeg/gif）') };
         }
         return { ok: true, message: '' };
       }
@@ -2672,7 +2688,7 @@
       async function addTagNode(parentTagId, name) {
         const cleanName = String(name || '').trim();
         if (!cleanName) {
-          return { ok: false, message: '标签名称不能为空' };
+          return { ok: false, message: t('标签名称不能为空') };
         }
 
         try {
@@ -2690,7 +2706,7 @@
       async function migrateLegacyTagNode(node, parentTagId) {
         const createResult = await addTagNode(parentTagId, node.name || '');
         if (!createResult.ok || !createResult.id) {
-          throw new Error(createResult.message || '创建标签失败');
+          throw new Error(createResult.message || t('创建标签失败'));
         }
 
         const serverTagId = createResult.id;
@@ -2754,7 +2770,7 @@
       async function bindFileToTag(tagId, fileName, options) {
         const cleanName = String(fileName || '');
         if (!cleanName) {
-          return { ok: false, message: '请选择要引用的文件' };
+          return { ok: false, message: t('请选择要引用的文件') };
         }
         const opts = options || {};
 
@@ -2812,25 +2828,25 @@
 
         statusBox.className = 'status show warn';
         statusBox.innerHTML =
-          '<div>检测到以下视频建议转码（需你确认后才会开始）：</div>' +
+          '<div>' + t('检测到以下视频建议转码（需你确认后才会开始）：') + '</div>' +
           '<div class="transcode-list">' +
           list.map(function (item) {
             const name = String(item.name || '');
-            const reason = String(item.reason || '浏览器兼容性不足');
+            const reason = String(item.reason || t('浏览器兼容性不足'));
             const encoded = encodeURIComponent(name);
             return (
               '<div class="transcode-item" data-transcode-item="' + encoded + '">' +
                 '<div class="transcode-item-head">' +
                   '<div>' +
                     '<div class="transcode-item-name">' + escapeHtml(name) + '</div>' +
-                    '<div class="transcode-item-reason">原因：' + escapeHtml(reason) + '</div>' +
+                    '<div class="transcode-item-reason">' + t('原因：') + escapeHtml(reason) + '</div>' +
                   '</div>' +
                   '<div class="transcode-actions">' +
-                    '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '">确认转码</button>' +
-                    '<button type="button" class="transcode-cancel-btn" data-cancel-file="' + encoded + '" disabled>取消转码</button>' +
-                    '<button type="button" class="transcode-confirm-btn" data-confirm-transcode="' + encoded + '" hidden>确认</button>' +
+                    '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '">' + t('确认转码') + '</button>' +
+                    '<button type="button" class="transcode-cancel-btn" data-cancel-file="' + encoded + '" disabled>' + t('取消转码') + '</button>' +
+                    '<button type="button" class="transcode-confirm-btn" data-confirm-transcode="' + encoded + '" hidden>' + t('确认') + '</button>' +
                     '<div class="transcode-progress"><div class="transcode-progress-fill" data-progress-fill="' + encoded + '"></div></div>' +
-                    '<span class="transcode-progress-text" data-progress-text="' + encoded + '">等待确认</span>' +
+                    '<span class="transcode-progress-text" data-progress-text="' + encoded + '">' + t('等待确认') + '</span>' +
                   '</div>' +
                 '</div>' +
               '</div>'
@@ -2921,7 +2937,7 @@
         if (!statusBox.querySelector('.transcode-list')) {
           statusBox.className = 'status show warn';
           statusBox.innerHTML =
-            '<div>检测到以下视频建议转码（需你确认后才会开始）：</div>' +
+            '<div>' + t('检测到以下视频建议转码（需你确认后才会开始）：') + '</div>' +
             '<div class="transcode-list"></div>';
         }
 
@@ -2942,9 +2958,9 @@
                 '<div class="transcode-item-reason"></div>' +
               '</div>' +
               '<div class="transcode-actions">' +
-                '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '" disabled>确认转码</button>' +
-                '<button type="button" class="transcode-cancel-btn" data-cancel-file="' + encoded + '">取消转码</button>' +
-                '<button type="button" class="transcode-confirm-btn" data-confirm-transcode="' + encoded + '" hidden>确认</button>' +
+                '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '" disabled>' + t('确认转码') + '</button>' +
+                '<button type="button" class="transcode-cancel-btn" data-cancel-file="' + encoded + '">' + t('取消转码') + '</button>' +
+                '<button type="button" class="transcode-confirm-btn" data-confirm-transcode="' + encoded + '" hidden>' + t('确认') + '</button>' +
                 '<div class="transcode-progress"><div class="transcode-progress-fill" data-progress-fill="' + encoded + '"></div></div>' +
                 '<span class="transcode-progress-text" data-progress-text="' + encoded + '"></span>' +
               '</div>' +
@@ -2959,7 +2975,7 @@
 
         const reason = row.querySelector('.transcode-item-reason');
         if (reason) {
-          reason.textContent = '状态：' + String(item.message || '后台转码中');
+          reason.textContent = t('状态：') + String(item.message || t('后台转码中'));
         }
 
         setTranscodeTaskId(encoded, String(item.task_id || ''));
@@ -3013,24 +3029,24 @@
         try {
           const data = await fetchJson(api.convertProgress + '?task_id=' + encodeURIComponent(taskId));
           const progress = Number(data.progress || 0);
-          updateTranscodeProgress(encodedName, progress, (data.message || '转码中') + ' ' + Math.max(0, Math.min(100, Math.round(progress))) + '%');
+          updateTranscodeProgress(encodedName, progress, (data.message || t('转码中')) + ' ' + Math.max(0, Math.min(100, Math.round(progress))) + '%');
 
           if (data.done) {
             stopTranscodePolling(encodedName);
             setTranscodeTaskId(encodedName, '');
             if (data.success) {
               setTranscodeVisualState(encodedName, 'done');
-              updateTranscodeProgress(encodedName, 100, '已完成');
-              setTranscodeReason(encodedName, '状态：已完成，输出文件 ' + String(data.name || decodeURIComponent(encodedName)));
+              updateTranscodeProgress(encodedName, 100, t('已完成'));
+              setTranscodeReason(encodedName, t('状态：已完成，输出文件 ') + String(data.name || decodeURIComponent(encodedName)));
               setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true, confirmVisible: true });
               await loadFiles();
             } else {
               const cancelled = data.cancel_requested || String(data.message || '').indexOf('取消') >= 0;
               setTranscodeVisualState(encodedName, cancelled ? 'cancelled' : 'failed');
-              updateTranscodeProgress(encodedName, progress, cancelled ? '已取消' : '失败');
+              updateTranscodeProgress(encodedName, progress, cancelled ? t('已取消') : t('失败'));
               setTranscodeReason(encodedName, cancelled
-                ? '状态：已取消'
-                : '状态：失败，' + String(data.error || data.message || '未知错误'));
+                ? t('状态：已取消')
+                : t('状态：失败，') + String(data.error || data.message || t('未知错误')));
               setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
             }
           }
@@ -3038,8 +3054,8 @@
           stopTranscodePolling(encodedName);
           setTranscodeTaskId(encodedName, '');
           setTranscodeVisualState(encodedName, 'failed');
-          updateTranscodeProgress(encodedName, 0, '进度查询失败');
-          setTranscodeReason(encodedName, '状态：进度查询失败，' + err.message);
+          updateTranscodeProgress(encodedName, 0, t('进度查询失败'));
+          setTranscodeReason(encodedName, t('状态：进度查询失败，') + err.message);
           setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
         }
       }
@@ -3047,7 +3063,7 @@
       async function cancelManualTranscode(encodedName) {
         const taskId = getTranscodeTaskId(encodedName);
         if (!taskId) {
-          setTranscodeReason(encodedName, '状态：找不到任务号，无法取消');
+          setTranscodeReason(encodedName, t('状态：找不到任务号，无法取消'));
           return;
         }
 
@@ -3057,11 +3073,11 @@
             method: 'POST'
           });
           setTranscodeVisualState(encodedName, 'cancelled');
-          updateTranscodeProgress(encodedName, 0, '取消中');
-          setTranscodeReason(encodedName, '状态：已发送取消请求，等待后台停止');
+          updateTranscodeProgress(encodedName, 0, t('取消中'));
+          setTranscodeReason(encodedName, t('状态：已发送取消请求，等待后台停止'));
         } catch (err) {
           setTranscodeVisualState(encodedName, 'failed');
-          setTranscodeReason(encodedName, '状态：取消失败，' + err.message);
+          setTranscodeReason(encodedName, t('状态：取消失败，') + err.message);
           setTranscodeButtons(encodedName, { cancelDisabled: false });
         }
       }
@@ -3072,16 +3088,16 @@
         const fileName = decodeURIComponent(encodedName);
         try {
           setTranscodeVisualState(encodedName, 'running');
-          updateTranscodeProgress(encodedName, 0, '任务创建中...');
-          setTranscodeReason(encodedName, '状态：正在请求后台启动转码任务');
+          updateTranscodeProgress(encodedName, 0, t('任务创建中...'));
+          setTranscodeReason(encodedName, t('状态：正在请求后台启动转码任务'));
           const data = await fetchJson(api.convertVideo + '?file=' + encodeURIComponent(fileName), {
             method: 'POST'
           });
 
           if (data.completed) {
             setTranscodeVisualState(encodedName, 'done');
-            updateTranscodeProgress(encodedName, 100, '无需转码');
-            setTranscodeReason(encodedName, '状态：文件已经可直接播放');
+            updateTranscodeProgress(encodedName, 100, t('无需转码'));
+            setTranscodeReason(encodedName, t('状态：文件已经可直接播放'));
             setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true, confirmVisible: true });
             return;
           }
@@ -3091,8 +3107,8 @@
           }
 
           setTranscodeTaskId(encodedName, String(data.task_id));
-          setTranscodeReason(encodedName, '状态：后台任务已启动，任务号 ' + String(data.task_id));
-          updateTranscodeProgress(encodedName, Number(data.progress || 0), '已启动');
+          setTranscodeReason(encodedName, t('状态：后台任务已启动，任务号 ') + String(data.task_id));
+          updateTranscodeProgress(encodedName, Number(data.progress || 0), t('已启动'));
           setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: false });
           stopTranscodePolling(encodedName);
           const timer = setInterval(function () {
@@ -3104,8 +3120,8 @@
           stopTranscodePolling(encodedName);
           setTranscodeTaskId(encodedName, '');
           setTranscodeVisualState(encodedName, 'failed');
-          updateTranscodeProgress(encodedName, 0, '失败：' + err.message);
-          setTranscodeReason(encodedName, '状态：失败，' + err.message);
+          updateTranscodeProgress(encodedName, 0, t('失败：') + err.message);
+          setTranscodeReason(encodedName, t('状态：失败，') + err.message);
           setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
         }
       }
@@ -3123,13 +3139,13 @@
         const p = Math.max(0, Math.min(100, Number(percent) || 0));
         uploadProgress.style.display = 'block';
         uploadProgressFill.style.width = p + '%';
-        uploadProgressText.textContent = text || ('上传中 ' + p + '%');
+        uploadProgressText.textContent = text || (t('上传中 ') + p + '%');
       }
 
       function hideUploadProgress() {
         uploadProgress.style.display = 'none';
         uploadProgressFill.style.width = '0%';
-        uploadProgressText.textContent = '准备上传...';
+        uploadProgressText.textContent = t('准备上传...');
       }
 
       function safeTime(file) {
@@ -3339,7 +3355,7 @@
         syncFolderActionButtons();
         if (!folderTreeData.length) {
           folderTree.innerHTML = '';
-          folderTreeEmpty.textContent = '当前没有文件夹。';
+          folderTreeEmpty.textContent = t('当前没有文件夹。');
           folderTreeEmpty.style.display = 'block';
           return;
         }
@@ -3349,7 +3365,7 @@
             '<div class="folder-tree-line" style="padding-left:10px;">' +
               '<span class="folder-tree-toggle placeholder">•</span>' +
               '<div class="folder-tree-entry" data-folder-select="">' +
-                '<span class="folder-tree-name"><span class="folder-tree-icon root" aria-hidden="true">⌂</span>根目录</span>' +
+                '<span class="folder-tree-name"><span class="folder-tree-icon root" aria-hidden="true">⌂</span>' + t('根目录') + '</span>' +
                 '<span class="folder-tree-count"></span>' +
               '</div>' +
             '</div>' +
@@ -3408,7 +3424,7 @@
         const nextName = String(input.value || '').trim();
         const oldName = folderNameFromPath(oldPath);
         if (!nextName) {
-          showStatus('文件夹名称不能为空', 'err');
+          showStatus(t('文件夹名称不能为空'), 'err');
           input.focus();
           return;
         }
@@ -3429,9 +3445,9 @@
           activeFolderPath = relocatePathAfterFolderMove(activeFolderPath, oldPath, newPath);
           ensureFolderPathExpanded(activeFolderPath);
           await loadFiles();
-          showStatus('文件夹已改名：' + nextName, 'ok');
+          showStatus(t('文件夹已改名：') + nextName, 'ok');
         } catch (err) {
-          showStatus('文件夹改名失败：' + err.message, 'err');
+          showStatus(t('文件夹改名失败：') + err.message, 'err');
           input.focus();
           input.select();
         } finally {
@@ -3451,17 +3467,17 @@
           return;
         }
         const name = await askTagName({
-          title: '新建子目录',
-          description: '请输入要创建在「' + getFolderLabel(activeFolderPath) + '」下的子目录名称。',
-          label: '目录名称',
-          placeholder: '请输入目录名称'
+          title: t('新建子目录'),
+          description: t('请输入要创建在「') + getFolderLabel(activeFolderPath) + t('」下的子目录名称。'),
+          label: t('目录名称'),
+          placeholder: t('请输入目录名称')
         });
         if (name === null) {
           return;
         }
         const cleanName = String(name || '').trim();
         if (!cleanName) {
-          showStatus('文件夹名称不能为空', 'err');
+          showStatus(t('文件夹名称不能为空'), 'err');
           return;
         }
         await fetchJson(
@@ -3473,7 +3489,7 @@
         );
         ensureFolderPathExpanded(activeFolderPath);
         await loadFolderTreeState();
-        showStatus('已创建文件夹：' + cleanName, 'ok');
+        showStatus(t('已创建文件夹：') + cleanName, 'ok');
       }
 
       async function deleteCurrentFolder() {
@@ -3485,9 +3501,9 @@
         }
         if (isRecycleFolderPath(activeFolderPath)) {
           const confirmedPermanent = await askConfirmDialog({
-            title: '彻底删除目录',
-            description: '确认彻底删除回收站中的目录「' + activeFolderPath + '」及其全部内容？此操作不可恢复。',
-            confirmText: '彻底删除',
+            title: t('彻底删除目录'),
+            description: t('确认彻底删除回收站中的目录「') + activeFolderPath + t('」及其全部内容？此操作不可恢复。'),
+            confirmText: t('彻底删除'),
             danger: true
           });
           if (!confirmedPermanent) {
@@ -3497,16 +3513,16 @@
           activeFolderPath = RECYCLE_FOLDER_NAME;
           ensureFolderPathExpanded(activeFolderPath);
           await loadFiles();
-          showStatus('回收站目录已彻底删除', 'warn');
+          showStatus(t('回收站目录已彻底删除'), 'warn');
           return;
         }
         if (!(await ensureFolderUnlocked(activeFolderPath))) {
           return;
         }
         const confirmed = await askConfirmDialog({
-          title: '删除目录',
-          description: '确认将目录「' + activeFolderPath + '」及其全部内容移入回收站？',
-          confirmText: '移入回收站',
+          title: t('删除目录'),
+          description: t('确认将目录「') + activeFolderPath + t('」及其全部内容移入回收站？'),
+          confirmText: t('移入回收站'),
           danger: true
         });
         if (!confirmed) {
@@ -3516,7 +3532,7 @@
         activeFolderPath = '';
         renderFolderTree();
         renderFiles(activeSourceFiles);
-        showStatus('文件夹已移入回收站', 'warn');
+        showStatus(t('文件夹已移入回收站'), 'warn');
       }
 
       async function restoreCurrentRecycleFolder() {
@@ -3646,13 +3662,13 @@
       async function openLocalImportDialog() {
         const paths = getSelectedLocalDiskImportPaths();
         if (!paths.length) {
-          showStatus('请先选择要上传的本地文件或文件夹', 'err');
+          showStatus(t('请先选择要上传的本地文件或文件夹'), 'err');
           return;
         }
         try {
           await loadFolderTreeState();
         } catch (err) {
-          showStatus('加载远程目录失败：' + err.message, 'err');
+          showStatus(t('加载远程目录失败：') + err.message, 'err');
           return;
         }
         localImportTargetFolderPath = activeFolderPath || '';
@@ -3678,7 +3694,7 @@
           localImportProgressFill.style.width = p + '%';
         }
         if (localImportProgressText) {
-          localImportProgressText.textContent = text || ('上传中 ' + Math.round(p) + '%');
+          localImportProgressText.textContent = text || (t('上传中 ') + Math.round(p) + '%');
         }
         if (localImportProgressClose) {
           localImportProgressClose.hidden = true;
@@ -3686,10 +3702,10 @@
       }
 
       function localImportFileStateText(state) {
-        if (state === 'done') { return '完成'; }
-        if (state === 'running') { return '上传中'; }
-        if (state === 'failed') { return '失败'; }
-        return '等待';
+        if (state === 'done') { return t('完成'); }
+        if (state === 'running') { return t('上传中'); }
+        if (state === 'failed') { return t('失败'); }
+        return t('等待');
       }
 
       function renderLocalImportProgressFiles(files) {
@@ -3713,20 +3729,20 @@
               '<span class="local-import-progress-file-state">' + localImportFileStateText(state) + '</span>' +
             '</div>' +
             '<div class="local-import-progress-file-track"><div class="local-import-progress-file-fill" style="width:' + progress + '%"></div></div>' +
-            '<div class="local-import-progress-file-meta">' + formatNumber(copied) + ' / ' + formatNumber(size) + ' 字节</div>' +
+            '<div class="local-import-progress-file-meta">' + formatNumber(copied) + ' / ' + formatNumber(size) + t(' 字节') + '</div>' +
           '</div>';
         }).join('');
       }
 
       function finishLocalImportProgress(text) {
-        setLocalImportProgress(100, text || '上传完成 100%');
+        setLocalImportProgress(100, text || t('上传完成 100%'));
         if (localImportProgressClose) {
           localImportProgressClose.hidden = false;
         }
       }
 
       function failLocalImportProgress(text) {
-        setLocalImportProgress(0, text || '上传失败');
+        setLocalImportProgress(0, text || t('上传失败'));
         if (localImportProgressClose) {
           localImportProgressClose.hidden = false;
         }
@@ -3740,7 +3756,7 @@
           localImportProgressFill.style.width = '0%';
         }
         if (localImportProgressText) {
-          localImportProgressText.textContent = '准备上传...';
+          localImportProgressText.textContent = t('准备上传...');
         }
         if (localImportProgressFiles) {
           localImportProgressFiles.innerHTML = '';
@@ -3750,7 +3766,7 @@
       function pollLocalImportProgress(taskId) {
         return new Promise(function (resolve, reject) {
           if (!taskId) {
-            reject(new Error('缺少上传任务编号'));
+            reject(new Error(t('缺少上传任务编号')));
             return;
           }
           const timer = setInterval(function () {
@@ -3758,15 +3774,15 @@
               .then(function (data) {
                 const progress = Math.max(0, Math.min(100, Number(data.progress || 0)));
                 const state = String(data.state || '');
-                setLocalImportProgress(progress, (data.message || '上传中') + ' ' + Math.round(progress) + '%');
+                setLocalImportProgress(progress, (data.message || t('上传中')) + ' ' + Math.round(progress) + '%');
                 renderLocalImportProgressFiles(data.files);
                 if (state === 'done') {
                   clearInterval(timer);
-                  finishLocalImportProgress('上传完成 100%');
+                  finishLocalImportProgress(t('上传完成 100%'));
                   resolve(data);
                 } else if (state === 'failed') {
                   clearInterval(timer);
-                  reject(new Error(data.error || '上传失败'));
+                  reject(new Error(data.error || t('上传失败')));
                 }
               })
               .catch(function (err) {
@@ -3800,18 +3816,18 @@
           resetStatus();
           const started = await fetchJson(url, { method: 'POST' });
           closeLocalImportDialog();
-          setLocalImportProgress(0, '准备上传...');
+          setLocalImportProgress(0, t('准备上传...'));
           const data = await pollLocalImportProgress(String(started.task_id || ''));
           clearLocalDiskSelection();
           await loadFiles();
-          showStatus('已上传 ' + Number(data.saved_count || 0) + ' 个本地文件到远程磁盘', 'ok');
+          showStatus(t('已上传 ') + Number(data.saved_count || 0) + t(' 个本地文件到远程磁盘'), 'ok');
           const videoProbeFails = await verifyUploadedVideos(data.files);
           if (videoProbeFails.length) {
             showManualTranscodePrompt(videoProbeFails);
           }
         } catch (err) {
-          failLocalImportProgress('上传失败：' + err.message);
-          showStatus('上传本地文件失败：' + err.message, 'err');
+          failLocalImportProgress(t('上传失败：') + err.message);
+          showStatus(t('上传本地文件失败：') + err.message, 'err');
         } finally {
           if (localImportConfirmBtn) {
             localImportConfirmBtn.disabled = false;
@@ -3843,10 +3859,10 @@
           const meta = findTagMetaById(activeFilterTagId);
           const tagName = meta && meta.node && meta.node.name
             ? String(meta.node.name)
-            : '当前标签';
-          fileViewContext.textContent = '当前视图：标签：' + tagName + ' / 范围：标签内全部文件';
+            : t('当前标签');
+          fileViewContext.textContent = t('当前视图：标签：') + tagName + t(' / 范围：标签内全部文件');
         } else {
-          fileViewContext.textContent = '当前视图：目录：' + getFolderLabel(activeFolderPath) + ' / 范围：全部文件';
+          fileViewContext.textContent = t('当前视图：目录：') + getFolderLabel(activeFolderPath) + t(' / 范围：全部文件');
         }
       }
 
@@ -3854,7 +3870,7 @@
         const isTagFilterMode = !!activeFilterTagId;
         const isPreviewEnabledTag = isTagFilterMode && isActiveTagPreviewEnabled();
         if (fileListTitle) {
-          fileListTitle.textContent = isTagFilterMode ? '当前标签文件' : '当前目录文件';
+          fileListTitle.textContent = isTagFilterMode ? t('当前标签文件') : t('当前目录文件');
         }
         if (tagViewModeBtns) {
           tagViewModeBtns.hidden = !isPreviewEnabledTag;
@@ -3930,8 +3946,8 @@
           }
         });
         const label = folderCount > 0 && fileCount > 0
-          ? '文件/文件夹'
-          : (folderCount > 0 ? '文件夹' : '文件');
+          ? t('文件/文件夹')
+          : (folderCount > 0 ? t('文件夹') : t('文件'));
         return {
           fileCount: fileCount,
           folderCount: folderCount,
@@ -3965,10 +3981,10 @@
         const isTagFilterMode = !!activeFilterTagId;
         const isRecycleMode = !isTagFilterMode && isRecycleFolderPath(activeFolderPath);
         if (fileBulkAction) {
-          const label = isTagFilterMode ? '移除' : (isRecycleMode ? '恢复' : '删除');
+          const label = isTagFilterMode ? t('移除') : (isRecycleMode ? t('恢复') : t('删除'));
           const title = isTagFilterMode
-            ? '批量从当前标签移除'
-            : (isRecycleMode ? '批量恢复文件到原路径' : '批量删除文件（移入回收站）');
+            ? t('批量从当前标签移除')
+            : (isRecycleMode ? t('批量恢复文件到原路径') : t('批量删除文件（移入回收站）'));
           fileBulkAction.textContent = label;
           fileBulkAction.title = title;
           fileBulkAction.setAttribute('aria-label', title);
@@ -3976,8 +3992,8 @@
         }
 
         if (fileBulkDeleteAction) {
-          const title = '批量彻底删除文件/文件夹（仅回收站）';
-          fileBulkDeleteAction.textContent = '彻底删除';
+          const title = t('批量彻底删除文件/文件夹（仅回收站）');
+          fileBulkDeleteAction.textContent = t('彻底删除');
           fileBulkDeleteAction.title = title;
           fileBulkDeleteAction.setAttribute('aria-label', title);
           fileBulkDeleteAction.disabled = !isRecycleMode || selectedCount === 0;
@@ -3985,7 +4001,7 @@
 
         if (fileBulkTagAction) {
           fileBulkTagAction.disabled = selectedCount === 0;
-          fileBulkTagAction.title = selectedCount > 0 ? ('给选中的 ' + selectedCount + ' 个文件加标签') : '给选中文件加标签';
+          fileBulkTagAction.title = selectedCount > 0 ? (t('给选中的 ') + selectedCount + t(' 个文件加标签')) : t('给选中文件加标签');
           fileBulkTagAction.setAttribute('aria-label', fileBulkTagAction.title);
         }
       }
@@ -4026,13 +4042,13 @@
         updateFileViewContext();
         updateFileSelectAllState();
         updateFileBulkActionButton();
-        fileCounter.textContent = currentFiles.length + ' 个文件';
+        fileCounter.textContent = currentFiles.length + t(' 个文件');
 
         if (!currentFiles.length) {
           fileList.innerHTML = '';
           fileTable.style.display = 'none';
           if (tagImagePreviewWrap) tagImagePreviewWrap.hidden = true;
-          fileEmpty.textContent = activeFilterTagId ? '当前标签下没有文件。' : '当前目录没有文件。';
+          fileEmpty.textContent = activeFilterTagId ? t('当前标签下没有文件。') : t('当前目录没有文件。');
           fileEmpty.style.display = 'block';
           return;
         }
@@ -4067,7 +4083,7 @@
           const isDir = !!file.directory;
           const fileLocked = !!file.locked;
           const lockIcon = fileLocked
-            ? '<span class="folder-lock-icon file-lock-inline' + (getFilePassword(rawName, isLocalTaggedFile) ? ' unlocked' : '') + '" title="' + (getFilePassword(rawName, isLocalTaggedFile) ? '点击重新加锁' : '点击解锁') + '" aria-label="' + (getFilePassword(rawName, isLocalTaggedFile) ? '点击重新加锁' : '点击解锁') + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
+            ? '<span class="folder-lock-icon file-lock-inline' + (getFilePassword(rawName, isLocalTaggedFile) ? ' unlocked' : '') + '" title="' + escapeHtml(t(getFilePassword(rawName, isLocalTaggedFile) ? '点击重新加锁' : '点击解锁')) + '" aria-label="' + escapeHtml(t(getFilePassword(rawName, isLocalTaggedFile) ? '点击重新加锁' : '点击解锁')) + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
             : '';
           const pathMeta = file.folder_path
             ? '<div class="file-path-meta">' + escapeHtml(file.folder_path) + '</div>'
@@ -4077,43 +4093,43 @@
           const checked = selectedFileNames.has(rawName) ? ' checked' : '';
           const previewBtn = !isDir && isImageName(file.name)
             ? (isLocalTaggedFile
-              ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">预览</button>'
-              : '<button class="preview-btn" data-preview-file="' + encodedPath + '" data-preview-name="' + escapeHtml(rawName) + '">预览</button>')
+              ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('预览') + '</button>'
+              : '<button class="preview-btn" data-preview-file="' + encodedPath + '" data-preview-name="' + escapeHtml(rawName) + '">' + t('预览') + '</button>')
             : '';
           const videoBtn = !isDir && isVideoName(file.name)
             ? (isLocalTaggedFile
-              ? '<button class="local-preview-btn video-btn" data-kind="video" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">观影</button>'
-              : '<button class="video-btn" data-video-file="' + encodedPath + '" data-video-name="' + escapeHtml(rawName) + '">观影</button>')
+              ? '<button class="local-preview-btn video-btn" data-kind="video" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('观影') + '</button>'
+              : '<button class="video-btn" data-video-file="' + encodedPath + '" data-video-name="' + escapeHtml(rawName) + '">' + t('观影') + '</button>')
             : '';
           const audioBtn = !isDir && isAudioName(file.name)
             ? (isLocalTaggedFile
-              ? '<button class="local-preview-btn audio-btn" data-kind="audio" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">听音</button>'
-              : '<button class="audio-btn" data-audio-file="' + encodedPath + '" data-audio-name="' + escapeHtml(rawName) + '">听音</button>')
+              ? '<button class="local-preview-btn audio-btn" data-kind="audio" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('听音') + '</button>'
+              : '<button class="audio-btn" data-audio-file="' + encodedPath + '" data-audio-name="' + escapeHtml(rawName) + '">' + t('听音') + '</button>')
             : '';
           const textBtn = !isDir && isTextName(file.name)
             ? (isLocalTaggedFile
-              ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">查看</button>'
-              : '<button class="text-btn" data-text-file="' + encodedPath + '" data-text-name="' + escapeHtml(rawName) + '">查看</button>')
+              ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('查看') + '</button>'
+              : '<button class="text-btn" data-text-file="' + encodedPath + '" data-text-name="' + escapeHtml(rawName) + '">' + t('查看') + '</button>')
             : '';
           const primaryActionBtn = isTagFilterMode
-            ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '"' + (isLocalTaggedFile ? ' data-local-tag-file="1"' : '') + '>移除</button>'
+            ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '"' + (isLocalTaggedFile ? ' data-local-tag-file="1"' : '') + '>' + t('移除') + '</button>'
             : (isRecycleMode
-              ? ('<button class="restore-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">恢复</button>')
-              : '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">删除</button>');
+              ? ('<button class="restore-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">' + t('恢复') + '</button>')
+              : '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">' + t('删除') + '</button>');
           const permanentDeleteBtn = isRecycleMode
-            ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">彻底删除</button>'
+            ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">' + t('彻底删除') + '</button>'
             : '';
           const nameContent = isDir
             ? '<span class="file-name local-folder-link"><span class="local-folder-icon">📁</span>' + name + '</span>'
             : '<a class="file-name" draggable="false" href="' + escapeHtml(isLocalTaggedFile ? localDiskDownloadUrl(rawName) : downloadUrlForFile(rawName, false)) + '">' + name + '</a>';
           const tagQuickBtn = isDir
             ? ''
-            : '<button class="file-tag-quick-btn" type="button" data-tag-file="' + encodedPath + '" title="加入标签" aria-label="加入标签">🏷</button>';
+            : '<button class="file-tag-quick-btn" type="button" data-tag-file="' + encodedPath + '" title="' + escapeHtml(t('加入标签')) + '" aria-label="' + escapeHtml(t('加入标签')) + '">🏷</button>';
           return (
             '<tr class="draggable-file-row" draggable="' + (isDir ? 'false' : 'true') + '" data-drag-file="' + encodedPath + '"' + (isDir ? '' : ' data-file-context="' + encodedPath + '"') + ' data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (!isDir && isVideoName(file.name) ? '1' : '0') + '">' +
-              '<td class="file-select-cell"><div class="file-select-tools"><input class="file-select-input" type="checkbox" data-select-file="' + encodedPath + '" aria-label="选择' + (isDir ? '目录 ' : '文件 ') + escapeHtml(rawName) + '"' + checked + '>' + tagQuickBtn + '</div></td>' +
+              '<td class="file-select-cell"><div class="file-select-tools"><input class="file-select-input" type="checkbox" data-select-file="' + encodedPath + '" aria-label="' + escapeHtml(t('选择') + (isDir ? t('目录 ') : t('文件 ')) + rawName) + '"' + checked + '>' + tagQuickBtn + '</div></td>' +
               '<td' + (isDir ? '' : ' data-file-context="' + encodedPath + '"') + ' data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (!isDir && isVideoName(file.name) ? '1' : '0') + '">' + nameContent + lockIcon + pathMeta + '</td>' +
-              '<td>' + (isDir ? '文件夹' : (formatNumber(size) + ' 字节')) + '</td>' +
+              '<td>' + (isDir ? t('文件夹') : (formatNumber(size) + t(' 字节'))) + '</td>' +
               '<td>' + uploaded + '</td>' +
               '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + '</div></td>' +
               '<td class="row-danger-action"><div class="danger-actions">' + primaryActionBtn + '</div></td>' +
@@ -4782,7 +4798,7 @@
         const lockIcon = fileLocked
           ? '<span class="folder-lock-icon file-lock-inline' + (getFilePassword(path, true) ? ' unlocked' : '') + '" title="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '" aria-label="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
           : '';
-        const selectBox = '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="选择 ' + escapeHtml(name) + '"' + checked + '><button class="file-tag-quick-btn local-file-tag-btn" type="button" data-local-tag-file="' + encodedPath + '" title="加入标签" aria-label="加入标签">🏷</button></span>';
+        const selectBox = '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '><button class="file-tag-quick-btn local-file-tag-btn" type="button" data-local-tag-file="' + encodedPath + '" title="' + escapeHtml(t('加入标签')) + '" aria-label="' + escapeHtml(t('加入标签')) + '">🏷</button></span>';
         const displayName = selectBox + '<a class="file-name local-disk-draggable-name" draggable="false" href="' + escapeHtml(localDiskDownloadUrl(path)) + '">' + escapeHtml(name) + '</a>' + lockIcon;
         const previewBtn = isImageName(name)
           ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
@@ -5077,7 +5093,7 @@
           ? '<button type="button" class="local-delete-btn local-disk-dir-delete-inline" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(textPath) + '" title="删除空目录" aria-label="删除空目录">-</button>'
           : '';
         const selectBox = canMove
-          ? '<input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="选择 ' + escapeHtml(name) + '"' + checked + '>'
+          ? '<input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '>'
           : '<span class="local-disk-select-placeholder"></span>';
         let html = '<div class="local-disk-tree-row local-disk-dir-item' + (canMove ? ' local-disk-draggable' : '') + (isActive ? ' active' : '') + '" ' + (canMove ? 'draggable="true" data-local-drag="' + encodedPath + '" ' : '') + 'data-local-drop-target="' + encodedPath + '" data-local-dir-context="' + encodedPath + '" data-local-dir-locked="' + (dirLocked ? '1' : '0') + '" style="--tree-level:' + level + '">' +
           '<button type="button" class="local-disk-tree-caret" data-local-toggle="' + encodedPath + '" title="展开或收起目录" aria-label="展开或收起目录">' + (isExpanded && dirs.length ? '▾' : (hasCache && !dirs.length ? '' : '▸')) + '</button>' +
@@ -5148,8 +5164,8 @@
             : '';
           const checked = selectedLocalDiskPaths.has(path) ? ' checked' : '';
           const selectBox = isDir
-            ? '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="选择 ' + escapeHtml(name) + '"' + checked + '></span>'
-            : '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="选择 ' + escapeHtml(name) + '"' + checked + '><button class="file-tag-quick-btn local-file-tag-btn" type="button" data-local-tag-file="' + encodedPath + '" title="加入标签" aria-label="加入标签">🏷</button></span>';
+            ? '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '></span>'
+            : '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '><button class="file-tag-quick-btn local-file-tag-btn" type="button" data-local-tag-file="' + encodedPath + '" title="' + escapeHtml(t('加入标签')) + '" aria-label="' + escapeHtml(t('加入标签')) + '">🏷</button></span>';
           const nameHtml = isDir
             ? '<button type="button" class="local-folder-link" data-local-folder="' + encodedPath + '"><span class="local-folder-icon">📁</span><span>' + escapeHtml(name) + '</span></button>' + dirLockIcon
             : '<a class="file-name" href="' + escapeHtml(localDiskDownloadUrl(path)) + '">' + escapeHtml(name) + '</a>' + lockIcon;
@@ -5401,8 +5417,9 @@
           '<div class="preview-head">' +
             '<div class="preview-title">' + titleText + escapedTitle + '</div>' +
             '<div class="preview-head-actions">' +
-              '<button class="preview-window-btn" type="button" data-preview-window-action="maximize" title="最大化" aria-label="最大化">□</button>' +
-              '<button class="preview-close" type="button" title="关闭" aria-label="关闭">×</button>' +
+              '<button class="preview-window-btn" type="button" data-preview-window-action="minimize" title="' + escapeHtml(t('最小化')) + '" aria-label="' + escapeHtml(t('最小化')) + '">−</button>' +
+              '<button class="preview-window-btn" type="button" data-preview-window-action="maximize" title="' + escapeHtml(t('最大化')) + '" aria-label="' + escapeHtml(t('最大化')) + '">□</button>' +
+              '<button class="preview-close" type="button" title="' + escapeHtml(t('关闭')) + '" aria-label="' + escapeHtml(t('关闭')) + '">×</button>' +
             '</div>' +
           '</div>' +
           '<div class="preview-body">' + mediaHtml + '</div>';
@@ -5475,17 +5492,25 @@
 
         const closeBtn = win.querySelector('.preview-close');
         const head = win.querySelector('.preview-head');
+        const minimizeBtn = win.querySelector('[data-preview-window-action="minimize"]');
         const maximizeBtn = win.querySelector('[data-preview-window-action="maximize"]');
 
         closeBtn.addEventListener('click', function () {
           closePreviewWindow(win, previewKey);
         });
 
+        if (minimizeBtn) {
+          minimizeBtn.addEventListener('click', function () {
+            minimizePreviewWindow(win);
+          });
+        }
+
         if (maximizeBtn) {
           maximizeBtn.addEventListener('click', function () {
             togglePreviewWindowMaximize(win);
           });
         }
+        syncPreviewWindowButtons(win);
 
         const prevNavBtn = win.querySelector('.preview-nav-btn[data-preview-nav="prev"]');
         const nextNavBtn = win.querySelector('.preview-nav-btn[data-preview-nav="next"]');
@@ -5533,6 +5558,15 @@
           };
           win.style.transform = 'none';
           e.preventDefault();
+        });
+
+        head.addEventListener('dblclick', function (e) {
+          if (e.target.closest('.preview-close') || e.target.closest('.preview-window-btn')) {
+            return;
+          }
+          e.preventDefault();
+          bringToFront(win);
+          togglePreviewWindowMaximize(win);
         });
       }
 
@@ -5595,17 +5629,17 @@
         if (!maximizeBtn) {
           return;
         }
-        const restoreMode = win.classList.contains('is-maximized');
+        const restoreMode = win.classList.contains('is-minimized') || win.classList.contains('is-maximized');
         maximizeBtn.textContent = restoreMode ? '❐' : '□';
-        maximizeBtn.title = restoreMode ? '复原' : '最大化';
-        maximizeBtn.setAttribute('aria-label', restoreMode ? '复原' : '最大化');
+        maximizeBtn.title = restoreMode ? t('复原') : t('最大化');
+        maximizeBtn.setAttribute('aria-label', restoreMode ? t('复原') : t('最大化'));
       }
 
       function restorePreviewWindowGeometry(win) {
         if (!win) {
           return;
         }
-        win.classList.remove('is-maximized');
+        win.classList.remove('is-minimized', 'is-maximized');
         win.style.transform = 'none';
         win.style.resize = 'both';
         win.style.maxHeight = '90vh';
@@ -5625,11 +5659,12 @@
         if (!win) {
           return;
         }
-        if (win.classList.contains('is-maximized')) {
+        if (win.classList.contains('is-minimized') || win.classList.contains('is-maximized')) {
           restorePreviewWindowGeometry(win);
           return;
         }
         snapshotPreviewWindowRect(win);
+        win.classList.remove('is-minimized');
         win.classList.add('is-maximized');
         win.style.transform = 'none';
         win.style.resize = 'none';
@@ -5638,6 +5673,21 @@
         win.style.width = 'calc(100vw - 44px)';
         win.style.height = 'calc(100vh - 44px)';
         win.style.maxHeight = 'calc(100vh - 44px)';
+        syncPreviewWindowButtons(win);
+      }
+
+      function minimizePreviewWindow(win) {
+        if (!win || win.classList.contains('is-minimized')) {
+          return;
+        }
+        snapshotPreviewWindowRect(win);
+        win.classList.remove('is-maximized');
+        win.classList.add('is-minimized');
+        win.style.transform = 'none';
+        win.style.resize = 'none';
+        win.style.height = '';
+        win.style.maxHeight = '';
+        clampWindowPosition(win);
         syncPreviewWindowButtons(win);
       }
 
@@ -5744,7 +5794,7 @@
           localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLang);
         } catch (_) {}
         if (nextLang === UI_LANG) {
-          showStatus('语言设置已保存', 'ok');
+          showStatus(t('语言设置已保存'), 'ok');
           if (window.WebCoolI18n && typeof window.WebCoolI18n.apply === 'function') {
             window.WebCoolI18n.apply(document);
           }
@@ -5795,7 +5845,7 @@
           currentAdminStoragePath = String(data.path || '');
           adminStoragePath.value = currentAdminStoragePath;
         } catch (err) {
-          showStatus('加载存储路径失败：' + err.message, 'err');
+          showStatus(t('加载存储路径失败：') + err.message, 'err');
         }
       }
 
@@ -5822,11 +5872,11 @@
               setAdminStorageProgress(true, Number(data.progress || 0), detail);
               if (state === 'done') {
                 stopAdminStorageProgressPolling();
-                setAdminStorageProgress(true, 100, '移动完成');
+                setAdminStorageProgress(true, 100, t('移动完成'));
                 resolve(data);
               } else if (state === 'failed') {
                 stopAdminStorageProgressPolling();
-                reject(new Error(data.error || '存储路径迁移失败'));
+                reject(new Error(data.error || t('存储路径迁移失败')));
               }
             } catch (err) {
               stopAdminStorageProgressPolling();
@@ -5844,30 +5894,30 @@
         }
         const nextPath = String(adminStoragePath.value || '').trim();
         if (!nextPath) {
-          showStatus('存储路径不能为空', 'err');
+          showStatus(t('存储路径不能为空'), 'err');
           adminStoragePath.value = currentAdminStoragePath;
           return;
         }
         if (nextPath === currentAdminStoragePath) {
-          showStatus('存储路径未改变', 'warn');
+          showStatus(t('存储路径未改变'), 'warn');
           return;
         }
         const confirmed = await askConfirmDialog({
-          title: '确认修改存储路径',
-          description: '是否将当前存储路径下的文件移动到目标目录？选择“否”将不移动文件，也不会修改存储路径。',
-          confirmText: '是，开始移动',
-          cancelText: '否',
+          title: t('确认修改存储路径'),
+          description: t('是否将当前存储路径下的文件移动到目标目录？选择“否”将不移动文件，也不会修改存储路径。'),
+          confirmText: t('是，开始移动'),
+          cancelText: t('否'),
           danger: false
         });
         if (!confirmed) {
           adminStoragePath.value = currentAdminStoragePath;
           setAdminStorageProgress(false, 0, '');
-          showStatus('已取消，存储路径未修改', 'warn');
+          showStatus(t('已取消，存储路径未修改'), 'warn');
           return;
         }
         adminStorageChooseBtn.disabled = true;
         adminStoragePath.disabled = true;
-        setAdminStorageProgress(true, 0, '正在提交移动任务...');
+        setAdminStorageProgress(true, 0, t('正在提交移动任务...'));
         try {
           const startData = await fetchJson(
             api.adminStorageMigrate + '?path=' + encodeURIComponent(nextPath),
@@ -6241,8 +6291,8 @@
         }
         try {
           const data = await uploadWithProgress(formData);
-          setUploadProgress(100, '上传完成 100%');
-          showStatus('上传完成：成功保存 ' + (data.count || 0) + ' 个文件', 'ok');
+          setUploadProgress(100, t('上传完成 100%'));
+          showStatus(t('上传完成：成功保存 ') + (data.count || 0) + t(' 个文件'), 'ok');
           uploadForm.reset();
           await loadFiles();
 
@@ -6253,8 +6303,8 @@
 
           setTimeout(hideUploadProgress, 700);
         } catch (err) {
-          setUploadProgress(0, '上传失败');
-          showStatus('上传失败：' + err.message, 'err');
+          setUploadProgress(0, t('上传失败'));
+          showStatus(t('上传失败：') + err.message, 'err');
           setTimeout(hideUploadProgress, 900);
         }
       });
@@ -6275,10 +6325,10 @@
         localDiskTrashBtn.addEventListener('click', function () {
           fetchJson(api.localDiskOpenTrash, { method: 'POST' })
             .then(function () {
-              showStatus('已打开系统回收站', 'ok');
+              showStatus(t('已打开系统回收站'), 'ok');
             })
             .catch(function (err) {
-              showStatus('打开系统回收站失败：' + err.message, 'err');
+              showStatus(t('打开系统回收站失败：') + err.message, 'err');
             });
         });
       }
@@ -6392,11 +6442,11 @@
       function openSelectedLocalDiskTagMenu(anchor) {
         const paths = getSelectedLocalDiskFilePaths();
         if (!paths.length) {
-          showStatus('请先选择要加标签的本地文件', 'err');
+          showStatus(t('请先选择要加标签的本地文件'), 'err');
           return;
         }
         openFilesTagMenu(anchor, paths, { local: true }).catch(function (err) {
-          showStatus('打开标签选择失败：' + err.message, 'err');
+          showStatus(t('打开标签选择失败：') + err.message, 'err');
         });
       }
 
@@ -6478,7 +6528,7 @@
           const path = decodeURIComponent(row.getAttribute('data-local-dir-context') || '');
           const action = getLocalDirPassword(path) ? 'session-lock' : 'session-unlock';
           handleLocalDirContextAction(action, path).catch(function (err) {
-            showStatus('本地目录锁操作失败：' + err.message, 'err');
+            showStatus(t('本地目录锁操作失败：') + err.message, 'err');
           });
           return;
         }
@@ -6493,7 +6543,7 @@
           const path = decodeURIComponent(row.getAttribute('data-local-file-context') || '');
           const action = getFilePassword(path, true) ? 'session-lock' : 'session-unlock';
           handleFileContextAction(action, path, true).catch(function (err) {
-            showStatus('文件锁操作失败：' + err.message, 'err');
+            showStatus(t('文件锁操作失败：') + err.message, 'err');
           });
           return;
         }
@@ -6508,7 +6558,7 @@
                 toggleLocalDiskTreePath(path);
               }
             }).catch(function (err) {
-              showStatus('解锁本地目录失败：' + err.message, 'err');
+              showStatus(t('解锁本地目录失败：') + err.message, 'err');
             });
             return;
           }
@@ -6530,7 +6580,7 @@
             return;
           }
           openFilesTagMenu(localTagBtn, [path], { local: true }).catch(function (err) {
-            showStatus('打开标签选择失败：' + err.message, 'err');
+            showStatus(t('打开标签选择失败：') + err.message, 'err');
           });
           return;
         }
@@ -6544,7 +6594,7 @@
                 loadLocalDisk(path, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, path) });
               }
             }).catch(function (err) {
-              showStatus('解锁本地目录失败：' + err.message, 'err');
+              showStatus(t('解锁本地目录失败：') + err.message, 'err');
             });
             return;
           }
@@ -6556,20 +6606,20 @@
           e.stopPropagation();
           const path = decodeURIComponent(mkdirBtn.getAttribute('data-local-mkdir') || '');
           if (!path) { return; }
-          const name = window.prompt('请输入新建子目录名称');
+          const name = window.prompt(t('请输入新建子目录名称'));
           if (name === null) { return; }
           const cleanName = String(name || '').trim();
           if (!cleanName) {
-            showStatus('子目录名称不能为空', 'err');
+            showStatus(t('子目录名称不能为空'), 'err');
             return;
           }
           fetchJson(appendLocalDirPassword(api.localDiskMkdir + '?path=' + encodeURIComponent(path) + '&name=' + encodeURIComponent(cleanName), path), { method: 'POST' })
             .then(function () {
-              showStatus('子目录已创建：' + cleanName, 'ok');
+              showStatus(t('子目录已创建：') + cleanName, 'ok');
               loadLocalDisk(path, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, path) });
             })
             .catch(function (err) {
-              showStatus('创建子目录失败：' + err.message, 'err');
+              showStatus(t('创建子目录失败：') + err.message, 'err');
             });
           return;
         }
@@ -6583,13 +6633,13 @@
             ? (parentRow.querySelector('td:nth-child(2)') && parentRow.querySelector('td:nth-child(2)').textContent === '文件夹')
             : deleteBtn.closest('.local-disk-dir-item') !== null;
           const confirmMsg = isDir
-            ? '确认删除本地目录：' + path + ' ？仅允许删除空目录。'
-            : '确认删除本地文件：' + path + ' ？';
+            ? t('确认删除本地目录：') + path + t(' ？仅允许删除空目录。')
+            : t('确认删除本地文件：') + path + t(' ？');
           if (!confirm(confirmMsg)) { return; }
           const deleteLockPath = isDir && getLocalDirPassword(path) ? path : localDiskParentPath(path);
           fetchJson(appendLocalDirPassword(appendFilePassword(api.localDiskDelete + '?path=' + encodeURIComponent(path), path, true), deleteLockPath), { method: 'POST' })
             .then(function () {
-              showStatus((isDir ? '本地目录已删除：' : '本地文件已删除：') + path, 'warn');
+              showStatus((isDir ? t('本地目录已删除：') : t('本地文件已删除：')) + path, 'warn');
               const nextPath = isDir ? localDiskParentPath(path) : (activeLocalDiskPath || '');
               if (isDir) {
                 localDiskTreeCache.delete(path);
@@ -6598,7 +6648,7 @@
               loadLocalDisk(nextPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, nextPath) });
             })
             .catch(function (err) {
-              showStatus('删除失败：' + err.message, 'err');
+              showStatus(t('删除失败：') + err.message, 'err');
             });
           return;
         }
@@ -7266,7 +7316,7 @@
               await loadFiles();
             }
 
-            showStatus('已批量' + actionLabel + ' ' + completedCount + ' 个文件', activeTagId ? 'warn' : 'warn');
+            showStatus(t('已批量') + actionLabel + ' ' + completedCount + t(' 个文件'), activeTagId ? 'warn' : 'warn');
           } catch (err) {
             if (completedCount > 0) {
               if (activeTagId) {
@@ -7274,10 +7324,10 @@
               } else {
                 await loadFiles();
               }
-              showStatus('批量' + actionLabel + '在处理 ' + completedCount + ' 个文件后失败：' + err.message, 'err');
+              showStatus(t('批量') + actionLabel + t('在处理 ') + completedCount + t(' 个文件后失败：') + err.message, 'err');
               return;
             }
-            showStatus('批量' + actionLabel + '失败：' + err.message, 'err');
+            showStatus(t('批量') + actionLabel + t('失败：') + err.message, 'err');
           }
         });
       }
@@ -7286,13 +7336,13 @@
         fileBulkTagAction.addEventListener('click', async function () {
           const fileNames = getSelectedVisibleFileNames();
           if (!fileNames.length) {
-            showStatus('请先选择要加标签的文件', 'err');
+            showStatus(t('请先选择要加标签的文件'), 'err');
             return;
           }
           try {
             await openFilesTagMenu(fileBulkTagAction, fileNames);
           } catch (err) {
-            showStatus('打开标签选择失败：' + err.message, 'err');
+            showStatus(t('打开标签选择失败：') + err.message, 'err');
           }
         });
       }
@@ -7312,8 +7362,8 @@
 
           const selectedTypes = summarizeSelectedFileTypes(fileNames);
           const confirmText = selectedTypes.folderCount > 0
-            ? ('确认彻底删除选中的 ' + fileNames.length + ' 个' + selectedTypes.label + '？其中的文件夹会连同其全部内容一起删除，此操作不可恢复。')
-            : ('确认彻底删除选中的 ' + fileNames.length + ' 个文件？此操作不可恢复。');
+            ? (t('确认彻底删除选中的 ') + fileNames.length + t(' 个') + selectedTypes.label + t('？其中的文件夹会连同其全部内容一起删除，此操作不可恢复。'))
+            : (t('确认彻底删除选中的 ') + fileNames.length + t(' 个文件？此操作不可恢复。'));
           if (!confirm(confirmText)) {
             return;
           }
@@ -7329,14 +7379,14 @@
               selectedFileNames.delete(name);
             });
             await loadFiles();
-            showStatus('已批量彻底删除 ' + completedCount + ' 个' + selectedTypes.label, 'warn');
+            showStatus(t('已批量彻底删除 ') + completedCount + t(' 个') + selectedTypes.label, 'warn');
           } catch (err) {
             if (completedCount > 0) {
               await loadFiles();
-              showStatus('批量彻底删除在处理 ' + completedCount + ' 个文件后失败：' + err.message, 'err');
+              showStatus(t('批量彻底删除在处理 ') + completedCount + t(' 个文件后失败：') + err.message, 'err');
               return;
             }
-            showStatus('批量彻底删除失败：' + err.message, 'err');
+            showStatus(t('批量彻底删除失败：') + err.message, 'err');
           }
         });
       }
@@ -7347,7 +7397,7 @@
             await createFolderAtCurrentPath();
             await loadFiles();
           } catch (err) {
-            showStatus('创建文件夹失败：' + err.message, 'err');
+            showStatus(t('创建文件夹失败：') + err.message, 'err');
           }
         });
       }
@@ -7358,7 +7408,7 @@
             await deleteCurrentFolder();
             await loadFiles();
           } catch (err) {
-            showStatus('删除文件夹失败：' + err.message, 'err');
+            showStatus(t('删除文件夹失败：') + err.message, 'err');
           }
         });
       }
@@ -7368,7 +7418,7 @@
           try {
             await restoreCurrentRecycleFolder();
           } catch (err) {
-            showStatus('恢复文件夹失败：' + err.message, 'err');
+            showStatus(t('恢复文件夹失败：') + err.message, 'err');
           }
         });
       }
@@ -7385,7 +7435,7 @@
             try {
               await relockFolderInSession(lockToggle.getAttribute('data-folder-lock-toggle') || '');
             } catch (err) {
-              showStatus('重新加锁失败：' + err.message, 'err');
+              showStatus(t('重新加锁失败：') + err.message, 'err');
             }
             return;
           }
@@ -7582,7 +7632,7 @@
               }
               showStatus(message, isRecycleRootFolderPath(targetFolder) ? 'warn' : 'ok');
             } catch (err) {
-              showStatus((isRecycleRootFolderPath(targetFolder) ? '移入回收站失败：' : '移动文件夹失败：') + err.message, 'err');
+              showStatus((isRecycleRootFolderPath(targetFolder) ? t('移入回收站失败：') : t('移动文件夹失败：')) + err.message, 'err');
             }
             return;
           }
@@ -7592,7 +7642,7 @@
           try {
             await moveFilesToFolder(fileNames, targetFolder);
           } catch (err) {
-            showStatus('移动文件失败：' + err.message, 'err');
+            showStatus(t('移动文件失败：') + err.message, 'err');
           }
         });
       }
@@ -7600,21 +7650,21 @@
       if (filesTagToggleBtn) {
         filesTagToggleBtn.addEventListener('click', async function () {
           const rootName = await askTagName({
-            title: '新建一级标签',
-            description: '标签会显示在左侧树的第一层。',
-            placeholder: '请输入一级标签名称'
+            title: t('新建一级标签'),
+            description: t('标签会显示在左侧树的第一层。'),
+            placeholder: t('请输入一级标签名称')
           });
           if (rootName === null) {
             return;
           }
           const result = await addTagNode('', rootName);
           if (!result.ok) {
-            showStatus('创建标签失败：' + result.message, 'err');
+            showStatus(t('创建标签失败：') + result.message, 'err');
             return;
           }
           await loadTagTreeState();
           renderTagTree();
-          showStatus('一级标签已创建', 'ok');
+          showStatus(t('一级标签已创建'), 'ok');
         });
       }
 
@@ -7632,7 +7682,7 @@
             try {
               await handleTagLockAction(action, tagId);
             } catch (err) {
-              showStatus('标签锁操作失败：' + err.message, 'err');
+              showStatus(t('标签锁操作失败：') + err.message, 'err');
             }
             return;
           }
@@ -7661,7 +7711,7 @@
                 await showFilesForTag(tagId);
               }
             } catch (err) {
-              showStatus('加载标签文件失败：' + err.message, 'err');
+              showStatus(t('加载标签文件失败：') + err.message, 'err');
             }
             return;
           }
@@ -7672,16 +7722,16 @@
             const tagId = deleteBtn.getAttribute('data-tag-delete') || '';
             const meta = findTagMetaById(tagId);
             if (meta && isProtectedRestrictedRootTag(meta.node, meta.level)) {
-              showStatus('受限一级标签不能删除', 'err');
+              showStatus(t('受限一级标签不能删除'), 'err');
               renderTagTree();
               return;
             }
-            if (!confirm('确认删除该标签节点及其子节点？仅会删除标签引用关系，不会删除文件。')) {
+            if (!confirm(t('确认删除该标签节点及其子节点？仅会删除标签引用关系，不会删除文件。'))) {
               return;
             }
             const removedNode = await removeTagNode(tagId);
             if (!removedNode || removedNode.ok === false) {
-              showStatus('删除标签失败：' + ((removedNode && removedNode.error) ? removedNode.error : '节点不存在'), 'err');
+              showStatus(t('删除标签失败：') + ((removedNode && removedNode.error) ? removedNode.error : t('节点不存在')), 'err');
               return;
             }
             expandedTagNodeIds.delete(tagId);
@@ -7690,7 +7740,7 @@
             }
             await loadTagTreeState();
             renderTagTree();
-            showStatus('标签节点已删除（未删除任何文件）', 'warn');
+            showStatus(t('标签节点已删除（未删除任何文件）'), 'warn');
             return;
           }
 
@@ -7704,22 +7754,22 @@
             }
 
             const childName = await askTagName({
-              title: '新建子标签',
-              description: '当前节点下最多支持三级标签。',
-              placeholder: '请输入子标签名称'
+              title: t('新建子标签'),
+              description: t('当前节点下最多支持三级标签。'),
+              placeholder: t('请输入子标签名称')
             });
             if (childName === null) {
               return;
             }
             const addResult = await addTagNode(tagId, childName);
             if (!addResult.ok) {
-              showStatus('创建子标签失败：' + addResult.message, 'err');
+              showStatus(t('创建子标签失败：') + addResult.message, 'err');
               return;
             }
             expandedTagNodeIds.add(tagId);
             await loadTagTreeState();
             renderTagTree();
-            showStatus('子标签已创建', 'ok');
+            showStatus(t('子标签已创建'), 'ok');
             return;
           }
 
@@ -7729,7 +7779,7 @@
 
             const meta = findTagMetaById(tagId);
             if (!meta || !meta.node) {
-              showStatus('节点不存在，可能已被删除', 'err');
+              showStatus(t('节点不存在，可能已被删除'), 'err');
               return;
             }
 
@@ -7749,7 +7799,7 @@
             const tagId = unbindBtn.getAttribute('data-tag-id') || '';
             const fileName = decodeURIComponent(unbindBtn.getAttribute('data-file') || '');
             if (!(await unbindFileFromTag(tagId, fileName))) {
-              showStatus('解引用失败：关联不存在', 'err');
+              showStatus(t('解引用失败：关联不存在'), 'err');
               return;
             }
             await loadTagTreeState();
@@ -7757,7 +7807,7 @@
             if (activeFilterTagId === tagId) {
               await showFilesForTag(tagId);
             }
-            showStatus('文件已解引用', 'warn');
+            showStatus(t('文件已解引用'), 'warn');
           }
         });
 
@@ -7898,12 +7948,12 @@
             return !canBindFileToTagOnClient(tagId, fileName).ok;
           }) || '';
           if (invalidFile) {
-            showStatus('拖拽引用失败：' + canBindFileToTagOnClient(tagId, invalidFile).message, 'err');
+            showStatus(t('拖拽引用失败：') + canBindFileToTagOnClient(tagId, invalidFile).message, 'err');
             return;
           }
           const result = await bindFilesToTag(tagId, fileNames);
           if (!result.ok) {
-            showStatus('拖拽引用失败：' + result.message, 'err');
+            showStatus(t('拖拽引用失败：') + result.message, 'err');
             return;
           }
 
@@ -7918,8 +7968,8 @@
             renderFiles(activeSourceFiles);
           }
           showStatus(fileNames.length > 1
-            ? ('已批量移动 ' + fileNames.length + ' 个文件到标签')
-            : '已通过拖拽移动文件到标签', 'ok');
+            ? (t('已批量移动 ') + fileNames.length + t(' 个文件到标签'))
+            : t('已通过拖拽移动文件到标签'), 'ok');
         });
       }
 
@@ -7935,12 +7985,12 @@
           closeFileTagMenu();
           const check = canBindFilesToTagOnClient(tagId, fileNames);
           if (!check.ok) {
-            showStatus('加入标签失败：' + check.message, 'err');
+            showStatus(t('加入标签失败：') + check.message, 'err');
             return;
           }
           bindFilesToTag(tagId, fileNames, { local: isLocalTagFiles }).then(async function (result) {
             if (!result.ok) {
-              showStatus('加入标签失败：' + result.message, 'err');
+              showStatus(t('加入标签失败：') + result.message, 'err');
               return;
             }
             await loadTagTreeState();
@@ -7949,9 +7999,9 @@
             } else {
               renderTagTree();
             }
-            showStatus(fileNames.length > 1 ? ('已将 ' + fileNames.length + ' 个文件加入标签') : '文件已加入标签', 'ok');
+            showStatus(fileNames.length > 1 ? (t('已将 ') + fileNames.length + t(' 个文件加入标签')) : t('文件已加入标签'), 'ok');
           }).catch(function (err) {
-            showStatus('加入标签失败：' + err.message, 'err');
+            showStatus(t('加入标签失败：') + err.message, 'err');
           });
           return;
         }
@@ -7963,7 +8013,7 @@
           const path = menu.getAttribute('data-folder-path') || '';
           closeFolderContextMenu();
           handleFolderContextAction(action, path).catch(function (err) {
-            showStatus('目录操作失败：' + err.message, 'err');
+            showStatus(t('目录操作失败：') + err.message, 'err');
           });
           return;
         }
@@ -7975,7 +8025,7 @@
           const local = menu.getAttribute('data-file-local') === '1';
           closeFileContextMenu();
           handleFileContextAction(action, path, local).catch(function (err) {
-            showStatus('文件锁操作失败：' + err.message, 'err');
+            showStatus(t('文件锁操作失败：') + err.message, 'err');
           });
           return;
         }
@@ -7986,7 +8036,7 @@
           const path = menu.getAttribute('data-local-dir-path') || '';
           closeFileContextMenu();
           handleLocalDirContextAction(action, path).catch(function (err) {
-            showStatus('本地目录锁操作失败：' + err.message, 'err');
+            showStatus(t('本地目录锁操作失败：') + err.message, 'err');
           });
           return;
         }
@@ -7998,7 +8048,7 @@
           closeFileContextMenu();
           closeAudioTagContextMenu();
           handleTagLockAction(action, tagId).catch(function (err) {
-            showStatus('标签锁操作失败：' + err.message, 'err');
+            showStatus(t('标签锁操作失败：') + err.message, 'err');
           });
           return;
         }
@@ -8063,7 +8113,7 @@
           }
           const password = lockDialogInput ? lockDialogInput.value : '';
           if (!password) {
-            setLockDialogError('请输入锁密码');
+            setLockDialogError(t('请输入锁密码'));
             if (lockDialogInput) {
               lockDialogInput.focus();
             }
@@ -8072,7 +8122,7 @@
           setLockDialogError('');
           if (lockDialogConfirmBtn) {
             lockDialogConfirmBtn.disabled = true;
-            lockDialogConfirmBtn.textContent = '验证中...';
+              lockDialogConfirmBtn.textContent = t('验证中...');
           }
           try {
             if (activeLockDialogState.onSubmit) {
@@ -8080,8 +8130,8 @@
             }
             closeLockDialog(password);
           } catch (err) {
-            showStatus(activeLockDialogState.statusErrorMessage || '解锁失败：密码错误或验证失败', 'err');
-            setLockDialogError(activeLockDialogState.errorMessage || '密码错误或验证失败，请重新输入。');
+            showStatus(activeLockDialogState.statusErrorMessage || t('解锁失败：密码错误或验证失败'), 'err');
+            setLockDialogError(activeLockDialogState.errorMessage || t('密码错误或验证失败，请重新输入。'));
             if (lockDialogInput) {
               lockDialogInput.focus();
               lockDialogInput.select();
@@ -8089,7 +8139,7 @@
           } finally {
             if (lockDialogConfirmBtn) {
               lockDialogConfirmBtn.disabled = false;
-              lockDialogConfirmBtn.textContent = '确认';
+              lockDialogConfirmBtn.textContent = t('确认');
             }
           }
         });
@@ -8174,7 +8224,7 @@
         try {
           await startAudioPlaylistFromTag(tagId, tagName, mode);
         } catch (err) {
-          showStatus('打开音频播放列表失败：' + err.message, 'err');
+          showStatus(t('打开音频播放列表失败：') + err.message, 'err');
         }
       });
 
