@@ -68,9 +68,48 @@ bool try_route_localized_asset(const char* path, const char* lang,
 		: false;
 }
 
+bool try_route_html_js_module(const char* path, request_t& req, response_t& res)
+{
+	static const char* kPrefixes[] = {
+		"/webcool/html/js/",
+		"/html/js/",
+		"/js/"
+	};
+
+	const char* file_name = NULL;
+	for (size_t i = 0; i < sizeof(kPrefixes) / sizeof(kPrefixes[0]); ++i) {
+		const size_t prefix_len = strlen(kPrefixes[i]);
+		if (strncmp(path, kPrefixes[i], prefix_len) == 0) {
+			file_name = path + prefix_len;
+			break;
+		}
+	}
+	const size_t file_len = file_name != NULL ? strlen(file_name) : 0;
+	if (file_name == NULL || *file_name == '\0' || file_len < 4
+		|| strstr(file_name, "..") != NULL
+		|| strchr(file_name, '/') != NULL
+		|| strcmp(file_name + file_len - 3, ".js") != 0)
+	{
+		return false;
+	}
+
+	acl::string local_path, workspace_path;
+	local_path.format("html/js/%s", file_name);
+	workspace_path.format("webcool/html/js/%s", file_name);
+	const char* file_path = resolve_static_file_path(local_path.c_str(),
+		workspace_path.c_str());
+	return file_path != NULL
+		? send_static_file(file_path, "application/javascript; charset=utf-8", req, res)
+		: false;
+}
+
 bool try_route_static_asset(const char* path, request_t& req, response_t& res) {
 	if (path == NULL || *path == '\0') {
 		return false;
+	}
+
+	if (try_route_html_js_module(path, req, res)) {
+		return true;
 	}
 
 	if (strcmp(path, "/webcool/html/i18n/zh.js") == 0
@@ -189,6 +228,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/delete", &http_servlet::routeDelete },
 		{ "/api/v1/restore", &http_servlet::routeRestore },
 		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
+		{ "/api/v1/files/rename", &http_servlet::routeRenameFile },
 		{ "/api/v1/files", &http_servlet::routeFiles },
 		{ "/api/v1/download", &http_servlet::routeDownload },
 		{ "/api/v1/open-file", &http_servlet::routeOpenFile },
@@ -198,6 +238,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/local-disk/delete", &http_servlet::routeLocalDiskDelete },
 		{ "/api/v1/local-disk/mkdir", &http_servlet::routeLocalDiskCreateDir },
 		{ "/api/v1/local-disk/move", &http_servlet::routeLocalDiskMove },
+		{ "/api/v1/local-disk/rename", &http_servlet::routeLocalDiskRename },
 		{ "/api/v1/local-disk/open-trash", &http_servlet::routeLocalDiskOpenTrash },
 		{ "/api/v1/local-disk/open-file", &http_servlet::routeLocalDiskOpenFile },
 		{ "/api/v1/local-disk/import", &http_servlet::routeLocalDiskImport },
@@ -264,6 +305,10 @@ bool http_servlet::routeMoveFile(request_t& req, response_t& res) {
 	return action::MoveFileAction::run(req, res, action::runtime_upload_dir_get());
 }
 
+bool http_servlet::routeRenameFile(request_t& req, response_t& res) {
+	return action::RenameFileAction::run(req, res, action::runtime_upload_dir_get());
+}
+
 bool http_servlet::routeFiles(request_t& req, response_t& res) {
 	return action::FilesAction::run(req, res, action::runtime_upload_dir_get());
 }
@@ -298,6 +343,10 @@ bool http_servlet::routeLocalDiskCreateDir(request_t& req, response_t& res) {
 
 bool http_servlet::routeLocalDiskMove(request_t& req, response_t& res) {
 	return action::LocalDiskMoveAction::run(req, res, action::runtime_upload_dir_get());
+}
+
+bool http_servlet::routeLocalDiskRename(request_t& req, response_t& res) {
+	return action::LocalDiskRenameAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeLocalDiskOpenTrash(request_t& req, response_t& res) {
@@ -443,6 +492,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/image/save", &http_servlet::routeImageSave },
 		{ "/api/v1/restore", &http_servlet::routeRestore },
 		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
+		{ "/api/v1/files/rename", &http_servlet::routeRenameFile },
 		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },
 		{ "/api/v1/video/convert/cancel", &http_servlet::routeVideoConvertCancel },
 		{ "/api/v1/video/convert/progress", &http_servlet::routeVideoConvertProgress },
@@ -462,6 +512,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/local-disk/delete", &http_servlet::routeLocalDiskDelete },
 		{ "/api/v1/local-disk/mkdir", &http_servlet::routeLocalDiskCreateDir },
 		{ "/api/v1/local-disk/move", &http_servlet::routeLocalDiskMove },
+		{ "/api/v1/local-disk/rename", &http_servlet::routeLocalDiskRename },
 		{ "/api/v1/local-disk/open-trash", &http_servlet::routeLocalDiskOpenTrash },
 		{ "/api/v1/local-disk/open-file", &http_servlet::routeLocalDiskOpenFile },
 		{ "/api/v1/open-file", &http_servlet::routeOpenFile },

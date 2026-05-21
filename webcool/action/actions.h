@@ -34,6 +34,9 @@ bool file_lock_path_has_lock(const std::string& upload_dir,
 	const std::string& file_key, bool& locked, std::string& err);
 bool file_lock_rename_key(const std::string& upload_dir,
 	const std::string& old_key, const std::string& new_key, std::string& err);
+bool file_lock_rename_prefix(const std::string& upload_dir,
+	const std::string& old_prefix, const std::string& new_prefix,
+	std::string& err);
 bool local_dir_lock_path_allows(const std::string& upload_dir,
 	const std::string& path, const std::string& password,
 	bool& allowed, std::string& locked_path, std::string& err);
@@ -120,6 +123,12 @@ public:
 		const std::string& upload_dir);
 };
 
+class RenameFileAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
 class DownloadAction {
 public:
 	static bool run(request_t& req, response_t& res,
@@ -163,6 +172,12 @@ public:
 };
 
 class LocalDiskMoveAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class LocalDiskRenameAction {
 public:
 	static bool run(request_t& req, response_t& res,
 		const std::string& upload_dir);

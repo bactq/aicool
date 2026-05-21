@@ -30,6 +30,8 @@ struct local_entry_t {
 	bool directory;
 	bool empty_directory;
 	long long size;
+	long long created_at;
+	std::string created_time;
 	long long modified_at;
 	std::string modified_time;
 };
@@ -136,6 +138,32 @@ static std::string local_base_name(const std::string& path) {
 	}
 	std::string::size_type pos = text.rfind('/');
 	return pos == std::string::npos ? text : text.substr(pos + 1);
+}
+
+static bool validate_local_name_segment(const std::string& name,
+	std::string& err)
+{
+	err.clear();
+	if (name.empty()) {
+		err = "name is empty";
+		return false;
+	}
+	if (name == "." || name == "..") {
+		err = "invalid name";
+		return false;
+	}
+	for (size_t i = 0; i < name.size(); ++i) {
+		unsigned char ch = (unsigned char) name[i];
+		if (ch < 32 || ch == 127) {
+			err = "name contains control character";
+			return false;
+		}
+		if (name[i] == '/' || name[i] == '\\') {
+			err = "name must not contain path separator";
+			return false;
+		}
+	}
+	return true;
 }
 
 static bool is_same_or_child_path(const std::string& base,
@@ -926,6 +954,7 @@ static const char* content_type_for_file(const std::string& name) {
 	if (ends_with_ignore_case(name, ".wav")) return "audio/wav";
 	if (ends_with_ignore_case(name, ".ogg")) return "audio/ogg";
 	if (ends_with_ignore_case(name, ".flac")) return "audio/flac";
+	if (ends_with_ignore_case(name, ".pdf")) return "application/pdf";
 	if (ends_with_ignore_case(name, ".txt") || ends_with_ignore_case(name, ".md")
 		|| ends_with_ignore_case(name, ".log") || ends_with_ignore_case(name, ".csv")
 		|| ends_with_ignore_case(name, ".json") || ends_with_ignore_case(name, ".xml")
@@ -1067,16 +1096,27 @@ bool LocalDiskListAction::run(request_t& req, response_t& res,
 			continue;
 		}
 
-		char time_buf[32];
-		format_time(child_st.st_mtime, time_buf, sizeof(time_buf));
+		char modified_buf[32];
+		format_time(child_st.st_mtime, modified_buf, sizeof(modified_buf));
+#ifdef __APPLE__
+		const time_t created_ts = child_st.st_birthtimespec.tv_sec > 0
+			? child_st.st_birthtimespec.tv_sec
+			: child_st.st_ctime;
+#else
+		const time_t created_ts = child_st.st_ctime;
+#endif
+		char created_buf[32];
+		format_time(created_ts, created_buf, sizeof(created_buf));
 		local_entry_t item;
 		item.name = entry->d_name;
 		item.path = child_path;
 		item.directory = S_ISDIR(child_st.st_mode);
 		item.empty_directory = item.directory && directory_is_empty(child_path);
 		item.size = item.directory ? 0 : (long long) child_st.st_size;
+		item.created_at = (long long) created_ts;
+		item.created_time = created_buf;
 		item.modified_at = (long long) child_st.st_mtime;
-		item.modified_time = time_buf;
+		item.modified_time = modified_buf;
 		entries.push_back(item);
 	}
 	closedir(dir);
@@ -1121,6 +1161,8 @@ bool LocalDiskListAction::run(request_t& req, response_t& res,
 			}
 		}
 		item.add_number("size", entries[i].size);
+		item.add_number("created_at", entries[i].created_at);
+		item.add_text("created_time", entries[i].created_time.c_str());
 		item.add_number("modified_at", entries[i].modified_at);
 		item.add_text("modified_time", entries[i].modified_time.c_str());
 	}
@@ -1303,7 +1345,17 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
+	if (is_dir && is_system_level_directory_path(path)) {
+		json_error(res, 409, "system directory cannot be deleted",
+			req.isKeepAlive());
+		return true;
+	}
+
 	std::string trash_path;
+	if (!move_file_to_trash(path, trash_path, err)) {
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
 	if (is_dir) {
 		if (!recursive_rmdir(path)) {
 			json_error(res, 500, strerror(errno),
@@ -1313,6 +1365,19 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res,
 	} else {
 		if (!move_file_to_trash(path, trash_path, err)) {
 			json_error(res, 500, err.c_str(), req.isKeepAlive());
+		std::string rename_err;
+		if (!tag_rename_folder_prefix(upload_dir, std::string("local:") + path,
+			std::string("local:") + trash_path, rename_err)
+			|| !video_resume_rename_folder_prefix(upload_dir,
+				std::string("local:") + path, std::string("local:") + trash_path,
+				rename_err)
+			|| !file_lock_rename_prefix(upload_dir, local_dir_lock_key(path),
+				local_dir_lock_key(trash_path), rename_err)
+			|| !file_lock_rename_prefix(upload_dir, local_file_lock_key(path),
+				local_file_lock_key(trash_path), rename_err))
+		{
+			(void) ::rename(trash_path.c_str(), path.c_str());
+			json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
 			return true;
 		}
 	}
@@ -1321,10 +1386,8 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res,
 	acl::json_node& root = json.create_node();
 	root.add_bool("ok", true);
 	root.add_text("path", path.c_str());
-	if (!is_dir) {
-		root.add_text("trash_path", trash_path.c_str());
-	}
-	root.add_text("message", is_dir ? "directory deleted" : "file moved to trash");
+	root.add_text("trash_path", trash_path.c_str());
+	root.add_text("message", is_dir ? "directory moved to trash" : "file moved to trash");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
@@ -1511,6 +1574,147 @@ bool LocalDiskMoveAction::run(request_t& req, response_t& res,
 	root.add_text("old_path", source.c_str());
 	root.add_text("target", target.c_str());
 	root.add_text("message", source_is_dir ? "directory moved" : "file moved");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool LocalDiskRenameAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string source;
+	std::string err;
+	const char* source_param = req.getParameter("path");
+	if (source_param == NULL || *source_param == '\0') {
+		json_error(res, 400, "source path is required", req.isKeepAlive());
+		return true;
+	}
+	if (!normalize_local_path(source_param, source, err)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	struct stat source_st;
+	if (stat(source.c_str(), &source_st) != 0) {
+		json_error(res, 404, "source path not found", req.isKeepAlive());
+		return true;
+	}
+	const bool source_is_dir = S_ISDIR(source_st.st_mode);
+	const bool source_is_file = S_ISREG(source_st.st_mode);
+	if (!source_is_dir && !source_is_file) {
+		json_error(res, 400, "only files and directories can be renamed",
+			req.isKeepAlive());
+		return true;
+	}
+	if (source == "/") {
+		json_error(res, 409, "root directory cannot be renamed", req.isKeepAlive());
+		return true;
+	}
+	if (source_is_dir && is_system_level_directory_path(source)) {
+		json_error(res, 409, "system directory cannot be renamed",
+			req.isKeepAlive());
+		return true;
+	}
+
+	std::string new_name = req.getParameter("name") ? req.getParameter("name") : "";
+	while (!new_name.empty() && new_name[0] == ' ') {
+		new_name.erase(0, 1);
+	}
+	while (!new_name.empty() && new_name[new_name.size() - 1] == ' ') {
+		new_name.erase(new_name.size() - 1);
+	}
+	if (!validate_local_name_segment(new_name, err)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	if (source_is_file) {
+		bool file_lock_allowed = false;
+		std::string lock_err;
+		if (!file_lock_path_allows(upload_dir, local_file_lock_key(source),
+			req.getParameter("file_password") ? req.getParameter("file_password") : "",
+			file_lock_allowed, lock_err))
+		{
+			json_error(res, 500, lock_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+		if (!file_lock_allowed) {
+			json_error(res, 403, "file is locked", req.isKeepAlive());
+			return true;
+		}
+	}
+	if (!ensure_local_dir_unlocked_for_request(upload_dir, req, res,
+		source_is_dir ? source : parent_path(source),
+		source_is_dir ? "directory is locked" : "source parent directory is locked"))
+	{
+		return true;
+	}
+
+	const std::string dest = join_local_path(parent_path(source), new_name.c_str());
+	if (dest == source) {
+		acl::json json;
+		acl::json_node& root = json.create_node();
+		root.add_bool("ok", true);
+		root.add_text("path", source.c_str());
+		root.add_text("old_path", source.c_str());
+		root.add_text("name", new_name.c_str());
+		root.add_text("message", "file unchanged");
+		return sendJson(res, 200, root, req.isKeepAlive());
+	}
+
+	struct stat dest_st;
+	if (stat(dest.c_str(), &dest_st) == 0) {
+		json_error(res, 409, "target path already exists", req.isKeepAlive());
+		return true;
+	}
+	if (errno != ENOENT) {
+		json_error(res, 500, strerror(errno), req.isKeepAlive());
+		return true;
+	}
+
+	if (::rename(source.c_str(), dest.c_str()) != 0) {
+		json_error(res, errno == EXDEV ? 409 : 500,
+			errno == EXDEV ? "cannot rename across different file systems" : strerror(errno),
+			req.isKeepAlive());
+		return true;
+	}
+
+	std::string rename_err;
+	const std::string old_local_key = std::string("local:") + source;
+	const std::string new_local_key = std::string("local:") + dest;
+	if (source_is_dir) {
+		if (!tag_rename_folder_prefix(upload_dir, old_local_key, new_local_key,
+			rename_err)
+			|| !video_resume_rename_folder_prefix(upload_dir, old_local_key,
+				new_local_key, rename_err)
+			|| !file_lock_rename_prefix(upload_dir, local_dir_lock_key(source),
+				local_dir_lock_key(dest), rename_err)
+			|| !file_lock_rename_prefix(upload_dir, local_file_lock_key(source),
+				local_file_lock_key(dest), rename_err))
+		{
+			(void) ::rename(dest.c_str(), source.c_str());
+			json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+	} else {
+		if (!tag_rename_file(upload_dir, old_local_key, new_local_key, rename_err)
+			|| !video_resume_rename_file(upload_dir, old_local_key, new_local_key,
+				rename_err)
+			|| !file_lock_rename_key(upload_dir,
+				local_file_lock_key(source), local_file_lock_key(dest), rename_err))
+		{
+			(void) ::rename(dest.c_str(), source.c_str());
+			json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
+			return true;
+		}
+	}
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("path", dest.c_str());
+	root.add_text("old_path", source.c_str());
+	root.add_text("name", new_name.c_str());
+	root.add_bool("directory", source_is_dir);
+	root.add_text("message", source_is_dir ? "directory renamed" : "file renamed");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
