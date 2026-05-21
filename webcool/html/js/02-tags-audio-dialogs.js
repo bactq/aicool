@@ -1,0 +1,1331 @@
+        let html =
+          '<button type="button" class="tag-context-item" data-audio-tag-action="random" data-tag-id="' + escapeHtml(tagId) + '">' + AUDIO_PLAY_MODE_LABELS.random + '</button>' +
+          '<button type="button" class="tag-context-item" data-audio-tag-action="sequential" data-tag-id="' + escapeHtml(tagId) + '">' + AUDIO_PLAY_MODE_LABELS.sequential + '</button>' +
+          '<button type="button" class="tag-context-item" data-audio-tag-action="loop" data-tag-id="' + escapeHtml(tagId) + '">' + AUDIO_PLAY_MODE_LABELS.loop + '</button>';
+        if (lockInfo) {
+          html += '<hr class="tag-context-sep">';
+          if (lockInfo.locked) {
+            const unlocked = !!getTagPassword(tagId);
+            html += '<button type="button" class="folder-context-item" data-tag-lock-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + t(unlocked ? '加锁' : '解锁') + '</button>';
+            html += '<button type="button" class="folder-context-item" data-tag-lock-action="remove-lock">' + t('去锁') + '</button>';
+          } else {
+            html += '<button type="button" class="folder-context-item" data-tag-lock-action="lock">' + t('加锁') + '</button>';
+          }
+          menu.setAttribute('data-tag-lock-id', tagId);
+          activeFileContextMenu = menu;
+        }
+        menu.innerHTML = html;
+        menu.setAttribute('data-tag-id', tagId);
+        menu.setAttribute('data-tag-name', tagName || '');
+        menu.style.left = Math.round(clientX) + 'px';
+        menu.style.top = Math.round(clientY) + 'px';
+        document.body.appendChild(menu);
+        clampFloatingMenuPosition(menu, clientX, clientY);
+        activeAudioTagContextMenu = menu;
+      }
+
+      function openTagLockContextMenu(tagId, locked, clientX, clientY) {
+        closeFileContextMenu();
+        closeFolderContextMenu();
+        closeAudioTagContextMenu();
+
+        const id = String(tagId || '');
+        if (!id) {
+          return;
+        }
+
+        const menu = document.createElement('div');
+        menu.className = 'folder-context-menu file-context-menu';
+        menu.setAttribute('data-tag-lock-id', id);
+        let html = '';
+        if (locked) {
+          const unlocked = !!getTagPassword(id);
+          html += '<button type="button" class="folder-context-item" data-tag-lock-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + t(unlocked ? '加锁' : '解锁') + '</button>';
+          html += '<button type="button" class="folder-context-item" data-tag-lock-action="remove-lock">' + t('去锁') + '</button>';
+        } else {
+          html += '<button type="button" class="folder-context-item" data-tag-lock-action="lock">' + t('加锁') + '</button>';
+        }
+        menu.innerHTML = html;
+        document.body.appendChild(menu);
+        menu.style.left = Math.round(clientX) + 'px';
+        menu.style.top = Math.round(clientY) + 'px';
+        clampFloatingMenuPosition(menu, clientX, clientY);
+        activeFileContextMenu = menu;
+      }
+
+      function renderAudioPlaylistItems(container, files, activeFileName) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = files.map(function (file, index) {
+          const name = String((file && file.name) || getFilePath(file) || '');
+          const itemClass = getFilePath(file) === activeFileName ? 'audio-playlist-item active' : 'audio-playlist-item';
+          return '<button type="button" class="' + itemClass + '" data-playlist-index="' + index + '">' +
+            '<span class="audio-playlist-item-index">' + String(index + 1) + '</span>' +
+            '<span class="audio-playlist-item-name">' + escapeHtml(name) + '</span>' +
+          '</button>';
+        }).join('');
+      }
+
+      function renderAudioPlayModeButtons(activeMode) {
+        return ['random', 'sequential', 'loop'].map(function (modeKey) {
+          const activeClass = modeKey === activeMode ? 'audio-mode-btn active' : 'audio-mode-btn';
+          const label = AUDIO_PLAY_MODE_LABELS[modeKey] || t('播放方式');
+          const icon = AUDIO_PLAY_MODE_ICONS[modeKey] || '?';
+          return '<button type="button" class="' + activeClass + '" data-audio-mode="' + modeKey + '" title="' + escapeHtml(label) + '" aria-label="' + escapeHtml(label) + '">' +
+            '<span class="audio-mode-btn-icon">' + icon + '</span>' +
+          '</button>';
+        }).join('');
+      }
+
+      function openAudioPlaylistWindow(tagId, tagName, mode, files) {
+        const playlistKey = 'audio-playlist:' + String(tagId || '');
+        const existed = openedPreviewWindows.get(playlistKey);
+        if (existed && existed.isConnected) {
+          closePreviewWindow(existed, playlistKey);
+        }
+
+        const displayFiles = sortAudioFilesForPlaylist(files);
+        if (!displayFiles.length) {
+          throw new Error(t('该标签下没有可播放的音频文件'));
+        }
+
+        const win = document.createElement('div');
+        win.className = 'floating-preview audio-playlist-preview';
+        previewZ += 1;
+        win.style.zIndex = String(previewZ);
+
+        win.innerHTML =
+          '<div class="preview-head">' +
+            '<div class="preview-title">' + escapeHtml((AUDIO_PLAY_MODE_LABELS[mode] || t('音频播放')) + t('：') + (tagName || t('音频标签'))) + '</div>' +
+            '<div class="preview-head-actions">' +
+              '<button class="preview-window-btn" type="button" data-window-action="minimize" title="' + escapeHtml(t('最小化')) + '" aria-label="' + escapeHtml(t('最小化')) + '">−</button>' +
+              '<button class="preview-window-btn" type="button" data-window-action="maximize" title="' + escapeHtml(t('最大化')) + '" aria-label="' + escapeHtml(t('最大化')) + '">□</button>' +
+              '<button class="preview-close" type="button" title="关闭" aria-label="关闭">×</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="preview-body audio-playlist-body">' +
+            '<div class="audio-playlist-meta">' +
+              '<div class="audio-playlist-mode-group">' + renderAudioPlayModeButtons(mode) + '</div>' +
+              '<div class="audio-playlist-current-name"></div>' +
+            '</div>' +
+            '<audio class="preview-audio audio-playlist-player" controls preload="metadata"></audio>' +
+            '<div class="audio-playlist-panel">' +
+              '<div class="audio-playlist-panel-head">' +
+                '<div class="audio-playlist-summary">' + t('共 ') + '<span class="audio-playlist-count"></span>' + t(' 个音频文件') + '</div>' +
+                '<button type="button" class="audio-playlist-toggle-btn" title="' + escapeHtml(t('收起远程磁盘')) + '" aria-label="' + escapeHtml(t('收起远程磁盘')) + '">▾</button>' +
+              '</div>' +
+              '<div class="audio-playlist-items"></div>' +
+            '</div>' +
+          '</div>';
+
+        previewLayer.appendChild(win);
+        centerPreviewWindow(win);
+        openedPreviewWindows.set(playlistKey, win);
+
+        const audioEl = win.querySelector('.audio-playlist-player');
+        const currentNameEl = win.querySelector('.audio-playlist-current-name');
+        const countEl = win.querySelector('.audio-playlist-count');
+        const itemsEl = win.querySelector('.audio-playlist-items');
+        const closeBtn = win.querySelector('.preview-close');
+        const head = win.querySelector('.preview-head');
+        const minimizeBtn = win.querySelector('[data-window-action="minimize"]');
+        const maximizeBtn = win.querySelector('[data-window-action="maximize"]');
+        const modeGroupEl = win.querySelector('.audio-playlist-mode-group');
+        const playlistPanelEl = win.querySelector('.audio-playlist-panel');
+        const playlistToggleBtn = win.querySelector('.audio-playlist-toggle-btn');
+        let currentIndex = -1;
+        let currentFileName = '';
+        let currentMode = mode;
+        let randomQueue = [];
+        let isPlaylistCollapsed = false;
+
+        if (countEl) {
+          countEl.textContent = String(displayFiles.length);
+        }
+
+        function refillRandomQueue(excludeName) {
+          const excluded = String(excludeName || '');
+          randomQueue = shuffleList(displayFiles.filter(function (file) {
+            return getFilePath(file) !== excluded;
+          }));
+          if (!randomQueue.length && displayFiles.length === 1) {
+            randomQueue = displayFiles.slice();
+          }
+        }
+
+        function snapshotWindowRect() {
+          if (win.classList.contains('is-maximized')) {
+            return;
+          }
+          const rect = win.getBoundingClientRect();
+          win.dataset.restoreLeft = Math.round(rect.left) + 'px';
+          win.dataset.restoreTop = Math.round(rect.top) + 'px';
+          win.dataset.restoreWidth = Math.round(rect.width) + 'px';
+          win.dataset.restoreHeight = Math.round(rect.height) + 'px';
+        }
+
+        function restoreAudioWindowGeometry() {
+          win.classList.remove('is-minimized', 'is-maximized');
+          win.style.transform = 'none';
+          win.style.resize = 'both';
+          win.style.maxHeight = '90vh';
+          win.style.width = win.dataset.restoreWidth || '';
+          win.style.height = win.dataset.restoreHeight || '';
+          win.style.left = win.dataset.restoreLeft || '';
+          win.style.top = win.dataset.restoreTop || '';
+          if (!win.dataset.restoreLeft || !win.dataset.restoreTop) {
+            centerPreviewWindow(win);
+          } else {
+            clampWindowPosition(win);
+          }
+        }
+
+        function syncAudioWindowButtons() {
+          if (maximizeBtn) {
+            const restoreMode = win.classList.contains('is-minimized') || win.classList.contains('is-maximized');
+            maximizeBtn.textContent = restoreMode ? '❐' : '□';
+            maximizeBtn.title = restoreMode ? t('复原') : t('最大化');
+            maximizeBtn.setAttribute('aria-label', restoreMode ? t('复原') : t('最大化'));
+          }
+        }
+
+        function syncAudioModeUI() {
+          if (modeGroupEl) {
+            modeGroupEl.innerHTML = renderAudioPlayModeButtons(currentMode);
+          }
+        }
+
+        function syncAudioWindowTitle() {
+          const titleEl = win.querySelector('.preview-title');
+          if (titleEl) {
+            titleEl.textContent = (AUDIO_PLAY_MODE_LABELS[currentMode] || t('音频播放')) + t('：') + (tagName || t('音频标签'));
+          }
+        }
+
+        function syncPlaylistPanelUI() {
+          if (playlistPanelEl) {
+            playlistPanelEl.classList.toggle('is-collapsed', isPlaylistCollapsed);
+          }
+          if (playlistToggleBtn) {
+            playlistToggleBtn.textContent = isPlaylistCollapsed ? '▸' : '▾';
+            playlistToggleBtn.title = isPlaylistCollapsed ? t('展开远程磁盘') : t('收起远程磁盘');
+            playlistToggleBtn.setAttribute('aria-label', isPlaylistCollapsed ? t('展开远程磁盘') : t('收起远程磁盘'));
+          }
+        }
+
+        function togglePlaylistPanel() {
+          isPlaylistCollapsed = !isPlaylistCollapsed;
+          syncPlaylistPanelUI();
+        }
+
+        function setAudioPlayMode(nextMode) {
+          if (!AUDIO_PLAY_MODE_LABELS[nextMode] || currentMode === nextMode) {
+            return;
+          }
+          currentMode = nextMode;
+          if (currentMode === 'random') {
+            refillRandomQueue(currentFileName);
+          }
+          syncAudioModeUI();
+          syncAudioWindowTitle();
+        }
+
+        function minimizeAudioWindow() {
+          if (win.classList.contains('is-minimized')) {
+            return;
+          }
+          snapshotWindowRect();
+          win.classList.remove('is-maximized');
+          win.classList.add('is-minimized');
+          win.style.transform = 'none';
+          win.style.resize = 'none';
+          win.style.height = '';
+          win.style.maxHeight = '';
+          clampWindowPosition(win);
+          syncAudioWindowButtons();
+        }
+
+        function maximizeAudioWindow() {
+          if (win.classList.contains('is-minimized') || win.classList.contains('is-maximized')) {
+            restoreAudioWindowGeometry();
+            syncAudioWindowButtons();
+            return;
+          }
+          snapshotWindowRect();
+          win.classList.add('is-maximized');
+          win.classList.remove('is-minimized');
+          win.style.transform = 'none';
+          win.style.resize = 'none';
+          win.style.left = '22px';
+          win.style.top = '22px';
+          win.style.width = 'calc(100vw - 44px)';
+          win.style.height = 'calc(100vh - 44px)';
+          win.style.maxHeight = 'calc(100vh - 44px)';
+          syncAudioWindowButtons();
+        }
+
+        function updateCurrentTrack(index, fileName) {
+          currentIndex = index;
+          currentFileName = String(fileName || '');
+          if (currentNameEl) {
+            currentNameEl.textContent = currentFileName;
+          }
+          renderAudioPlaylistItems(itemsEl, displayFiles, currentFileName);
+          const activeBtn = itemsEl ? itemsEl.querySelector('.audio-playlist-item.active') : null;
+          if (activeBtn) {
+            activeBtn.scrollIntoView({ block: 'nearest' });
+          }
+        }
+
+        function playIndex(index, autoplay) {
+          const current = displayFiles[index];
+          if (!current || !audioEl) {
+            return;
+          }
+          const fileName = getFilePath(current);
+          updateCurrentTrack(index, fileName);
+          const isLocal = !!current.local;
+          audioEl.src = (isLocal ? localDiskDownloadUrl(fileName) : downloadUrlForFile(fileName, true)) + '&v=' + Date.now();
+          audioEl.load();
+          if (autoplay !== false) {
+            audioEl.play().catch(function () {});
+          }
+        }
+
+        function playFileByName(fileName, autoplay) {
+          const targetName = String(fileName || '');
+          const nextIndex = displayFiles.findIndex(function (file) {
+            return getFilePath(file) === targetName;
+          });
+          if (nextIndex >= 0) {
+            playIndex(nextIndex, autoplay);
+          }
+        }
+
+        function playNextRandomTrack() {
+          if (!displayFiles.length) {
+            return;
+          }
+          if (!randomQueue.length) {
+            refillRandomQueue(currentFileName);
+          }
+          const nextFile = randomQueue.shift();
+          if (!nextFile) {
+            return;
+          }
+          playFileByName(getFilePath(nextFile), true);
+        }
+
+        function moveNextTrack() {
+          if (!displayFiles.length) {
+            return;
+          }
+          if (currentMode === 'loop') {
+            playIndex((currentIndex + 1) % displayFiles.length, true);
+            return;
+          }
+          if (currentMode === 'random') {
+            if (displayFiles.length === 1) {
+              playIndex(0, true);
+              return;
+            }
+            playNextRandomTrack();
+            return;
+          }
+          if (currentIndex + 1 < displayFiles.length) {
+            playIndex(currentIndex + 1, true);
+          }
+        }
+
+        if (itemsEl) {
+          itemsEl.addEventListener('click', function (e) {
+            const itemBtn = e.target.closest('.audio-playlist-item[data-playlist-index]');
+            if (!itemBtn) {
+              return;
+            }
+            const nextIndex = Number(itemBtn.getAttribute('data-playlist-index') || '-1');
+            if (nextIndex >= 0) {
+              playIndex(nextIndex, true);
+              if (currentMode === 'random') {
+                refillRandomQueue(getFilePath(displayFiles[nextIndex] || {}));
+              }
+            }
+          });
+        }
+
+        if (modeGroupEl) {
+          modeGroupEl.addEventListener('click', function (e) {
+            const modeBtn = e.target.closest('.audio-mode-btn[data-audio-mode]');
+            if (!modeBtn) {
+              return;
+            }
+            const nextMode = modeBtn.getAttribute('data-audio-mode') || '';
+            setAudioPlayMode(nextMode);
+          });
+        }
+
+        if (playlistToggleBtn) {
+          playlistToggleBtn.addEventListener('click', function () {
+            togglePlaylistPanel();
+          });
+        }
+
+        if (audioEl) {
+          audioEl.addEventListener('ended', function () {
+            moveNextTrack();
+          });
+        }
+
+        if (minimizeBtn) {
+          minimizeBtn.addEventListener('click', function () {
+            minimizeAudioWindow();
+          });
+        }
+
+        if (maximizeBtn) {
+          maximizeBtn.addEventListener('click', function () {
+            maximizeAudioWindow();
+          });
+        }
+
+        closeBtn.addEventListener('click', function () {
+          closePreviewWindow(win, playlistKey);
+        });
+
+        win.addEventListener('mousedown', function () {
+          bringToFront(win);
+        });
+
+        head.addEventListener('mousedown', function (e) {
+          if (e.target.closest('.preview-close') || e.target.closest('.preview-window-btn') || win.classList.contains('is-maximized')) {
+            return;
+          }
+          snapshotWindowRect();
+          const rect = win.getBoundingClientRect();
+          bringToFront(win);
+          activeDrag = {
+            win: win,
+            startX: e.clientX,
+            startY: e.clientY,
+            left: rect.left,
+            top: rect.top
+          };
+          win.style.transform = 'none';
+          e.preventDefault();
+        });
+
+        head.addEventListener('dblclick', function (e) {
+          if (e.target.closest('.preview-close') || e.target.closest('.preview-window-btn')) {
+            return;
+          }
+          e.preventDefault();
+          bringToFront(win);
+          maximizeAudioWindow();
+        });
+
+        syncAudioWindowButtons();
+
+        syncAudioModeUI();
+        syncAudioWindowTitle();
+        syncPlaylistPanelUI();
+
+        if (currentMode === 'random') {
+          refillRandomQueue('');
+          playNextRandomTrack();
+        } else {
+          playIndex(0, true);
+        }
+      }
+
+      async function startAudioPlaylistFromTag(tagId, tagName, mode) {
+        const files = await loadAudioFilesForTag(tagId);
+        if (!files.length) {
+          throw new Error(t('该标签下没有音频文件'));
+        }
+        openAudioPlaylistWindow(tagId, tagName, mode, files);
+      }
+
+      function showStatus(msg, type) {
+        statusBox.className = 'status show ' + (type || 'ok');
+        statusBox.textContent = msg;
+      }
+
+      function closeTagDialog(value) {
+        if (!tagDialog) {
+          return;
+        }
+        tagDialog.hidden = true;
+        document.body.style.overflow = '';
+        const resolver = activeTagDialogResolver;
+        activeTagDialogResolver = null;
+        if (resolver) {
+          resolver(value);
+        }
+      }
+
+      function askTagName(options) {
+        if (!tagDialog || !tagDialogTitle || !tagDialogDesc || !tagDialogInput) {
+          return Promise.resolve(null);
+        }
+
+        if (activeTagDialogResolver) {
+          closeTagDialog(null);
+        }
+
+        const opts = options || {};
+        tagDialogTitle.textContent = String(opts.title || t('新建标签'));
+        tagDialogDesc.textContent = String(opts.description || t('请输入标签名称。'));
+        if (tagDialogLabel) {
+          tagDialogLabel.textContent = String(opts.label || t('标签名称'));
+        }
+        tagDialogInput.value = String(opts.initialValue || '');
+        tagDialogInput.placeholder = String(opts.placeholder || t('请输入标签名称'));
+        tagDialog.hidden = false;
+        document.body.style.overflow = 'hidden';
+
+        requestAnimationFrame(function () {
+          tagDialogInput.focus();
+          tagDialogInput.select();
+        });
+
+        return new Promise(function (resolve) {
+          activeTagDialogResolver = resolve;
+        });
+      }
+
+      function setLockDialogError(message) {
+        if (!lockDialogError) {
+          return;
+        }
+        const text = String(message || '');
+        lockDialogError.textContent = text;
+        lockDialogError.hidden = !text;
+      }
+
+      function closeLockDialog(value) {
+        if (!lockDialog) {
+          return;
+        }
+        lockDialog.hidden = true;
+        document.body.style.overflow = '';
+        setLockDialogError('');
+        const state = activeLockDialogState;
+        activeLockDialogState = null;
+        if (state && state.resolve) {
+          state.resolve(value);
+        }
+      }
+
+      function askLockPassword(options) {
+        if (!lockDialog || !lockDialogTitle || !lockDialogDesc || !lockDialogInput) {
+          return Promise.resolve(null);
+        }
+        if (activeLockDialogState) {
+          closeLockDialog(null);
+        }
+
+        const opts = options || {};
+        lockDialogTitle.textContent = String(opts.title || t('解锁目录'));
+        lockDialogDesc.textContent = String(opts.description || t('请输入目录锁密码。'));
+        lockDialogInput.value = '';
+        lockDialogInput.placeholder = String(opts.placeholder || t('请输入锁密码'));
+        setLockDialogError('');
+        lockDialog.hidden = false;
+        document.body.style.overflow = 'hidden';
+
+        requestAnimationFrame(function () {
+          lockDialogInput.focus();
+          lockDialogInput.select();
+        });
+
+        return new Promise(function (resolve) {
+          activeLockDialogState = {
+            resolve: resolve,
+            onSubmit: typeof opts.onSubmit === 'function' ? opts.onSubmit : null,
+            errorMessage: String(opts.errorMessage || t('密码错误或验证失败，请重新输入。')),
+            statusErrorMessage: String(opts.statusErrorMessage || t('解锁失败：密码错误或验证失败'))
+          };
+        });
+      }
+
+      function closeConfirmDialog(value) {
+        if (!confirmDialog) {
+          return;
+        }
+        confirmDialog.hidden = true;
+        document.body.style.overflow = '';
+        const resolver = activeConfirmDialogResolver;
+        activeConfirmDialogResolver = null;
+        if (resolver) {
+          resolver(!!value);
+        }
+      }
+
+      function askConfirmDialog(options) {
+        if (!confirmDialog || !confirmDialogTitle || !confirmDialogDesc) {
+          return Promise.resolve(false);
+        }
+        if (activeConfirmDialogResolver) {
+          closeConfirmDialog(false);
+        }
+        const opts = options || {};
+        confirmDialogTitle.textContent = String(opts.title || t('确认操作'));
+        confirmDialogDesc.textContent = String(opts.description || t('请确认是否继续。'));
+        if (confirmDialogCancelBtn) {
+          confirmDialogCancelBtn.textContent = String(opts.cancelText || t('取消'));
+        }
+        if (confirmDialogConfirmBtn) {
+          confirmDialogConfirmBtn.textContent = String(opts.confirmText || t('确认'));
+          confirmDialogConfirmBtn.classList.toggle('danger', opts.danger !== false);
+        }
+        confirmDialog.hidden = false;
+        document.body.style.overflow = 'hidden';
+        requestAnimationFrame(function () {
+          if (confirmDialogConfirmBtn) {
+            confirmDialogConfirmBtn.focus();
+          }
+        });
+        return new Promise(function (resolve) {
+          activeConfirmDialogResolver = resolve;
+        });
+      }
+
+      function makeTagId() {
+        return 'tag_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
+      }
+
+      function loadLegacyTagTreeState() {
+        try {
+          const raw = localStorage.getItem(TAG_TREE_STORAGE_KEY);
+          if (!raw) {
+            return [];
+          }
+
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed)) {
+            return [];
+          }
+
+          const normalized = [];
+          for (let i = 0; i < parsed.length; i += 1) {
+            const node = normalizeTagNode(parsed[i], 1);
+            if (node) {
+              normalized.push(node);
+            }
+          }
+          return normalized;
+        } catch (_) {
+          return [];
+        }
+      }
+
+      function normalizeTagNode(node, level) {
+        if (!node || level > TAG_MAX_LEVEL) {
+          return null;
+        }
+
+        const name = String(node.name || '').trim();
+        if (!name) {
+          return null;
+        }
+
+        const files = Array.isArray(node.files)
+          ? node.files.map(function (it) { return String(it || ''); }).filter(Boolean)
+          : [];
+
+        const childrenInput = Array.isArray(node.children) ? node.children : [];
+        const children = [];
+        for (let i = 0; i < childrenInput.length; i += 1) {
+          const normalized = normalizeTagNode(childrenInput[i], level + 1);
+          if (normalized) {
+            children.push(normalized);
+          }
+        }
+
+        return {
+          id: String(node.id || makeTagId()),
+          name: name.slice(0, 60),
+          files: Array.from(new Set(files)),
+          locked: !!node.locked,
+          children: children
+        };
+      }
+
+      async function loadTagTreeState() {
+        try {
+          const data = await fetchJson(api.tags);
+          const parsed = Array.isArray(data.tags) ? data.tags : [];
+          let source = parsed;
+
+          if (!source.length) {
+            const legacyNodes = loadLegacyTagTreeState();
+            if (legacyNodes.length) {
+              await migrateLegacyTagTree(legacyNodes);
+              const refreshed = await fetchJson(api.tags);
+              source = Array.isArray(refreshed.tags) ? refreshed.tags : [];
+            }
+          }
+
+          const normalized = [];
+          for (let i = 0; i < source.length; i += 1) {
+            const node = normalizeTagNode(source[i], 1);
+            if (node) {
+              normalized.push(node);
+            }
+          }
+          tagTree = normalized;
+        } catch (_) {
+          tagTree = [];
+        }
+      }
+
+      function saveTagTreeState() {
+      }
+
+      function hasTagChildren(node) {
+        return !!(node && Array.isArray(node.children) && node.children.length > 0);
+      }
+
+      function getTagNodeToggleSymbol(node, level) {
+        if (level >= TAG_MAX_LEVEL) {
+          return '';
+        }
+        if (!hasTagChildren(node)) {
+          return '+';
+        }
+        return expandedTagNodeIds.has(node.id) ? 'v' : '>';
+      }
+
+      function buildTagNodeHtml(node, level) {
+        const safeLevel = Math.max(1, Math.min(TAG_MAX_LEVEL, level || 1));
+        const indent = (safeLevel - 1) * 5;
+        const canExpand = safeLevel < TAG_MAX_LEVEL;
+        const hasChildren = hasTagChildren(node);
+        const expanded = expandedTagNodeIds.has(node.id);
+        const toggleSymbol = getTagNodeToggleSymbol(node, safeLevel);
+        const restrictedRootType = getRestrictedRootTagType(node, safeLevel);
+        const restrictedBadgeHtml = restrictedRootType
+          ? '<span class="tag-limit-badge ' + restrictedRootType + '">' + (restrictedRootType === 'video' ? t('仅视频') : (restrictedRootType === 'audio' ? t('仅音频') : t('仅图片'))) + '</span>'
+          : '';
+
+        let childHtml = '';
+        if (canExpand && hasChildren && expanded) {
+          childHtml = (Array.isArray(node.children) ? node.children : []).map(function (child) {
+            return buildTagNodeHtml(child, safeLevel + 1);
+          }).join('');
+        }
+
+        const nameInlineStyle = 'cursor:pointer;';
+        const toggleBtn = hasChildren
+          ? '<button type="button" class="tag-node-toggle" data-tag-id="' + node.id + '">' + toggleSymbol + '</button>'
+          : '<span class="tag-node-toggle placeholder"></span>';
+
+        const nodeClass = activeFilterTagId === node.id ? 'tag-node active' : 'tag-node';
+        const canDeleteTag = !isProtectedRestrictedRootTag(node, safeLevel);
+        const canLockTag = canDeleteTag;
+        const isRenaming = activeTagRenameId === node.id && canRenameTagNode(node, safeLevel);
+        const tagNameHtml = isRenaming
+          ? '<input class="tag-rename-input" data-tag-rename-input="' + escapeHtml(node.id) + '" value="' + escapeHtml(node.name) + '" maxlength="60">'
+          : '<span class="tag-node-name" data-tag-id="' + node.id + '">' + escapeHtml(node.name) + '</span>';
+        const tagUnlocked = !!getTagPassword(node.id);
+        const tagLockHtml = (canLockTag && node.locked)
+          ? '<span class="folder-lock-icon file-lock-inline tag-lock-inline' + (tagUnlocked ? ' unlocked' : '') + '" data-tag-lock-toggle="' + escapeHtml(node.id) + '" title="' + escapeHtml(t(tagUnlocked ? '点击重新加锁' : '点击解锁')) + '" aria-label="' + escapeHtml(t(tagUnlocked ? '点击重新加锁' : '点击解锁')) + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
+          : '';
+        const actionHtml =
+          '<div class="tag-actions">' +
+            (canExpand
+              ? '<button type="button" class="tag-inline-btn" data-tag-create="' + node.id + '" data-tag-level="' + safeLevel + '" title="' + escapeHtml(t('新增子标签')) + '">+</button>'
+              : '') +
+            (canDeleteTag
+              ? '<button type="button" class="tag-inline-btn danger" data-tag-delete="' + node.id + '" title="' + escapeHtml(t('删除标签')) + '">-</button>'
+              : '') +
+          '</div>';
+
+        return (
+          '<div class="' + nodeClass + '" data-tag-id="' + node.id + '" data-tag-locked="' + (node.locked ? '1' : '0') + '" data-tag-lockable="' + (canLockTag ? '1' : '0') + '">' +
+            '<div class="tag-line">' +
+              '<div class="tag-line-main" style="padding-left:' + indent + 'px;">' +
+                toggleBtn +
+                '<span class="tag-node-name-wrap" style="' + nameInlineStyle + '">' +
+                  tagNameHtml +
+                  restrictedBadgeHtml +
+                  tagLockHtml +
+                '</span>' +
+              '</div>' +
+              actionHtml +
+            '</div>' +
+            childHtml +
+          '</div>'
+        );
+      }
+
+      function updateFilesTagToggleButton() {
+        if (!filesTagToggleBtn) {
+          return;
+        }
+        filesTagToggleBtn.textContent = '+';
+        filesTagToggleBtn.setAttribute('title', t('新增一级标签'));
+      }
+
+      function renderTagTree() {
+        if (!tagManager) {
+          return;
+        }
+
+        updateFilesTagToggleButton();
+        if (!tagTree.length) {
+          tagManager.classList.remove('open');
+          tagManager.innerHTML = '';
+          return;
+        }
+
+        const treeHtml = '<div class="tag-tree">' + tagTree.map(function (node) {
+          return buildTagNodeHtml(node, 1);
+        }).join('') + '</div>';
+
+        tagManager.classList.add('open');
+        tagManager.innerHTML = treeHtml;
+        focusActiveTagRenameInput();
+      }
+
+      function canBindFilesToTagOnClient(tagId, fileNames) {
+        const names = Array.isArray(fileNames) ? fileNames : [];
+        for (let i = 0; i < names.length; i += 1) {
+          const check = canBindFileToTagOnClient(tagId, names[i]);
+          if (!check.ok) {
+            return check;
+          }
+        }
+        return { ok: true, message: '' };
+      }
+
+      function buildQuickTagTreeHtml(nodes, fileNames, level) {
+        const list = Array.isArray(nodes) ? nodes : [];
+        const names = Array.isArray(fileNames) ? fileNames : [];
+        const safeLevel = Math.max(1, Math.min(TAG_MAX_LEVEL, level || 1));
+        return list.map(function (node) {
+          const tagId = String((node && node.id) || '');
+          const name = String((node && node.name) || '');
+          const check = canBindFilesToTagOnClient(tagId, names);
+          const children = Array.isArray(node && node.children) ? node.children : [];
+          const childHtml = children.length
+            ? '<div class="quick-tag-children">' + buildQuickTagTreeHtml(children, names, safeLevel + 1) + '</div>'
+            : '';
+          return (
+            '<div class="quick-tag-node">' +
+              '<button type="button" class="quick-tag-item' + (check.ok ? '' : ' disabled') + '" data-quick-tag-id="' + escapeHtml(tagId) + '"' + (check.ok ? '' : ' disabled title="' + escapeHtml(check.message) + '"') + ' style="padding-left:' + (8 + ((safeLevel - 1) * 14)) + 'px;">' +
+                '<span class="quick-tag-mark">#</span>' +
+                '<span class="quick-tag-name">' + escapeHtml(name) + '</span>' +
+              '</button>' +
+              childHtml +
+            '</div>'
+          );
+        }).join('');
+      }
+
+      async function openFileTagMenu(button, fileName) {
+        return openFilesTagMenu(button, [fileName], {});
+      }
+
+      async function openFilesTagMenu(button, fileNames, options) {
+        closeFileTagMenu();
+        const opts = options || {};
+        const targetFiles = (Array.isArray(fileNames) ? fileNames : [])
+          .map(function (name) { return String(name || ''); })
+          .filter(Boolean);
+        if (!button || !targetFiles.length) {
+          return;
+        }
+        if (!tagTree.length) {
+          await loadTagTreeState();
+        }
+        const menu = document.createElement('div');
+        menu.className = 'quick-tag-menu';
+        menu.setAttribute('data-quick-tag-files', targetFiles.join('\n'));
+        menu.setAttribute('data-quick-tag-local', opts.local ? '1' : '0');
+        menu.innerHTML = tagTree.length
+          ? '<div class="quick-tag-title">' + (targetFiles.length > 1 ? (t('给 ') + targetFiles.length + t(' 个文件加入标签')) : t('加入标签')) + '</div>' + buildQuickTagTreeHtml(tagTree, targetFiles, 1)
+          : '<div class="quick-tag-empty">' + t('当前没有标签') + '</div>';
+        document.body.appendChild(menu);
+        const rect = button.getBoundingClientRect();
+        menu.style.left = Math.round(rect.left) + 'px';
+        menu.style.top = Math.round(rect.bottom + 6) + 'px';
+        clampFloatingMenuPosition(menu, rect.left, rect.bottom + 6);
+        activeFileTagMenu = menu;
+      }
+
+      function focusActiveTagRenameInput() {
+        if (!tagManager || !activeTagRenameId) {
+          return;
+        }
+        setTimeout(function () {
+          if (!tagManager || !activeTagRenameId) {
+            return;
+          }
+          const input = tagManager.querySelector('.tag-rename-input[data-tag-rename-input]');
+          if (!input) {
+            return;
+          }
+          input.focus();
+          input.select();
+        }, 0);
+      }
+
+      function startTagRename(tagId) {
+        const id = String(tagId || '');
+        const meta = findTagMetaById(id);
+        if (!meta || !canRenameTagNode(meta.node, meta.level)) {
+          return;
+        }
+        activeTagRenameId = id;
+        renderTagTree();
+      }
+
+      function cancelTagRename() {
+        if (!activeTagRenameId) {
+          return;
+        }
+        activeTagRenameId = '';
+        renderTagTree();
+      }
+
+      async function submitTagRename(input) {
+        if (!input) {
+          return;
+        }
+        const tagId = String(input.getAttribute('data-tag-rename-input') || '');
+        if (!tagId || activeTagRenameId !== tagId) {
+          return;
+        }
+        if (tagRenameRequestId === tagId) {
+          return;
+        }
+
+        const meta = findTagMetaById(tagId);
+        if (!meta || !canRenameTagNode(meta.node, meta.level)) {
+          activeTagRenameId = '';
+          renderTagTree();
+          return;
+        }
+
+        const nextName = String(input.value || '').trim();
+        if (!nextName) {
+          showStatus(t('标签名称不能为空'), 'err');
+          input.focus();
+          return;
+        }
+        if (nextName === String(meta.node.name || '')) {
+          activeTagRenameId = '';
+          renderTagTree();
+          return;
+        }
+
+        try {
+          tagRenameRequestId = tagId;
+          await fetchJson(
+            api.tagRename + '?id=' + encodeURIComponent(tagId) + '&name=' + encodeURIComponent(nextName),
+            { method: 'POST' }
+          );
+          activeTagRenameId = '';
+          await loadTagTreeState();
+          renderTagTree();
+          if (activeFilterTagId === tagId) {
+            await showFilesForTag(tagId);
+          } else {
+            updateFileViewContext();
+          }
+          showStatus(t('标签已改名：') + nextName, 'ok');
+        } catch (err) {
+          showStatus(t('标签改名失败：') + err.message, 'err');
+          input.focus();
+          input.select();
+        } finally {
+          tagRenameRequestId = '';
+        }
+      }
+
+      function setDropHighlight(nodeEl) {
+        if (activeDropTagNode && activeDropTagNode !== nodeEl) {
+          activeDropTagNode.classList.remove('drop-target');
+        }
+        activeDropTagNode = nodeEl || null;
+        if (activeDropTagNode) {
+          activeDropTagNode.classList.add('drop-target');
+        }
+      }
+
+      function clearDropHighlight() {
+        if (!activeDropTagNode) {
+          return;
+        }
+        activeDropTagNode.classList.remove('drop-target');
+        activeDropTagNode = null;
+      }
+
+      function walkTagNodes(list, visitor, level, parent, parentList) {
+        const nodes = Array.isArray(list) ? list : [];
+        for (let i = 0; i < nodes.length; i += 1) {
+          const node = nodes[i];
+          const stop = visitor(node, level, parent, parentList, i);
+          if (stop) {
+            return true;
+          }
+          if (walkTagNodes(node.children, visitor, level + 1, node, node.children)) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function findTagMetaById(tagId) {
+        let found = null;
+        walkTagNodes(tagTree, function (node, level, parent, parentList, index) {
+          if (node.id === tagId) {
+            found = {
+              node: node,
+              level: level,
+              parent: parent,
+              parentList: parentList,
+              index: index
+            };
+            return true;
+          }
+          return false;
+        }, 1, null, tagTree);
+        return found;
+      }
+
+      function getTagRootMeta(tagId) {
+        let meta = findTagMetaById(tagId);
+        if (!meta) {
+          return null;
+        }
+        while (meta.parent) {
+          meta = findTagMetaById(meta.parent.id);
+          if (!meta) {
+            return null;
+          }
+        }
+        return meta;
+      }
+
+      function getTagFileTypeConstraint(tagId) {
+        const rootMeta = getTagRootMeta(tagId);
+        if (!rootMeta || !rootMeta.node) {
+          return '';
+        }
+        const rootName = String(rootMeta.node.name || '').trim();
+        if (rootName === '视频') {
+          return 'video';
+        }
+        if (rootName === '音频') {
+          return 'audio';
+        }
+        if (rootName === '图片') {
+          return 'image';
+        }
+        return '';
+      }
+
+      function getTagRootName(tagId) {
+        const rootMeta = getTagRootMeta(tagId);
+        if (!rootMeta || !rootMeta.node) {
+          return '';
+        }
+        return String(rootMeta.node.name || '').trim();
+      }
+
+      function getRestrictedRootTagType(node, level) {
+        if ((level || 1) !== 1 || !node || !node.id) {
+          return '';
+        }
+        return getTagFileTypeConstraint(node.id);
+      }
+
+      function isActiveTagImageType() {
+        return !!(activeFilterTagId && getTagFileTypeConstraint(activeFilterTagId) === 'image');
+      }
+
+      function isTagPreviewEnabled(tagId) {
+        const id = String(tagId || '');
+        if (!id) {
+          return false;
+        }
+        const meta = findTagMetaById(id);
+        if (!meta || !meta.node) {
+          return false;
+        }
+        const rootName = getTagRootName(id);
+        // 规则：图片标签(含子标签)可预览；标牌仅其子标签可预览（不含标牌根）。
+        if (rootName === '图片') {
+          return true;
+        }
+        if (rootName === '标牌' && Number(meta.level || 1) > 1) {
+          return true;
+        }
+        return false;
+      }
+
+      function isActiveTagPreviewEnabled() {
+        return isTagPreviewEnabled(activeFilterTagId);
+      }
+
+      function isProtectedRestrictedRootTag(node, level) {
+        return !!getRestrictedRootTagType(node, level);
+      }
+
+      function canRenameTagNode(node, level) {
+        return !!(node && node.id) && !isProtectedRestrictedRootTag(node, level);
+      }
+
+      function canLockTagNode(node, level) {
+        return !!(node && node.id) && !isProtectedRestrictedRootTag(node, level);
+      }
+
+      async function ensureTagUnlocked(tagId) {
+        const id = String(tagId || '');
+        if (!id) {
+          return false;
+        }
+        const meta = findTagMetaById(id);
+        if (!meta || !meta.node) {
+          showStatus(t('标签不存在，可能已被删除'), 'err');
+          return false;
+        }
+        if (!meta.node.locked || getTagPassword(id)) {
+          return true;
+        }
+        return await handleTagLockAction('session-unlock', id, { silentSuccess: true });
+      }
+
+      async function handleTagLockAction(action, tagId, options) {
+        const id = String(tagId || '');
+        const opts = options || {};
+        if (!action || !id) {
+          return false;
+        }
+
+        const meta = findTagMetaById(id);
+        if (!meta || !meta.node) {
+          showStatus(t('标签不存在，可能已被删除'), 'err');
+          return false;
+        }
+        if (!canLockTagNode(meta.node, meta.level)) {
+          showStatus(t('保留标签不能加锁'), 'err');
+          return false;
+        }
+
+        const label = String(meta.node.name || id);
+        if (action === 'lock') {
+          const password = await askLockPassword({
+            title: t('加锁标签'),
+            description: t('请为标签「') + label + t('」设置锁密码。加锁后需要输入密码才能查看该标签下的文件。'),
+            placeholder: t('请输入新锁密码'),
+            errorMessage: t('加锁失败，请重新输入密码。'),
+            statusErrorMessage: t('加锁失败：密码错误或验证失败')
+          });
+          if (password === null) {
+            return false;
+          }
+          await fetchJson(api.tagLock + '?id=' + encodeURIComponent(id) + '&password=' + encodeURIComponent(password), { method: 'POST' });
+          deleteUnlockedTagPassword(id);
+          await loadTagTreeState();
+          if (activeFilterTagId === id) {
+            renderFiles([]);
+          }
+          renderTagTree();
+          showStatus(t('标签已加锁：') + label, 'ok');
+          return true;
+        }
+
+        if (action === 'session-unlock') {
+          const password = await askLockPassword({
+            title: t('解锁标签'),
+            description: t('请输入标签「') + label + t('」的锁密码。'),
+            onSubmit: async function (passwordText) {
+              await fetchJson(api.tagLockVerify + '?id=' + encodeURIComponent(id) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
+            }
+          });
+          if (password === null) {
+            return false;
+          }
+          setUnlockedTagPassword(id, password);
+          await loadTagTreeState();
+          renderTagTree();
+          if (activeFilterTagId === id) {
+            await showFilesForTag(id);
+          }
+          if (!opts.silentSuccess) {
+            showStatus(t('标签已解锁（当前会话）：') + label, 'ok');
+          }
+          return true;
+        }
+
+        if (action === 'session-lock') {
+          deleteUnlockedTagPassword(id);
+          if (activeFilterTagId === id) {
+            renderFiles([]);
+          }
+          renderTagTree();
+          showStatus(t('标签已重新加锁：') + label, 'ok');
+          return true;
+        }
+
+        if (action === 'remove-lock') {
+          const password = await askLockPassword({
+            title: t('去锁标签'),
+            description: t('请输入标签「') + label + t('」的锁密码。验证成功后会永久移除该标签锁。'),
+            errorMessage: t('密码错误或去锁失败，请重新输入。'),
+            statusErrorMessage: t('去锁失败：密码错误或验证失败'),
+            onSubmit: async function (passwordText) {
+              await fetchJson(api.tagUnlock + '?id=' + encodeURIComponent(id) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
+            }
+          });
+          if (password === null) {
+            return false;
+          }
+          deleteUnlockedTagPassword(id);
+          await loadTagTreeState();
+          if (activeFilterTagId === id) {
+            await showFilesForTag(id);
+          } else {
+            renderTagTree();
+          }
+          showStatus(t('标签已去锁：') + label, 'ok');
+          return true;
+        }
+
+        return false;
+      }
+
+      function canBindFileToTagOnClient(tagId, fileName) {
+        const constraint = getTagFileTypeConstraint(tagId);
+        if (!constraint) {
+          return { ok: true, message: '' };
+        }
+        if (constraint === 'video' && !isVideoName(fileName)) {
+          return { ok: false, message: t('视频标签及其子标签只能引用视频文件（mp4/avi/mkv/rmvb）') };
+        }
+        if (constraint === 'audio' && !isAudioName(fileName)) {
+          return { ok: false, message: t('音频标签及其子标签只能引用音频文件（mp3/m4a/aac/wav/ogg/flac）') };
+        }
+        if (constraint === 'image' && !isImageName(fileName)) {
+          return { ok: false, message: t('图片标签及其子标签只能引用图片文件（png/jpg/jpeg/gif）') };
+        }
+        return { ok: true, message: '' };
+      }
+
+      async function addTagNode(parentTagId, name) {
+        const cleanName = String(name || '').trim();
+        if (!cleanName) {
+          return { ok: false, message: t('标签名称不能为空') };
+        }
+
+        try {
+          const created = await fetchJson(
+            api.tagCreate + '?name=' + encodeURIComponent(cleanName)
+              + (parentTagId ? '&parent_id=' + encodeURIComponent(parentTagId) : ''),
+            { method: 'POST' }
+          );
+          return { ok: true, id: created.id || '' };
+        } catch (err) {
+          return { ok: false, message: err.message };
+        }
+      }
+
+      async function migrateLegacyTagNode(node, parentTagId) {
+        const createResult = await addTagNode(parentTagId, node.name || '');
+        if (!createResult.ok || !createResult.id) {
+          throw new Error(createResult.message || t('创建标签失败'));
+        }
+
+        const serverTagId = createResult.id;
+        const files = Array.isArray(node.files) ? node.files : [];
+        for (let i = 0; i < files.length; i += 1) {
+          const fileName = String(files[i] || '');
+          if (!fileName) {
+            continue;
+          }
+          await bindFileToTag(serverTagId, fileName);
+        }
+
+        const children = Array.isArray(node.children) ? node.children : [];
+        for (let i = 0; i < children.length; i += 1) {
+          await migrateLegacyTagNode(children[i], serverTagId);
+        }
+      }
+
+      async function migrateLegacyTagTree(legacyNodes) {
+        for (let i = 0; i < legacyNodes.length; i += 1) {
+          await migrateLegacyTagNode(legacyNodes[i], '');
+        }
+        try {
+          localStorage.removeItem(TAG_TREE_STORAGE_KEY);
+        } catch (_) {
+        }
+      }
+
+      async function removeTagNode(tagId) {
+        try {
+          return await fetchJson(api.tagDelete + '?id=' + encodeURIComponent(tagId), {
+            method: 'POST'
+          });
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function clearExpandedNodeState(node) {
+        if (!node) {
+          return;
+        }
+        expandedTagNodeIds.delete(node.id);
+        const children = Array.isArray(node.children) ? node.children : [];
+        for (let i = 0; i < children.length; i += 1) {
+          clearExpandedNodeState(children[i]);
+        }
+      }
+
+      function getFileNameSet() {
+        const set = new Set();
+        allFiles.forEach(function (it) {
+          const name = String((it && it.name) || '');
+          if (name) {
+            set.add(name);
+          }
+        });
+        return set;
+      }
+
+      async function bindFileToTag(tagId, fileName, options) {
+        const cleanName = String(fileName || '');
+        if (!cleanName) {
+          return { ok: false, message: t('请选择要引用的文件') };
+        }
+        const opts = options || {};
+
+        try {
+          await fetchJson(
+            api.tagBind + '?tag_id=' + encodeURIComponent(tagId) + '&file=' + encodeURIComponent(cleanName)
+              + (opts.local ? '&local=1' : ''),
+            { method: 'POST' }
+          );
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, message: err.message };
+        }
+      }
+
+      async function unbindFileFromTag(tagId, fileName, options) {
+        const opts = options || {};
+        try {
+          await fetchJson(
+            api.tagUnbind + '?tag_id=' + encodeURIComponent(tagId) + '&file=' + encodeURIComponent(fileName)
+              + (opts.local ? '&local=1' : ''),
+            { method: 'POST' }
+          );
+          return true;
+        } catch (_) {
+          return false;
+        }

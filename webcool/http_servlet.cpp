@@ -68,9 +68,48 @@ bool try_route_localized_asset(const char* path, const char* lang,
 		: false;
 }
 
+bool try_route_html_js_module(const char* path, request_t& req, response_t& res)
+{
+	static const char* kPrefixes[] = {
+		"/webcool/html/js/",
+		"/html/js/",
+		"/js/"
+	};
+
+	const char* file_name = NULL;
+	for (size_t i = 0; i < sizeof(kPrefixes) / sizeof(kPrefixes[0]); ++i) {
+		const size_t prefix_len = strlen(kPrefixes[i]);
+		if (strncmp(path, kPrefixes[i], prefix_len) == 0) {
+			file_name = path + prefix_len;
+			break;
+		}
+	}
+	const size_t file_len = file_name != NULL ? strlen(file_name) : 0;
+	if (file_name == NULL || *file_name == '\0' || file_len < 4
+		|| strstr(file_name, "..") != NULL
+		|| strchr(file_name, '/') != NULL
+		|| strcmp(file_name + file_len - 3, ".js") != 0)
+	{
+		return false;
+	}
+
+	acl::string local_path, workspace_path;
+	local_path.format("html/js/%s", file_name);
+	workspace_path.format("webcool/html/js/%s", file_name);
+	const char* file_path = resolve_static_file_path(local_path.c_str(),
+		workspace_path.c_str());
+	return file_path != NULL
+		? send_static_file(file_path, "application/javascript; charset=utf-8", req, res)
+		: false;
+}
+
 bool try_route_static_asset(const char* path, request_t& req, response_t& res) {
 	if (path == NULL || *path == '\0') {
 		return false;
+	}
+
+	if (try_route_html_js_module(path, req, res)) {
+		return true;
 	}
 
 	if (strcmp(path, "/webcool/html/i18n/zh.js") == 0
