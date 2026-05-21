@@ -2864,6 +2864,36 @@
       background: #000;
     }
 
+    .preview-video-tools {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #617089;
+      font-size: 13px;
+    }
+
+    .preview-convert-btn {
+      border: 1px solid #9fc8f0;
+      background: #e9f5ff;
+      color: #17486d;
+      border-radius: 8px;
+      padding: 7px 12px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .preview-convert-btn:hover:not(:disabled) {
+      background: #d9edff;
+      border-color: #78b6ec;
+    }
+
+    .preview-convert-btn:disabled {
+      cursor: default;
+      opacity: 0.65;
+    }
+
     .preview-audio {
       width: 100%;
       border-radius: 8px;

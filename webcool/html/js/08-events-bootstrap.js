@@ -252,7 +252,7 @@
     "",
     "          const videoProbeFails = await verifyUploadedVideos(data.files);",
     "          if (videoProbeFails.length) {",
-    "            showManualTranscodePrompt(videoProbeFails);",
+    "            await promptUploadedTranscodes(videoProbeFails);",
     "          }",
     "",
     "          setTimeout(hideUploadProgress, 700);",

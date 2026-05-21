@@ -70,6 +70,7 @@ static bool is_video_name(const char* filename) {
 	return strcasecmp(dot, ".mp4") == 0
 		|| strcasecmp(dot, ".mkv") == 0
 		|| strcasecmp(dot, ".avi") == 0
+		|| strcasecmp(dot, ".rm") == 0
 		|| strcasecmp(dot, ".rmvb") == 0
 		|| strcasecmp(dot, ".mov") == 0
 		|| strcasecmp(dot, ".wmv") == 0;
@@ -409,7 +410,7 @@ static void finish_task(const std::shared_ptr<transcode_task_t>& task,
 static void run_transcode_task(const std::shared_ptr<transcode_task_t>& task,
 	const std::string& ffmpeg, const std::string& input_file,
 	const std::string& tmp_file, const std::string& output_file,
-	const transcode_strategy_t& /* strategy */)
+	const transcode_strategy_t& strategy)
 {
 	if (is_task_cancel_requested(task)) {
 		::unlink(tmp_file.c_str());
@@ -418,7 +419,7 @@ static void run_transcode_task(const std::shared_ptr<transcode_task_t>& task,
 	}
 
 	long long duration_ms = probe_duration_ms(ffmpeg, input_file);
-	ACL_ARGV* args = acl_argv_alloc(16);
+	ACL_ARGV* args = acl_argv_alloc(32);
 	acl_argv_add(args,
 		ffmpeg.c_str(),
 		"-hide_banner",
@@ -429,9 +430,27 @@ static void run_transcode_task(const std::shared_ptr<transcode_task_t>& task,
 		"-map", "0:a:0?",
 		"-map", "0:s:0?",
 		"-dn",
-		"-c:v", "copy",
+		NULL);
+
+	const char* strategy_msg = NULL;
+	if (strategy.copy_video_stream) {
+		acl_argv_add(args,
+			"-c:v", "copy",
+			"-tag:v", "avc1",
+			NULL);
+		strategy_msg = "音频转码中 (视频复制并保留字幕)";
+	} else {
+		acl_argv_add(args,
+			"-c:v", "libx264",
+			"-preset", "veryfast",
+			"-crf", "23",
+			"-pix_fmt", "yuv420p",
+			NULL);
+		strategy_msg = "视频转码中 (转换为H.264/AAC MP4)";
+	}
+
+	acl_argv_add(args,
 		"-movflags", "+faststart",
-		"-tag:v", "avc1",
 		"-c:a", "aac",
 		"-ac", "2",
 		"-b:a", "192k",
@@ -440,8 +459,6 @@ static void run_transcode_task(const std::shared_ptr<transcode_task_t>& task,
 		"-nostats",
 		tmp_file.c_str(),
 		NULL);
-
-	const char* strategy_msg = "音频转码中 (视频复制并保留字幕)";
 
 	ACL_VSTREAM* stream = acl_vstream_popen(O_RDWR,
 		ACL_VSTREAM_POPEN_ARGV, args->argv,

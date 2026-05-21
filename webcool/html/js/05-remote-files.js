@@ -13,7 +13,7 @@
     "          showStatus(t('已上传 ') + Number(data.saved_count || 0) + t(' 个本地文件到远程磁盘'), 'ok');",
     "          const videoProbeFails = await verifyUploadedVideos(data.files);",
     "          if (videoProbeFails.length) {",
-    "            showManualTranscodePrompt(videoProbeFails);",
+    "            await promptUploadedTranscodes(videoProbeFails);",
     "          }",
     "        } catch (err) {",
     "          failLocalImportProgress(t('上传失败：') + err.message);",
