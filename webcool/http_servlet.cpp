@@ -237,6 +237,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/local-disk/delete", &http_servlet::routeLocalDiskDelete },
 		{ "/api/v1/local-disk/mkdir", &http_servlet::routeLocalDiskCreateDir },
 		{ "/api/v1/local-disk/move", &http_servlet::routeLocalDiskMove },
+		{ "/api/v1/local-disk/rename", &http_servlet::routeLocalDiskRename },
 		{ "/api/v1/local-disk/open-trash", &http_servlet::routeLocalDiskOpenTrash },
 		{ "/api/v1/local-disk/open-file", &http_servlet::routeLocalDiskOpenFile },
 		{ "/api/v1/local-disk/import", &http_servlet::routeLocalDiskImport },
@@ -337,6 +338,10 @@ bool http_servlet::routeLocalDiskCreateDir(request_t& req, response_t& res) {
 
 bool http_servlet::routeLocalDiskMove(request_t& req, response_t& res) {
 	return action::LocalDiskMoveAction::run(req, res, action::runtime_upload_dir_get());
+}
+
+bool http_servlet::routeLocalDiskRename(request_t& req, response_t& res) {
+	return action::LocalDiskRenameAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeLocalDiskOpenTrash(request_t& req, response_t& res) {
@@ -502,6 +507,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/local-disk/delete", &http_servlet::routeLocalDiskDelete },
 		{ "/api/v1/local-disk/mkdir", &http_servlet::routeLocalDiskCreateDir },
 		{ "/api/v1/local-disk/move", &http_servlet::routeLocalDiskMove },
+		{ "/api/v1/local-disk/rename", &http_servlet::routeLocalDiskRename },
 		{ "/api/v1/local-disk/open-trash", &http_servlet::routeLocalDiskOpenTrash },
 		{ "/api/v1/local-disk/open-file", &http_servlet::routeLocalDiskOpenFile },
 		{ "/api/v1/local-disk/import", &http_servlet::routeLocalDiskImport },

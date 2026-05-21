@@ -275,6 +275,39 @@ bool file_lock_rename_key(const std::string& upload_dir,
 	return save_file_locks_locked(upload_dir, locks, err);
 }
 
+bool file_lock_rename_prefix(const std::string& upload_dir,
+	const std::string& old_prefix, const std::string& new_prefix,
+	std::string& err)
+{
+	err.clear();
+	if (old_prefix.empty() || new_prefix.empty() || old_prefix == new_prefix) {
+		return true;
+	}
+	std::lock_guard<std::mutex> guard(g_file_lock_mutex);
+	std::map<std::string, std::string> locks;
+	if (!load_file_locks_locked(upload_dir, locks, err)) {
+		return false;
+	}
+	std::map<std::string, std::string> updated;
+	for (std::map<std::string, std::string>::const_iterator it = locks.begin();
+		it != locks.end(); ++it)
+	{
+		const std::string& key = it->first;
+		if (key == old_prefix) {
+			updated[new_prefix] = it->second;
+		} else if (key.size() > old_prefix.size()
+			&& key.compare(0, old_prefix.size(), old_prefix) == 0
+			&& key[old_prefix.size()] == '/')
+		{
+			updated[new_prefix + key.substr(old_prefix.size())] = it->second;
+		} else {
+			updated[key] = it->second;
+		}
+	}
+	locks.swap(updated);
+	return save_file_locks_locked(upload_dir, locks, err);
+}
+
 bool local_dir_lock_path_allows(const std::string& upload_dir,
 	const std::string& path, const std::string& password,
 	bool& allowed, std::string& locked_path, std::string& err)

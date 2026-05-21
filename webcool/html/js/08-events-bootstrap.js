@@ -440,6 +440,9 @@
 
       if (localDiskList) {
         localDiskList.addEventListener('click', handleLocalDiskClickEvent);
+        localDiskList.addEventListener('dblclick', handleLocalDiskFileDoubleClickEvent);
+        localDiskList.addEventListener('keydown', handleLocalDiskFileRenameKeydownEvent);
+        localDiskList.addEventListener('focusout', handleLocalDiskFileRenameFocusoutEvent);
         localDiskList.addEventListener('contextmenu', function (e) {
           const fileRow = e.target.closest('[data-local-file-context]');
           if (fileRow && localDiskList.contains(fileRow)) {
@@ -450,7 +453,12 @@
               fileRow.getAttribute('data-file-locked') === '1',
               fileRow.getAttribute('data-file-video') === '1',
               e.clientX,
-              e.clientY
+              e.clientY,
+              {
+                localDiskList: true,
+                localRename: true,
+                deleteLabel: '移除'
+              }
             );
             return;
           }
@@ -467,7 +475,54 @@
         });
       }
 
+      function handleLocalDiskFileDoubleClickEvent(e) {
+        const fileNameClick = e.target.closest('.local-disk-file-name-action[data-local-disk-file-name-click]');
+        if (!fileNameClick) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        handleLocalDiskFileNameDoubleClick(decodeURIComponent(fileNameClick.getAttribute('data-local-disk-file-name-click') || ''));
+      }
+
+      function handleLocalDiskFileRenameKeydownEvent(e) {
+        const input = e.target.closest('.local-disk-rename-input');
+        if (!input) {
+          return;
+        }
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          submitLocalDiskFileRename(input);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          cancelLocalDiskFileRename();
+        }
+      }
+
+      function handleLocalDiskFileRenameFocusoutEvent(e) {
+        const input = e.target.closest('.local-disk-rename-input');
+        if (!input) {
+          return;
+        }
+        window.setTimeout(function () {
+          if (document.activeElement !== input) {
+            submitLocalDiskFileRename(input);
+          }
+        }, 0);
+      }
+
       function handleLocalDiskClickEvent(e) {
+        const renameInput = e.target.closest('.local-disk-rename-input');
+        if (renameInput) {
+          return;
+        }
+        const fileNameClick = e.target.closest('.local-disk-file-name-action[data-local-disk-file-name-click]');
+        if (fileNameClick) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleLocalDiskFileNameClick(decodeURIComponent(fileNameClick.getAttribute('data-local-disk-file-name-click') || ''));
+          return;
+        }
         const localDirLockIcon = e.target.closest('.local-dir-lock-inline');
         if (localDirLockIcon) {
           const row = localDirLockIcon.closest('[data-local-dir-context]');
@@ -584,13 +639,13 @@
             ? (parentRow.querySelector('td:nth-child(2)') && parentRow.querySelector('td:nth-child(2)').textContent === '文件夹')
             : deleteBtn.closest('.local-disk-dir-item') !== null;
           const confirmMsg = isDir
-            ? t('确认删除本地目录：') + path + t(' ？仅允许删除空目录。')
+            ? t('确认将本地目录移至回收站：') + path + t(' ？')
             : t('确认删除本地文件：') + path + t(' ？');
           if (!confirm(confirmMsg)) { return; }
           const deleteLockPath = isDir && getLocalDirPassword(path) ? path : localDiskParentPath(path);
           fetchJson(appendLocalDirPassword(appendFilePassword(api.localDiskDelete + '?path=' + encodeURIComponent(path), path, true), deleteLockPath), { method: 'POST' })
             .then(function () {
-              showStatus((isDir ? t('本地目录已删除：') : t('本地文件已删除：')) + path, 'warn');
+              showStatus((isDir ? t('本地目录已移至回收站：') : t('本地文件已删除：')) + path, 'warn');
               const nextPath = isDir ? localDiskParentPath(path) : (activeLocalDiskPath || '');
               if (isDir) {
                 localDiskTreeCache.delete(path);
@@ -736,6 +791,9 @@
 
       if (localDiskExplorer) {
         localDiskExplorer.addEventListener('click', handleLocalDiskClickEvent);
+        localDiskExplorer.addEventListener('dblclick', handleLocalDiskFileDoubleClickEvent);
+        localDiskExplorer.addEventListener('keydown', handleLocalDiskFileRenameKeydownEvent);
+        localDiskExplorer.addEventListener('focusout', handleLocalDiskFileRenameFocusoutEvent);
         localDiskExplorer.addEventListener('contextmenu', function (e) {
           const fileRow = e.target.closest('[data-local-file-context]');
           if (fileRow && localDiskExplorer.contains(fileRow)) {
@@ -746,7 +804,12 @@
               fileRow.getAttribute('data-file-locked') === '1',
               fileRow.getAttribute('data-file-video') === '1',
               e.clientX,
-              e.clientY
+              e.clientY,
+              {
+                localDiskList: true,
+                localRename: true,
+                deleteLabel: '移除'
+              }
             );
             return;
           }
@@ -2007,17 +2070,32 @@
           const action = fileMenuItem.getAttribute('data-file-menu-action') || '';
           const path = menu.getAttribute('data-file-path') || '';
           const local = menu.getAttribute('data-file-local') === '1';
+          const localDiskListMenu = menu.getAttribute('data-local-disk-list') === '1';
           closeFileContextMenu();
           if (action === 'summary') {
-            showFileSummaryDialog(path);
+            if (localDiskListMenu) {
+              showLocalDiskFileSummaryDialog(path);
+            } else {
+              showFileSummaryDialog(path);
+            }
           } else if (action === 'download') {
             downloadRemoteListFile(path, local);
           } else if (action === 'rename') {
-            startFileRename(path);
+            if (localDiskListMenu) {
+              startLocalDiskFileRename(path);
+            } else {
+              startFileRename(path);
+            }
           } else if (action === 'delete') {
-            handleFileDeleteOrRemove(path, local).catch(function (err) {
-              showStatus(t('删除失败：') + err.message, 'err');
-            });
+            if (localDiskListMenu) {
+              handleLocalDiskFileDeleteOrRemove(path).catch(function (err) {
+                showStatus(t('删除失败：') + err.message, 'err');
+              });
+            } else {
+              handleFileDeleteOrRemove(path, local).catch(function (err) {
+                showStatus(t('删除失败：') + err.message, 'err');
+              });
+            }
           } else {
             handleFileContextAction(action, path, local).catch(function (err) {
               showStatus(t('文件锁操作失败：') + err.message, 'err');
@@ -2030,8 +2108,9 @@
           const menu = activeFileContextMenu;
           const action = localDirMenuItem.getAttribute('data-local-dir-menu-action') || '';
           const path = menu.getAttribute('data-local-dir-path') || '';
+          const locked = menu.getAttribute('data-local-dir-locked') === '1';
           closeFileContextMenu();
-          handleLocalDirContextAction(action, path).catch(function (err) {
+          handleLocalDirContextAction(action, path, locked).catch(function (err) {
             showStatus(t('本地目录锁操作失败：') + err.message, 'err');
           });
           return;

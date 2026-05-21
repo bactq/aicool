@@ -41,6 +41,7 @@
         localDiskDelete: '/api/v1/local-disk/delete',
         localDiskMkdir: '/api/v1/local-disk/mkdir',
         localDiskMove: '/api/v1/local-disk/move',
+        localDiskRename: '/api/v1/local-disk/rename',
         localDiskOpenTrash: '/api/v1/local-disk/open-trash',
         localDiskOpenFile: '/api/v1/local-disk/open-file',
         localDiskImport: '/api/v1/local-disk/import',
@@ -208,6 +209,8 @@
       let localDiskViewMode = 'split';
       const selectedLocalDiskPaths = new Set();
       let activeLocalDiskDragPaths = [];
+      let activeLocalDiskRenamePath = '';
+      let localDiskRenameClickTimer = null;
       let activeLocalDiskTreeRootPath = '';
       let localImportTargetFolderPath = '';
       const localImportExpandedFolderPaths = new Set(['']);

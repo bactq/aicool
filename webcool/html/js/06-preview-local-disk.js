@@ -594,12 +594,16 @@
         const path = String((item && item.path) || '');
         const encodedPath = encodeURIComponent(path);
         const checked = selectedLocalDiskPaths.has(path) ? ' checked' : '';
+        const selectedClass = selectedLocalDiskPaths.has(path) ? ' selected-file-row' : '';
         const fileLocked = !!(item && item.locked);
         const lockIcon = fileLocked
           ? '<span class="folder-lock-icon file-lock-inline' + (getFilePassword(path, true) ? ' unlocked' : '') + '" title="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '" aria-label="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
           : '';
         const selectBox = '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '><button class="file-tag-quick-btn local-file-tag-btn" type="button" data-local-tag-file="' + encodedPath + '" title="' + escapeHtml(t('加入标签')) + '" aria-label="' + escapeHtml(t('加入标签')) + '">🏷</button></span>';
-        const displayName = selectBox + '<a class="file-name local-disk-draggable-name" draggable="false" href="' + escapeHtml(localDiskDownloadUrl(path)) + '">' + escapeHtml(name) + '</a>' + lockIcon;
+        const renameInput = activeLocalDiskRenamePath === path
+          ? '<input class="file-rename-input local-disk-rename-input" type="text" value="' + escapeHtml(name) + '" data-local-disk-rename-path="' + encodedPath + '" aria-label="' + escapeHtml(t('改名文件')) + '">'
+          : '';
+        const displayName = selectBox + (renameInput || '<button type="button" class="file-name file-name-action local-disk-file-name-action local-disk-draggable-name" draggable="false" data-local-disk-file-name-click="' + encodedPath + '">' + escapeHtml(name) + '</button>') + lockIcon;
         const previewBtn = isImageName(name)
           ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
           : '';
@@ -614,7 +618,7 @@
           : '';
         const deleteBtn = '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '" title="移至回收站" aria-label="移至回收站">移除</button>';
         return (
-          '<tr class="local-disk-draggable" draggable="true" data-local-drag="' + encodedPath + '" data-local-file-context="' + encodedPath + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (isVideoName(name) ? '1' : '0') + '">' +
+          '<tr class="local-disk-draggable' + selectedClass + '" draggable="true" data-local-drag="' + encodedPath + '" data-local-file-context="' + encodedPath + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (isVideoName(name) ? '1' : '0') + '">' +
             '<td>' + displayName + '</td>' +
             '<td>' + (formatNumber(Number(item.size || 0)) + ' 字节') + '</td>' +
             '<td>' + escapeHtml((item && item.modified_time) || '-') + '</td>' +
@@ -622,6 +626,192 @@
             '<td class="row-danger-action"><div class="danger-actions">' + deleteBtn + '</div></td>' +
           '</tr>'
         );
+      }
+
+      function getLocalDiskItemByPath(path) {
+        const target = String(path || '');
+        return activeLocalDiskItems.find(function (item) {
+          return String((item && item.path) || '') === target;
+        }) || null;
+      }
+
+      function localBaseName(path) {
+        const text = String(path || '').replace(/\/+$/, '');
+        const index = text.lastIndexOf('/');
+        return index >= 0 ? text.slice(index + 1) : text;
+      }
+
+      function clearLocalDiskRenameClickTimer() {
+        if (localDiskRenameClickTimer) {
+          clearTimeout(localDiskRenameClickTimer);
+          localDiskRenameClickTimer = null;
+        }
+      }
+
+      function refreshRenderedLocalDiskSelection() {
+        const roots = [localDiskList, localDiskExplorer].filter(Boolean);
+        roots.forEach(function (root) {
+          root.querySelectorAll('.local-disk-select[data-local-select]').forEach(function (checkbox) {
+            const path = decodeURIComponent(checkbox.getAttribute('data-local-select') || '');
+            const selected = selectedLocalDiskPaths.has(path);
+            checkbox.checked = selected;
+            const row = checkbox.closest('tr, .local-disk-dir-item');
+            if (row) {
+              row.classList.toggle('selected-file-row', selected);
+            }
+          });
+        });
+        updateLocalDiskBulkRemoveButton();
+      }
+
+      function startLocalDiskFileRename(path) {
+        const filePath = String(path || '');
+        const item = getLocalDiskItemByPath(filePath);
+        if (!item || item.directory) {
+          return;
+        }
+        clearLocalDiskRenameClickTimer();
+        activeLocalDiskRenamePath = filePath;
+        renderLocalDiskItems(activeLocalDiskItems);
+        window.setTimeout(function () {
+          const selector = '.local-disk-rename-input[data-local-disk-rename-path="' + encodeURIComponent(filePath) + '"]';
+          const input = (localDiskList && localDiskList.querySelector(selector))
+            || (localDiskExplorer && localDiskExplorer.querySelector(selector));
+          if (input) {
+            input.focus();
+            input.select();
+          }
+        }, 0);
+      }
+
+      function cancelLocalDiskFileRename() {
+        activeLocalDiskRenamePath = '';
+        clearLocalDiskRenameClickTimer();
+        renderLocalDiskItems(activeLocalDiskItems);
+      }
+
+      async function submitLocalDiskFileRename(input) {
+        if (!input || input.disabled) {
+          return;
+        }
+        const oldPath = decodeURIComponent(input.getAttribute('data-local-disk-rename-path') || '');
+        const nextName = String(input.value || '').trim();
+        const item = getLocalDiskItemByPath(oldPath);
+        if (!oldPath || !item || item.directory) {
+          cancelLocalDiskFileRename();
+          return;
+        }
+        const currentName = String(item.name || localBaseName(oldPath) || '');
+        if (!nextName || nextName === currentName) {
+          cancelLocalDiskFileRename();
+          return;
+        }
+        input.disabled = true;
+        resetStatus();
+        try {
+          let url = api.localDiskRename + '?path=' + encodeURIComponent(oldPath) + '&name=' + encodeURIComponent(nextName);
+          url = appendLocalDirPassword(appendFilePassword(url, oldPath, true), localDiskParentPath(oldPath));
+          const result = await fetchJson(url, { method: 'POST' });
+          const newPath = String((result && result.path) || '');
+          selectedLocalDiskPaths.delete(oldPath);
+          if (newPath) {
+            selectedLocalDiskPaths.add(newPath);
+          }
+          activeLocalDiskRenamePath = '';
+          await loadLocalDisk(activeLocalDiskPath || localDiskParentPath(oldPath), {
+            resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, activeLocalDiskPath || localDiskParentPath(oldPath))
+          });
+          showStatus(t('文件已改名：') + currentName + ' -> ' + nextName, 'ok');
+        } catch (err) {
+          input.disabled = false;
+          showStatus(t('文件改名失败：') + err.message, 'err');
+          input.focus();
+          input.select();
+        }
+      }
+
+      function handleLocalDiskFileNameClick(path) {
+        const filePath = String(path || '');
+        if (!filePath) {
+          return;
+        }
+        if (!selectedLocalDiskPaths.has(filePath)) {
+          clearLocalDiskRenameClickTimer();
+          selectedLocalDiskPaths.clear();
+          selectedLocalDiskPaths.add(filePath);
+          activeLocalDiskRenamePath = '';
+          refreshRenderedLocalDiskSelection();
+          return;
+        }
+        clearLocalDiskRenameClickTimer();
+        localDiskRenameClickTimer = window.setTimeout(function () {
+          localDiskRenameClickTimer = null;
+          startLocalDiskFileRename(filePath);
+        }, 230);
+      }
+
+      function handleLocalDiskFileNameDoubleClick(path) {
+        const filePath = String(path || '');
+        if (!filePath) {
+          return;
+        }
+        clearLocalDiskRenameClickTimer();
+        activeLocalDiskRenamePath = '';
+        selectedLocalDiskPaths.clear();
+        selectedLocalDiskPaths.add(filePath);
+        refreshRenderedLocalDiskSelection();
+        downloadRemoteListFile(filePath, true);
+      }
+
+      function showLocalDiskFileSummaryDialog(path) {
+        const filePath = String(path || '');
+        const item = getLocalDiskItemByPath(filePath) || { path: filePath, name: localBaseName(filePath), size: 0 };
+        const oldDialog = document.getElementById('file-summary-dialog');
+        if (oldDialog && oldDialog.parentNode) {
+          oldDialog.parentNode.removeChild(oldDialog);
+        }
+        const rows = [
+          [t('文件名'), String(item.name || localBaseName(filePath) || '')],
+          [t('文件大小'), formatNumber(Number(item.size || 0)) + t(' 字节')],
+          [t('文件类型'), inferFileTypeLabel({ name: item.name || filePath, directory: false })],
+          [t('创建时间'), String(item.created_time || '-')],
+          [t('修改时间'), String(item.modified_time || '-')]
+        ];
+        const dialog = document.createElement('div');
+        dialog.className = 'tag-dialog file-summary-dialog';
+        dialog.id = 'file-summary-dialog';
+        dialog.innerHTML =
+          '<div class="tag-dialog-backdrop" data-file-summary-close="1"></div>' +
+          '<div class="tag-dialog-card file-summary-card" role="dialog" aria-modal="true" aria-labelledby="file-summary-title">' +
+            '<div class="tag-dialog-head">' +
+              '<h2 id="file-summary-title">' + escapeHtml(t('文件摘要')) + '</h2>' +
+              '<p>' + escapeHtml(filePath) + '</p>' +
+            '</div>' +
+            '<dl class="file-summary-list">' + rows.map(function (row) {
+              return '<div class="file-summary-row"><dt>' + escapeHtml(row[0]) + '</dt><dd>' + escapeHtml(row[1]) + '</dd></div>';
+            }).join('') + '</dl>' +
+            '<div class="tag-dialog-actions">' +
+              '<button type="button" class="tag-dialog-btn" data-file-summary-close="1">' + escapeHtml(t('确定')) + '</button>' +
+            '</div>' +
+          '</div>';
+        document.body.appendChild(dialog);
+      }
+
+      async function handleLocalDiskFileDeleteOrRemove(path) {
+        const filePath = String(path || '');
+        if (!filePath) {
+          return;
+        }
+        if (!confirm(t('确认删除本地文件：') + filePath + t(' ？'))) {
+          return;
+        }
+        resetStatus();
+        await fetchJson(appendLocalDirPassword(appendFilePassword(api.localDiskDelete + '?path=' + encodeURIComponent(filePath), filePath, true), localDiskParentPath(filePath)), { method: 'POST' });
+        selectedLocalDiskPaths.delete(filePath);
+        showStatus(t('本地文件已删除：') + filePath, 'warn');
+        await loadLocalDisk(activeLocalDiskPath || localDiskParentPath(filePath), {
+          resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, activeLocalDiskPath || localDiskParentPath(filePath))
+        });
       }
 
       function getVisibleLocalDiskPathSet() {
@@ -963,12 +1153,16 @@
             ? '<span class="folder-lock-icon file-lock-inline' + (getFilePassword(path, true) ? ' unlocked' : '') + '" title="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '" aria-label="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
             : '';
           const checked = selectedLocalDiskPaths.has(path) ? ' checked' : '';
+          const selectedClass = selectedLocalDiskPaths.has(path) ? ' selected-file-row' : '';
           const selectBox = isDir
             ? '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '></span>'
             : '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '><button class="file-tag-quick-btn local-file-tag-btn" type="button" data-local-tag-file="' + encodedPath + '" title="' + escapeHtml(t('加入标签')) + '" aria-label="' + escapeHtml(t('加入标签')) + '">🏷</button></span>';
+          const renameInput = !isDir && activeLocalDiskRenamePath === path
+            ? '<input class="file-rename-input local-disk-rename-input" type="text" value="' + escapeHtml(name) + '" data-local-disk-rename-path="' + encodedPath + '" aria-label="' + escapeHtml(t('改名文件')) + '">'
+            : '';
           const nameHtml = isDir
             ? '<button type="button" class="local-folder-link" data-local-folder="' + encodedPath + '"><span class="local-folder-icon">📁</span><span>' + escapeHtml(name) + '</span></button>' + dirLockIcon
-            : '<a class="file-name" href="' + escapeHtml(localDiskDownloadUrl(path)) + '">' + escapeHtml(name) + '</a>' + lockIcon;
+            : (renameInput || '<button type="button" class="file-name file-name-action local-disk-file-name-action" data-local-disk-file-name-click="' + encodedPath + '">' + escapeHtml(name) + '</button>') + lockIcon;
           const displayName = '<span class="local-disk-table-name-cell">' + selectBox + nameHtml + '</span>';
           const previewBtn = !isDir && isImageName(name)
             ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
@@ -988,7 +1182,7 @@
               : '')
             : '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '" title="移至回收站" aria-label="移至回收站">移除</button>';
           return (
-            '<tr' + (!isDir ? (' data-local-file-context="' + encodedPath + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (isVideoName(name) ? '1' : '0') + '"') : (' data-local-dir-context="' + encodedPath + '" data-local-dir-locked="' + (dirLocked ? '1' : '0') + '"')) + '>' +
+            '<tr class="' + selectedClass.trim() + '"' + (!isDir ? (' data-local-file-context="' + encodedPath + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (isVideoName(name) ? '1' : '0') + '"') : (' data-local-dir-context="' + encodedPath + '" data-local-dir-locked="' + (dirLocked ? '1' : '0') + '"')) + '>' +
               '<td>' + displayName + '</td>' +
               '<td>' + (isDir ? '文件夹' : '文件') + '</td>' +
               '<td>' + (isDir ? '-' : (formatNumber(Number(item.size || 0)) + ' 字节')) + '</td>' +
