@@ -231,6 +231,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/files/rename", &http_servlet::routeRenameFile },
 		{ "/api/v1/files", &http_servlet::routeFiles },
 		{ "/api/v1/download", &http_servlet::routeDownload },
+		{ "/api/v1/open-file", &http_servlet::routeOpenFile },
 		{ "/api/v1/image/save", &http_servlet::routeImageSave },
 		{ "/api/v1/local-disk/list", &http_servlet::routeLocalDiskList },
 		{ "/api/v1/local-disk/download", &http_servlet::routeLocalDiskDownload },
@@ -318,6 +319,10 @@ bool http_servlet::routeDownload(request_t& req, response_t& res) {
 
 bool http_servlet::routeImageSave(request_t& req, response_t& res) {
 	return action::ImageSaveAction::run(req, res, action::runtime_upload_dir_get());
+}
+
+bool http_servlet::routeOpenFile(request_t& req, response_t& res) {
+	return action::OpenFileAction::run(req, res, upload_dir_);
 }
 
 bool http_servlet::routeLocalDiskList(request_t& req, response_t& res) {
@@ -510,6 +515,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/local-disk/rename", &http_servlet::routeLocalDiskRename },
 		{ "/api/v1/local-disk/open-trash", &http_servlet::routeLocalDiskOpenTrash },
 		{ "/api/v1/local-disk/open-file", &http_servlet::routeLocalDiskOpenFile },
+		{ "/api/v1/open-file", &http_servlet::routeOpenFile },
 		{ "/api/v1/local-disk/import", &http_servlet::routeLocalDiskImport },
 		{ "/api/v1/local-disk/import/progress", &http_servlet::routeLocalDiskImportProgress },
 		{ "/api/v1/tags/create", &http_servlet::routeTagCreate },

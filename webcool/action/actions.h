@@ -135,6 +135,12 @@ public:
 		const std::string& upload_dir);
 };
 
+class OpenFileAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
 class ImageSaveAction {
 public:
 	static bool run(request_t& req, response_t& res,
