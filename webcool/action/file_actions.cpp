@@ -59,35 +59,8 @@ struct recycle_record_t {
 static void format_upload_time(time_t ts, char* buf, size_t size);
 static bool should_skip_entry(const char* name);
 
-static bool file_exists_readable(const char* path) {
-	if (path == NULL || *path == '\0') {
-		return false;
-	}
-	return access(path, R_OK) == 0;
-}
-
 static std::string remote_file_lock_key(const std::string& path) {
 	return std::string("remote:") + path;
-}
-
-static std::string choose_sqlite_lib_path() {
-	const char* env_path = getenv("AICOOL_SQLITE_LIB");
-	if (env_path && *env_path && file_exists_readable(env_path)) {
-		return std::string(env_path);
-	}
-
-	const std::vector<std::string> candidates = {
-		"../third-party/sqlite/lib/sqlite3.so",
-		"third-party/sqlite/lib/sqlite3.so",
-	};
-
-	for (size_t i = 0; i < candidates.size(); ++i) {
-		if (file_exists_readable(candidates[i].c_str())) {
-			return candidates[i];
-		}
-	}
-
-	return std::string();
 }
 
 static bool ensure_recycle_tables_locked(std::string& err) {

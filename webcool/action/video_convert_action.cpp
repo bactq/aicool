@@ -88,18 +88,6 @@ static long long file_size_of(const char* path) {
 	return (long long) st.st_size;
 }
 
-static bool can_exec_file(const char* path) {
-	if (path == NULL || *path == '\0') {
-		return false;
-	}
-
-#ifdef _WIN32
-	return _access(path, 0) == 0;
-#else
-	return access(path, X_OK) == 0;
-#endif
-}
-
 static std::string shell_quote(const std::string& s) {
 	std::string out;
 	out.reserve(s.size() + 8);
@@ -187,33 +175,6 @@ static long long parse_progress_ms_line(const std::string& line) {
 		return parse_duration_ms_from_text(std::string("Duration: ") + std::string(line.c_str() + 9));
 	}
 	return -1;
-}
-
-static std::string choose_ffmpeg_path() {
-	const char* env_ffmpeg = getenv("AICOOL_FFMPEG");
-	if (env_ffmpeg && *env_ffmpeg && can_exec_file(env_ffmpeg)) {
-		return std::string(env_ffmpeg);
-	}
-
-	std::vector<std::string> candidates;
-#ifdef __APPLE__
-	candidates.push_back("../tools/mac/ffmpeg");
-	candidates.push_back("tools/mac/ffmpeg");
-#elif defined(__linux__)
-	candidates.push_back("../tools/linux/ffmpeg");
-	candidates.push_back("tools/linux/ffmpeg");
-#elif defined(_WIN32)
-	candidates.push_back("..\\tools\\windows\\ffmpeg.exe");
-	candidates.push_back("tools\\windows\\ffmpeg.exe");
-#endif
-
-	for (size_t i = 0; i < candidates.size(); ++i) {
-		if (can_exec_file(candidates[i].c_str())) {
-			return candidates[i];
-		}
-	}
-
-	return std::string();
 }
 
 static bool is_browser_friendly_h264_video_line(const char* line) {

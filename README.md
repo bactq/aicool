@@ -46,6 +46,18 @@ make
 
 The root Makefile will first build the required libraries under third-party/acl, then build aicool from src.
 
+### webcool Packaging Notes
+
+For webcool binary packages (`webcool/package`):
+
+- The installer bundles ffmpeg into `/opt/webcool/bin/ffmpeg`.
+- During install, if `/usr/local/bin/ffmpeg` does not exist, it will be copied from `/opt/webcool/bin/ffmpeg`.
+- You can override runtime ffmpeg path with:
+
+```bash
+webcool -F /custom/path/ffmpeg -s 0.0.0.0:8080 -d ./uploads
+```
+
 [Back to top](#aicool)
 
 ---
@@ -97,5 +109,17 @@ make
 ```
 
 根目录 Makefile 会先构建 third-party/acl 所需库，再从 src 目录编译生成 aicool。
+
+### webcool 打包说明（补充）
+
+针对 webcool 二进制安装包（`webcool/package`）：
+
+- 安装包会内置 ffmpeg 到 `/opt/webcool/bin/ffmpeg`。
+- 安装时若 `/usr/local/bin/ffmpeg` 不存在，会从 `/opt/webcool/bin/ffmpeg` 复制过去。
+- 运行时可通过下面参数手动覆盖 ffmpeg 路径：
+
+```bash
+webcool -F /custom/path/ffmpeg -s 0.0.0.0:8080 -d ./uploads
+```
 
 [回到顶部](#aicool)

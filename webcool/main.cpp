@@ -1,9 +1,13 @@
 #include "stdafx.h"
 #include "http_servlet.h"
 #include "action/actions.h"
+#include "action/action_util.h"
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <csignal>
+#include <fcntl.h>
+#include <unistd.h>
 #include <vector>
 #include <map>
 
@@ -28,6 +32,118 @@ static size_t                g_stack_size    = 128000;
 static int                   g_rw_timeout    = 0;
 static acl::fiber_event_t    g_event_type    = acl::FIBER_EVENT_T_KERNEL;
 static char                  g_upload_dir[256] = "./uploads";
+static char                  g_sqlite_lib[512] = "";
+static char                  g_ffmpeg_path[512] = "";
+static const char*           g_webcool_version = "1.0.4";
+
+static void apply_default_upload_dir(bool upload_dir_specified) {
+#ifdef MACOSX
+	if (!upload_dir_specified) {
+		const char* home = getenv("HOME");
+		if (home != NULL && *home != '\0') {
+			snprintf(g_upload_dir, sizeof(g_upload_dir), "%s/Library/Application Support/webcool/data", home);
+		} else {
+			snprintf(g_upload_dir, sizeof(g_upload_dir), "%s", "./uploads");
+		}
+	}
+#else
+	(void) upload_dir_specified;
+#endif
+}
+
+static const char* event_type_name(acl::fiber_event_t event_type) {
+	switch (event_type) {
+	case acl::FIBER_EVENT_T_POLL:
+		return "poll";
+	case acl::FIBER_EVENT_T_SELECT:
+		return "select";
+	default:
+		return "kernel";
+	}
+}
+
+static void print_detail_info(const acl::string& addr,
+	int nthreads, bool reuse_port, bool daemon_mode)
+{
+	std::string sqlite_path;
+	std::string ffmpeg_path;
+	if (g_sqlite_lib[0] != '\0') {
+		sqlite_path = g_sqlite_lib;
+	} else {
+		sqlite_path = action::choose_sqlite_lib_path();
+	}
+
+	if (g_ffmpeg_path[0] != '\0') {
+		ffmpeg_path = g_ffmpeg_path;
+	} else {
+		ffmpeg_path = action::choose_ffmpeg_path();
+	}
+
+	printf("webcool 详细信息\n");
+	printf("  版本号: %s\n", g_webcool_version);
+	printf("  构建时间: %s %s\n", __DATE__, __TIME__);
+	printf("  平台: %s\n",
+#ifdef MACOSX
+		"macOS"
+#else
+		"Linux/Unix"
+#endif
+	);
+	printf("  监听地址: %s\n", addr.c_str());
+	printf("  存储路径: %s\n", g_upload_dir);
+	printf("  sqlite.so路径: %s\n", sqlite_path.empty() ? "(未找到)" : sqlite_path.c_str());
+	printf("  ffmpeg路径: %s\n", ffmpeg_path.empty() ? "(未找到)" : ffmpeg_path.c_str());
+	printf("  工作线程: %d\n", nthreads);
+	printf("  后台模式: %s\n", daemon_mode ? "on" : "off");
+	printf("  REUSEPORT: %s\n", reuse_port ? "on" : "off");
+	printf("  读写超时(秒): %d\n", g_rw_timeout);
+	printf("  协程栈大小: %zu\n", g_stack_size);
+	printf("  事件引擎: %s\n", event_type_name(g_event_type));
+}
+
+static bool daemonize_process() {
+	pid_t pid = fork();
+	if (pid < 0) {
+		return false;
+	}
+	if (pid > 0) {
+		exit(0);
+	}
+
+	if (setsid() < 0) {
+		return false;
+	}
+
+	signal(SIGHUP, SIG_IGN);
+
+	pid = fork();
+	if (pid < 0) {
+		return false;
+	}
+	if (pid > 0) {
+		exit(0);
+	}
+
+	int fd = open("/dev/null", O_RDWR);
+	if (fd < 0) {
+		return false;
+	}
+
+	if (dup2(fd, STDIN_FILENO) < 0 ||
+		dup2(fd, STDOUT_FILENO) < 0 ||
+		dup2(fd, STDERR_FILENO) < 0) {
+		if (fd > STDERR_FILENO) {
+			close(fd);
+		}
+		return false;
+	}
+
+	if (fd > STDERR_FILENO) {
+		close(fd);
+	}
+
+	return true;
+}
 
 // ────────────────────────────────────────────────────────────────
 // 线程：每个线程独立运行一个协程调度器
@@ -101,8 +217,14 @@ static void usage(const char* prog) {
 	printf(
 		"用法: %s [选项]\n"
 		"  -h              显示帮助\n"
+		"  -v              显示版本号\n"
+		"  -V              显示详细信息\n"
+		"  -D              以后台服务(守护进程)方式启动\n"
 		"  -s addr         监听地址 (默认 0.0.0.0:8080)\n"
-		"  -d upload_dir   上传文件保存目录 (默认 ./uploads)\n"
+		"  -d upload_dir   上传文件保存目录\n"
+		"                  (macOS 默认 ~/Library/Application Support/webcool/data, 其他平台默认 ./uploads)\n"
+		"  -S sqlite_lib   sqlite 动态库路径 (例如 /usr/local/lib/sqlite3.so)\n"
+		"  -F ffmpeg_path  ffmpeg 可执行文件路径 (例如 /opt/webcool/bin/ffmpeg)\n"
 		"  -t threads      工作线程数 (默认 2)\n"
 		"  -R              每线程独立监听 (SO_REUSEPORT)\n"
 		"  -r rw_timeout   读写超时秒数 (默认 0=无超时)\n"
@@ -118,18 +240,38 @@ int main(int argc, char* argv[]) {
 	acl::string addr("0.0.0.0:8080");
 	int  nthreads    = 2;
 	bool reuse_port  = false;
+	bool daemon_mode = false;
+	bool show_version = false;
+	bool show_detail = false;
 	int  ch;
+	bool upload_dir_specified = false;
 
-	while ((ch = getopt(argc, argv, "hs:d:t:Rr:z:e:")) > 0) {
+	while ((ch = getopt(argc, argv, "hvVDs:d:S:F:t:Rr:z:e:")) > 0) {
 		switch (ch) {
 		case 'h':
 			usage(argv[0]);
 			return 0;
+		case 'v':
+			show_version = true;
+			break;
+		case 'V':
+			show_detail = true;
+			break;
+		case 'D':
+			daemon_mode = true;
+			break;
 		case 's':
 			addr = optarg;
 			break;
 		case 'd':
 			snprintf(g_upload_dir, sizeof(g_upload_dir), "%s", optarg);
+			upload_dir_specified = true;
+			break;
+		case 'S':
+			snprintf(g_sqlite_lib, sizeof(g_sqlite_lib), "%s", optarg);
+			break;
+		case 'F':
+			snprintf(g_ffmpeg_path, sizeof(g_ffmpeg_path), "%s", optarg);
 			break;
 		case 't':
 			nthreads = atoi(optarg);
@@ -157,12 +299,49 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
+	if (show_detail) {
+		apply_default_upload_dir(upload_dir_specified);
+		print_detail_info(addr, nthreads, reuse_port, daemon_mode);
+		return 0;
+	}
+
+	if (show_version) {
+		printf("%s\n", g_webcool_version);
+		return 0;
+	}
+
 	acl::acl_cpp_init();
 	acl::log::stdout_open(true);
+
+	apply_default_upload_dir(upload_dir_specified);
+
+	if (!action::make_dir_recursive(g_upload_dir)) {
+		fprintf(stderr, "创建数据目录失败: %s\n", g_upload_dir);
+		return 1;
+	}
+
+	if (g_sqlite_lib[0] != '\0') {
+		action::runtime_sqlite_lib_set(g_sqlite_lib);
+	}
+
+	if (g_ffmpeg_path[0] != '\0') {
+		action::runtime_ffmpeg_path_set(g_ffmpeg_path);
+	}
 
 	printf("HTTP 文件上传服务器\n");
 	printf("  监听地址: %s\n", addr.c_str());
 	printf("  上传目录: %s\n", g_upload_dir);
+	if (g_sqlite_lib[0] != '\0') {
+		printf("  sqlite库: %s\n", g_sqlite_lib);
+	}
+	if (g_ffmpeg_path[0] != '\0') {
+		printf("  ffmpeg路径: %s\n", g_ffmpeg_path);
+	} else {
+		const std::string ffmpeg_auto = action::choose_ffmpeg_path();
+		if (!ffmpeg_auto.empty()) {
+			printf("  ffmpeg路径: %s\n", ffmpeg_auto.c_str());
+		}
+	}
 	printf("  工作线程: %d\n", nthreads);
 
 	std::string resume_db_err;
@@ -195,6 +374,13 @@ int main(int argc, char* argv[]) {
 			return 1;
 		}
 		printf("监听 %s 成功\n", addr.c_str());
+	}
+
+	if (daemon_mode) {
+		if (!daemonize_process()) {
+			fprintf(stderr, "切换到后台模式失败\n");
+			return 1;
+		}
 	}
 
 	std::vector<acl::thread*> threads;

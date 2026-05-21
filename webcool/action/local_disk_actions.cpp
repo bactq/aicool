@@ -1365,21 +1365,23 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res,
 	} else {
 		if (!move_file_to_trash(path, trash_path, err)) {
 			json_error(res, 500, err.c_str(), req.isKeepAlive());
-		std::string rename_err;
-		if (!tag_rename_folder_prefix(upload_dir, std::string("local:") + path,
-			std::string("local:") + trash_path, rename_err)
-			|| !video_resume_rename_folder_prefix(upload_dir,
-				std::string("local:") + path, std::string("local:") + trash_path,
-				rename_err)
-			|| !file_lock_rename_prefix(upload_dir, local_dir_lock_key(path),
-				local_dir_lock_key(trash_path), rename_err)
-			|| !file_lock_rename_prefix(upload_dir, local_file_lock_key(path),
-				local_file_lock_key(trash_path), rename_err))
-		{
-			(void) ::rename(trash_path.c_str(), path.c_str());
-			json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
-			return true;
-		}
+            return true;
+        }
+        std::string rename_err;
+        if (!tag_rename_folder_prefix(upload_dir, std::string("local:") + path,
+                    std::string("local:") + trash_path, rename_err)
+                || !video_resume_rename_folder_prefix(upload_dir,
+                    std::string("local:") + path, std::string("local:") + trash_path,
+                    rename_err)
+                || !file_lock_rename_prefix(upload_dir, local_dir_lock_key(path),
+                    local_dir_lock_key(trash_path), rename_err)
+                || !file_lock_rename_prefix(upload_dir, local_file_lock_key(path),
+                    local_file_lock_key(trash_path), rename_err))
+        {
+            (void) ::rename(trash_path.c_str(), path.c_str());
+            json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
+            return true;
+        }
 	}
 
 	acl::json json;

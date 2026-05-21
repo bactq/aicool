@@ -43,4 +43,7 @@ bool sendJson(response_t& res, int status, const acl::json_node& json,
 bool sendJson(response_t& res, int status, const acl::string& json,
 	bool keep_alive = true);
 
+std::string choose_sqlite_lib_path();
+std::string choose_ffmpeg_path();
+
 } // namespace action

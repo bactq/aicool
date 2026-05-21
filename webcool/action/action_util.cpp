@@ -1,16 +1,134 @@
 #include "action_util.h"
 
 #include <sys/stat.h>
+#include <unistd.h>
 
+#include <cstdlib>
 #include <string>
+#include <vector>
+#include <mutex>
 
 namespace action {
 
 namespace {
 
 static const char* kRecycleFolderName = "回收站";
+static std::mutex g_runtime_sqlite_mutex;
+static std::string g_runtime_sqlite_lib;
+static std::mutex g_runtime_ffmpeg_mutex;
+static std::string g_runtime_ffmpeg_path;
 
 } // namespace
+
+void runtime_sqlite_lib_set(const std::string& sqlite_lib_path) {
+	std::lock_guard<std::mutex> guard(g_runtime_sqlite_mutex);
+	g_runtime_sqlite_lib = sqlite_lib_path;
+}
+
+std::string runtime_sqlite_lib_get() {
+	std::lock_guard<std::mutex> guard(g_runtime_sqlite_mutex);
+	return g_runtime_sqlite_lib;
+}
+
+void runtime_ffmpeg_path_set(const std::string& ffmpeg_path) {
+	std::lock_guard<std::mutex> guard(g_runtime_ffmpeg_mutex);
+	g_runtime_ffmpeg_path = ffmpeg_path;
+}
+
+std::string runtime_ffmpeg_path_get() {
+	std::lock_guard<std::mutex> guard(g_runtime_ffmpeg_mutex);
+	return g_runtime_ffmpeg_path;
+}
+
+static bool file_exists_readable(const char* path) {
+	if (path == NULL || *path == '\0') {
+		return false;
+	}
+	return access(path, R_OK) == 0;
+}
+
+static bool file_exists_executable(const char* path) {
+	if (path == NULL || *path == '\0') {
+		return false;
+	}
+	return access(path, X_OK) == 0;
+}
+
+std::string choose_sqlite_lib_path() {
+	const std::string runtime_path = runtime_sqlite_lib_get();
+	if (!runtime_path.empty()) {
+		if (file_exists_readable(runtime_path.c_str())) {
+			return runtime_path;
+		}
+		return std::string();
+	}
+
+	const char* env_path = getenv("AICOOL_SQLITE_LIB");
+	if (env_path && *env_path) {
+		if (file_exists_readable(env_path)) {
+			return std::string(env_path);
+		}
+		return std::string();
+	}
+
+	const std::vector<std::string> candidates = {
+		"/usr/local/lib/sqlite3.so",
+		"/opt/webcool/lib/sqlite3.so",
+		"../third-party/sqlite/lib/sqlite3.so",
+		"third-party/sqlite/lib/sqlite3.so",
+	};
+
+	for (size_t i = 0; i < candidates.size(); ++i) {
+		if (file_exists_readable(candidates[i].c_str())) {
+			return candidates[i];
+		}
+	}
+
+	return std::string();
+}
+
+std::string choose_ffmpeg_path() {
+	const std::string runtime_path = runtime_ffmpeg_path_get();
+	if (!runtime_path.empty()) {
+		if (file_exists_executable(runtime_path.c_str())) {
+			return runtime_path;
+		}
+		return std::string();
+	}
+
+	const char* env_ffmpeg = getenv("AICOOL_FFMPEG");
+	if (env_ffmpeg && *env_ffmpeg) {
+		if (file_exists_executable(env_ffmpeg)) {
+			return std::string(env_ffmpeg);
+		}
+		return std::string();
+	}
+
+	std::vector<std::string> candidates;
+#ifdef __APPLE__
+	candidates.push_back("/opt/webcool/bin/ffmpeg");
+	candidates.push_back("/usr/local/bin/ffmpeg");
+	candidates.push_back("../tools/mac/ffmpeg");
+	candidates.push_back("tools/mac/ffmpeg");
+#elif defined(__linux__)
+	candidates.push_back("/opt/webcool/bin/ffmpeg");
+	candidates.push_back("/usr/local/bin/ffmpeg");
+	candidates.push_back("../tools/linux/ffmpeg");
+	candidates.push_back("tools/linux/ffmpeg");
+#elif defined(_WIN32)
+	candidates.push_back("..\\tools\\windows\\ffmpeg.exe");
+	candidates.push_back("tools\\windows\\ffmpeg.exe");
+	candidates.push_back("ffmpeg.exe");
+#endif
+
+	for (size_t i = 0; i < candidates.size(); ++i) {
+		if (file_exists_executable(candidates[i].c_str())) {
+			return candidates[i];
+		}
+	}
+
+	return std::string();
+}
 
 bool make_dir(const char* path) {
 	struct stat st;
