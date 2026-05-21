@@ -2313,6 +2313,67 @@
 
     .file-name:hover { text-decoration: underline; }
 
+    .file-name-action {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .selected-file-row {
+      background: rgba(30, 111, 217, 0.08);
+    }
+
+    .file-rename-input {
+      width: min(420px, 100%);
+      border: 1px solid #8cb8e6;
+      border-radius: 8px;
+      padding: 7px 9px;
+      color: #20324a;
+      font: inherit;
+      font-weight: 700;
+      outline: none;
+      box-shadow: 0 0 0 4px rgba(30, 111, 217, 0.12);
+    }
+
+    .file-summary-card {
+      width: min(520px, calc(100vw - 40px));
+    }
+
+    .file-summary-list {
+      display: grid;
+      gap: 8px;
+      margin: 16px 0;
+    }
+
+    .file-summary-row {
+      display: grid;
+      grid-template-columns: 96px 1fr;
+      gap: 12px;
+      align-items: start;
+      border: 1px solid #e0ebf5;
+      border-radius: 10px;
+      background: #f8fbff;
+      padding: 10px 12px;
+    }
+
+    .file-summary-row dt {
+      margin: 0;
+      color: #496987;
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .file-summary-row dd {
+      margin: 0;
+      color: #20324a;
+      font-weight: 700;
+      word-break: break-all;
+    }
+
     .file-path-meta {
       margin-top: 4px;
       color: #7b8fa6;

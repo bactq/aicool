@@ -39,6 +39,7 @@ private:
 	bool routeDelete(request_t& req, response_t& res);
 	bool routeRestore(request_t& req, response_t& res);
 	bool routeMoveFile(request_t& req, response_t& res);
+	bool routeRenameFile(request_t& req, response_t& res);
 	bool routeFiles(request_t& req, response_t& res);
 	bool routeDownload(request_t& req, response_t& res);
 	bool routeImageSave(request_t& req, response_t& res);

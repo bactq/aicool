@@ -17,6 +17,7 @@
         folderUnlock: '/api/v1/folders/unlock',
         folderLockVerify: '/api/v1/folders/lock/verify',
         fileMove: '/api/v1/files/move',
+        fileRename: '/api/v1/files/rename',
         fileLock: '/api/v1/files/lock',
         fileUnlock: '/api/v1/files/unlock',
         fileLockVerify: '/api/v1/files/lock/verify',
@@ -217,6 +218,9 @@
       let folderAutoExpandTimer = null;
       let activeFolderRenamePath = '';
       let folderRenameRequestPath = '';
+      let activeFileRenamePath = '';
+      let fileRenameRequestPath = '';
+      let fileRenameClickTimer = null;
       let activeFolderContextMenu = null;
       let activeFileContextMenu = null;
       const unlockedFolderPasswords = new Map();

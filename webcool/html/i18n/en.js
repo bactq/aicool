@@ -36,6 +36,14 @@
     '降序': 'Descending',
     '文件名': 'File Name',
     '文件大小': 'File Size',
+    '文件类型': 'File Type',
+    '创建时间': 'Created',
+    '文件摘要': 'File Summary',
+    '摘要': 'Summary',
+    '下载': 'Download',
+    '改名': 'Rename',
+    '改名文件': 'Rename file',
+    '文本': 'Text',
     '上传时间': 'Upload Time',
     '操作': 'Actions',
     '动作': 'Action',
@@ -300,6 +308,20 @@
     ,'文件/文件夹': 'Files/Folders'
     ,'文件': 'File'
     ,'移除': 'Remove'
+    ,'文件已改名：': 'File renamed: '
+    ,'文件改名失败：': 'File rename failed: '
+    ,'文件摘要失败：未找到文件': 'File summary failed: file not found'
+    ,'确认将文件『': 'Remove file "'
+    ,'』从当前标签中移除？此操作只解除标签引用，不会删除文件。': '" from the current tag? This only removes the tag reference and will not delete the file.'
+    ,'移除引用失败：关联不存在': 'Remove reference failed: link does not exist'
+    ,'已移除标签引用：': 'Tag reference removed: '
+    ,'确认删除文件：': 'Delete file: '
+    ,' ？将先移入回收站。': ' ? It will be moved to Trash first.'
+    ,'已移入回收站：': 'Moved to Trash: '
+    ,'确认彻底删除': 'Permanently delete '
+    ,'：': ': '
+    ,' ？此操作不可恢复。': ' ? This action cannot be undone.'
+    ,'已彻底删除': 'Permanently deleted '
     ,'恢复': 'Restore'
     ,'批量从当前标签移除': 'Remove selected items from current tag'
     ,'批量恢复文件到原路径': 'Restore selected files to original paths'

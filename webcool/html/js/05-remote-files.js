@@ -215,6 +215,258 @@
         return { ok: true, boundCount: boundCount };
       }
 
+      function canRenameFileRecord(file) {
+        if (!file || file.directory || file.local) {
+          return false;
+        }
+        return !isRecycleFolderPath(activeFolderPath);
+      }
+
+      function clearFileRenameClickTimer() {
+        if (fileRenameClickTimer) {
+          clearTimeout(fileRenameClickTimer);
+          fileRenameClickTimer = null;
+        }
+      }
+
+      function startFileRename(filePath) {
+        const record = getFileRecordByPath(filePath);
+        if (!record || !canRenameFileRecord(record)) {
+          return;
+        }
+        clearFileRenameClickTimer();
+        activeFileRenamePath = filePath;
+        fileRenameRequestPath = filePath;
+        renderFiles(activeSourceFiles);
+        window.setTimeout(function () {
+          const input = fileList && fileList.querySelector('.file-rename-input[data-file-rename-path="' + encodeURIComponent(filePath) + '"]');
+          if (input) {
+            input.focus();
+            input.select();
+          }
+        }, 0);
+      }
+
+      function cancelFileRename() {
+        activeFileRenamePath = '';
+        fileRenameRequestPath = '';
+        clearFileRenameClickTimer();
+        renderFiles(activeSourceFiles);
+      }
+
+      async function submitFileRename(input) {
+        if (!input || input.disabled) {
+          return;
+        }
+        const oldPath = decodeURIComponent(input.getAttribute('data-file-rename-path') || '');
+        const nextName = String(input.value || '').trim();
+        const record = getFileRecordByPath(oldPath);
+        if (!oldPath || !record || !canRenameFileRecord(record)) {
+          cancelFileRename();
+          return;
+        }
+        const currentName = String(record.name || oldPath.split('/').pop() || '');
+        if (!nextName || nextName === currentName) {
+          cancelFileRename();
+          return;
+        }
+        input.disabled = true;
+        resetStatus();
+        try {
+          let url = api.fileRename + '?file=' + encodeURIComponent(oldPath) + '&name=' + encodeURIComponent(nextName);
+          url = withFolderPassword(url, parentFolderPathFromFilePath(oldPath));
+          url = appendFilePassword(url, oldPath, false);
+          const result = await fetchJson(url, { method: 'POST' });
+          const newPath = String((result && result.path) || '');
+          selectedFileNames.delete(oldPath);
+          if (newPath) {
+            selectedFileNames.add(newPath);
+          }
+          activeFileRenamePath = '';
+          fileRenameRequestPath = '';
+          if (activeFilterTagId) {
+            await showFilesForTag(activeFilterTagId);
+          } else {
+            await loadFiles();
+          }
+          showStatus(t('文件已改名：') + currentName + ' -> ' + nextName, 'ok');
+        } catch (err) {
+          input.disabled = false;
+          showStatus(t('文件改名失败：') + err.message, 'err');
+          input.focus();
+          input.select();
+        }
+      }
+
+      function refreshRenderedFileSelection() {
+        if (!fileList) {
+          return;
+        }
+        fileList.querySelectorAll('.file-select-input[data-select-file]').forEach(function (checkbox) {
+          const path = decodeURIComponent(checkbox.getAttribute('data-select-file') || '');
+          checkbox.checked = selectedFileNames.has(path);
+          const row = checkbox.closest('tr');
+          if (row) {
+            row.classList.toggle('selected-file-row', selectedFileNames.has(path));
+          }
+        });
+        updateFileSelectAllState();
+        updateFileBulkActionButton();
+      }
+
+      function downloadRemoteListFile(filePath, local) {
+        const file = String(filePath || '');
+        if (!file) {
+          return;
+        }
+        const link = document.createElement('a');
+        link.href = local ? localDiskDownloadUrl(file) : downloadUrlForFile(file, false);
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+
+      function inferFileTypeLabel(file) {
+        if (!file) {
+          return t('文件');
+        }
+        if (file.directory) {
+          return t('文件夹');
+        }
+        const name = String(file.name || getFilePath(file) || '');
+        if (isVideoName(name)) return t('视频');
+        if (isAudioName(name)) return t('音频');
+        if (isImageName(name)) return t('图片');
+        if (isTextName(name)) return t('文本');
+        const dot = name.lastIndexOf('.');
+        return dot >= 0 && dot < name.length - 1 ? name.slice(dot + 1).toUpperCase() : t('文件');
+      }
+
+      function getFileTimeText(file, keys) {
+        for (let i = 0; i < keys.length; i += 1) {
+          const value = file && file[keys[i]];
+          if (value !== undefined && value !== null && String(value) !== '') {
+            return String(value);
+          }
+        }
+        return '-';
+      }
+
+      function showFileSummaryDialog(filePath) {
+        const file = getFileRecordByPath(filePath);
+        if (!file) {
+          showStatus(t('文件摘要失败：未找到文件'), 'err');
+          return;
+        }
+        const oldDialog = document.getElementById('file-summary-dialog');
+        if (oldDialog && oldDialog.parentNode) {
+          oldDialog.parentNode.removeChild(oldDialog);
+        }
+        const path = getFilePath(file);
+        const name = String(file.name || path || '');
+        const sizeText = file.directory ? t('文件夹') : (formatNumber(safeSize(file)) + t(' 字节'));
+        const createdText = getFileTimeText(file, ['created_time', 'created_at', 'uploaded_time']);
+        const modifiedText = getFileTimeText(file, ['modified_time', 'modified_at', 'uploaded_time']);
+        const rows = [
+          [t('文件名'), name],
+          [t('文件大小'), sizeText],
+          [t('文件类型'), inferFileTypeLabel(file)],
+          [t('创建时间'), createdText],
+          [t('修改时间'), modifiedText]
+        ];
+        const dialog = document.createElement('div');
+        dialog.className = 'tag-dialog file-summary-dialog';
+        dialog.id = 'file-summary-dialog';
+        dialog.innerHTML =
+          '<div class="tag-dialog-backdrop" data-file-summary-close="1"></div>' +
+          '<div class="tag-dialog-card file-summary-card" role="dialog" aria-modal="true" aria-labelledby="file-summary-title">' +
+            '<div class="tag-dialog-head">' +
+              '<h2 id="file-summary-title">' + escapeHtml(t('文件摘要')) + '</h2>' +
+              '<p>' + escapeHtml(path) + '</p>' +
+            '</div>' +
+            '<dl class="file-summary-list">' + rows.map(function (row) {
+              return '<div class="file-summary-row"><dt>' + escapeHtml(row[0]) + '</dt><dd>' + escapeHtml(row[1]) + '</dd></div>';
+            }).join('') + '</dl>' +
+            '<div class="tag-dialog-actions">' +
+              '<button type="button" class="tag-dialog-btn" data-file-summary-close="1">' + escapeHtml(t('确定')) + '</button>' +
+            '</div>' +
+          '</div>';
+        document.body.appendChild(dialog);
+      }
+
+      async function handleFileDeleteOrRemove(filePath, local) {
+        const name = String(filePath || '');
+        if (!name) {
+          return;
+        }
+        const activeTagId = activeFilterTagId;
+        if (activeTagId) {
+          if (!confirm(t('确认将文件『') + name + t('』从当前标签中移除？此操作只解除标签引用，不会删除文件。'))) {
+            return;
+          }
+          resetStatus();
+          const ok = await unbindFileFromTag(activeTagId, name, { local: !!local });
+          if (!ok) {
+            showStatus(t('移除引用失败：关联不存在'), 'err');
+            return;
+          }
+          await showFilesForTag(activeTagId);
+          showStatus(t('已移除标签引用：') + name, 'warn');
+          return;
+        }
+
+        const isRecycleMode = isRecycleFolderPath(activeFolderPath);
+        const itemRecord = getFileRecordByPath(name);
+        const itemLabel = itemRecord && itemRecord.directory ? t('文件夹') : t('文件');
+        const confirmText = isRecycleMode
+          ? (t('确认彻底删除') + itemLabel + t('：') + name + t(' ？此操作不可恢复。'))
+          : (t('确认删除文件：') + name + t(' ？将先移入回收站。'));
+        if (!confirm(confirmText)) {
+          return;
+        }
+
+        resetStatus();
+        await fetchJson(appendFilePassword(withFolderPassword(api.del + '?file=' + encodeURIComponent(name), parentFolderPathFromFilePath(name)), name, false));
+        showStatus(isRecycleMode ? (t('已彻底删除') + itemLabel + t('：') + name) : (t('已移入回收站：') + name), 'warn');
+        await loadFiles();
+      }
+
+      function handleFileNameClick(filePath, local) {
+        const file = String(filePath || '');
+        if (!file) {
+          return;
+        }
+        const alreadySelected = selectedFileNames.has(file);
+        if (!alreadySelected) {
+          clearFileRenameClickTimer();
+          selectedFileNames.clear();
+          selectedFileNames.add(file);
+          activeFileRenamePath = '';
+          fileRenameRequestPath = '';
+          refreshRenderedFileSelection();
+          return;
+        }
+        clearFileRenameClickTimer();
+        fileRenameClickTimer = window.setTimeout(function () {
+          fileRenameClickTimer = null;
+          startFileRename(file);
+        }, 230);
+      }
+
+      function handleFileNameDoubleClick(filePath, local) {
+        clearFileRenameClickTimer();
+        activeFileRenamePath = '';
+        fileRenameRequestPath = '';
+        const file = String(filePath || '');
+        if (file) {
+          selectedFileNames.clear();
+          selectedFileNames.add(file);
+          refreshRenderedFileSelection();
+          downloadRemoteListFile(file, !!local);
+        }
+      }
+
       function renderFiles(files) {
         activeSourceFiles = (Array.isArray(files) ? files : []).map(normalizeFileRecord);
         if (activeFilterTagId) {
@@ -278,6 +530,7 @@
           const size = safeSize(file);
           const uploaded = escapeHtml(file.uploaded_time || '-');
           const checked = selectedFileNames.has(rawName) ? ' checked' : '';
+          const selectedClass = selectedFileNames.has(rawName) ? ' selected-file-row' : '';
           const previewBtn = !isDir && isImageName(file.name)
             ? (isLocalTaggedFile
               ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('预览') + '</button>'
@@ -306,14 +559,17 @@
           const permanentDeleteBtn = isRecycleMode
             ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">' + t('彻底删除') + '</button>'
             : '';
+          const renameInput = !isDir && activeFileRenamePath === rawName
+            ? '<input class="file-rename-input" type="text" value="' + escapeHtml(file.name || '') + '" data-file-rename-path="' + encodedPath + '" aria-label="' + escapeHtml(t('改名文件')) + '">'
+            : '';
           const nameContent = isDir
             ? '<span class="file-name local-folder-link"><span class="local-folder-icon">📁</span>' + name + '</span>'
-            : '<a class="file-name" draggable="false" href="' + escapeHtml(isLocalTaggedFile ? localDiskDownloadUrl(rawName) : downloadUrlForFile(rawName, false)) + '">' + name + '</a>';
+            : (renameInput || '<button type="button" class="file-name file-name-action" draggable="false" data-file-name-click="' + encodedPath + '" data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '">' + name + '</button>');
           const tagQuickBtn = isDir
             ? ''
             : '<button class="file-tag-quick-btn" type="button" data-tag-file="' + encodedPath + '" title="' + escapeHtml(t('加入标签')) + '" aria-label="' + escapeHtml(t('加入标签')) + '">🏷</button>';
           return (
-            '<tr class="draggable-file-row" draggable="' + (isDir ? 'false' : 'true') + '" data-drag-file="' + encodedPath + '"' + (isDir ? '' : ' data-file-context="' + encodedPath + '"') + ' data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (!isDir && isVideoName(file.name) ? '1' : '0') + '">' +
+            '<tr class="draggable-file-row' + selectedClass + '" draggable="' + (isDir ? 'false' : 'true') + '" data-drag-file="' + encodedPath + '"' + (isDir ? '' : ' data-file-context="' + encodedPath + '"') + ' data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (!isDir && isVideoName(file.name) ? '1' : '0') + '">' +
               '<td class="file-select-cell"><div class="file-select-tools"><input class="file-select-input" type="checkbox" data-select-file="' + encodedPath + '" aria-label="' + escapeHtml(t('选择') + (isDir ? t('目录 ') : t('文件 ')) + rawName) + '"' + checked + '>' + tagQuickBtn + '</div></td>' +
               '<td' + (isDir ? '' : ' data-file-context="' + encodedPath + '"') + ' data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (!isDir && isVideoName(file.name) ? '1' : '0') + '">' + nameContent + lockIcon + pathMeta + '</td>' +
               '<td>' + (isDir ? t('文件夹') : (formatNumber(size) + t(' 字节'))) + '</td>' +

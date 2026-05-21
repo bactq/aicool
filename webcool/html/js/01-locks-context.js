@@ -388,19 +388,28 @@
         activeFileContextMenu = null;
       }
 
-      function openFileContextMenu(path, local, locked, isVideo, clientX, clientY) {
+      function openFileContextMenu(path, local, locked, isVideo, clientX, clientY, options) {
         closeFileContextMenu();
         closeFolderContextMenu();
         const filePath = String(path || '');
         if (!filePath) {
           return;
         }
+        const opts = options || {};
         const isUnlocked = !!getFilePassword(filePath, local);
         const menu = document.createElement('div');
         menu.className = 'folder-context-menu file-context-menu';
         menu.setAttribute('data-file-path', filePath);
         menu.setAttribute('data-file-local', local ? '1' : '0');
         let html = '';
+        if (opts.remoteList) {
+          html += '<button type="button" class="folder-context-item" data-file-menu-action="summary">' + t('摘要') + '</button>';
+          html += '<button type="button" class="folder-context-item" data-file-menu-action="download">' + t('下载') + '</button>';
+          if (!local && !opts.recycleMode) {
+            html += '<button type="button" class="folder-context-item" data-file-menu-action="rename">' + t('改名') + '</button>';
+          }
+          html += '<button type="button" class="folder-context-item" data-file-menu-action="delete">' + t(opts.tagMode ? '移除' : '删除') + '</button>';
+        }
         if (locked) {
           html += '<button type="button" class="folder-context-item" data-file-menu-action="' + (isUnlocked ? 'session-lock' : 'session-unlock') + '">' + t(isUnlocked ? '加锁' : '解锁') + '</button>';
           html += '<button type="button" class="folder-context-item" data-file-menu-action="remove-lock">' + t('去锁') + '</button>';

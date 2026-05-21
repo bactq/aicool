@@ -972,6 +972,22 @@
       });
 
       fileList.addEventListener('click', async function (e) {
+        const renameInput = e.target.closest('.file-rename-input');
+        if (renameInput) {
+          return;
+        }
+
+        const fileNameClick = e.target.closest('.file-name-action[data-file-name-click]');
+        if (fileNameClick) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleFileNameClick(
+            decodeURIComponent(fileNameClick.getAttribute('data-file-name-click') || ''),
+            fileNameClick.getAttribute('data-file-local') === '1'
+          );
+          return;
+        }
+
         if (e.target.closest('.file-select-input')) {
           return;
         }
@@ -1097,46 +1113,50 @@
           return;
         }
 
-        const activeTagId = activeFilterTagId;
-
-        if (activeTagId) {
-          if (!confirm('确认将文件『' + name + '』从当前标签中移除？此操作只解除标签引用，不会删除文件。')) {
-            return;
-          }
-
-          resetStatus();
-          try {
-            const ok = await unbindFileFromTag(activeTagId, name, { local: btn.getAttribute('data-local-tag-file') === '1' });
-            if (!ok) {
-              showStatus('移除引用失败：关联不存在', 'err');
-              return;
-            }
-            await showFilesForTag(activeTagId);
-            showStatus('已移除标签引用：' + name, 'warn');
-          } catch (err) {
-            showStatus('移除引用失败：' + err.message, 'err');
-          }
-          return;
-        }
-
-        const isRecycleMode = isRecycleFolderPath(activeFolderPath);
-        const itemRecord = getFileRecordByPath(name);
-        const itemLabel = itemRecord && itemRecord.directory ? '文件夹' : '文件';
-        const confirmText = isRecycleMode
-          ? ('确认彻底删除' + itemLabel + '：' + name + ' ？此操作不可恢复。')
-          : ('确认删除文件：' + name + ' ？将先移入回收站。');
-        if (!confirm(confirmText)) {
-          return;
-        }
-
-        resetStatus();
         try {
-          await fetchJson(appendFilePassword(withFolderPassword(api.del + '?file=' + file, parentFolderPathFromFilePath(name)), name, false));
-          showStatus(isRecycleMode ? ('已彻底删除' + itemLabel + '：' + name) : ('已移入回收站：' + name), 'warn');
-          await loadFiles();
+          await handleFileDeleteOrRemove(name, btn.getAttribute('data-local-tag-file') === '1');
         } catch (err) {
-          showStatus('删除失败：' + err.message, 'err');
+          showStatus(t('删除失败：') + err.message, 'err');
         }
+      });
+
+      fileList.addEventListener('dblclick', function (e) {
+        const fileNameClick = e.target.closest('.file-name-action[data-file-name-click]');
+        if (!fileNameClick) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        handleFileNameDoubleClick(
+          decodeURIComponent(fileNameClick.getAttribute('data-file-name-click') || ''),
+          fileNameClick.getAttribute('data-file-local') === '1'
+        );
+      });
+
+      fileList.addEventListener('keydown', function (e) {
+        const input = e.target.closest('.file-rename-input');
+        if (!input) {
+          return;
+        }
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          submitFileRename(input);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          cancelFileRename();
+        }
+      });
+
+      fileList.addEventListener('focusout', function (e) {
+        const input = e.target.closest('.file-rename-input');
+        if (!input) {
+          return;
+        }
+        window.setTimeout(function () {
+          if (document.activeElement !== input) {
+            submitFileRename(input);
+          }
+        }, 0);
       });
 
       fileList.addEventListener('contextmenu', function (e) {
@@ -1151,7 +1171,12 @@
           cell.getAttribute('data-file-locked') === '1',
           cell.getAttribute('data-file-video') === '1',
           e.clientX,
-          e.clientY
+          e.clientY,
+          {
+            remoteList: true,
+            tagMode: !!activeFilterTagId,
+            recycleMode: !activeFilterTagId && isRecycleFolderPath(activeFolderPath)
+          }
         );
       });
 
@@ -1957,6 +1982,14 @@
           return;
         }
 
+        if (e.target.closest('[data-file-summary-close]')) {
+          const dialog = document.getElementById('file-summary-dialog');
+          if (dialog && dialog.parentNode) {
+            dialog.parentNode.removeChild(dialog);
+          }
+          return;
+        }
+
         const folderMenuItem = e.target.closest('.folder-context-item[data-folder-menu-action]');
         if (folderMenuItem && activeFolderContextMenu && activeFolderContextMenu.contains(folderMenuItem)) {
           const menu = activeFolderContextMenu;
@@ -1975,9 +2008,21 @@
           const path = menu.getAttribute('data-file-path') || '';
           const local = menu.getAttribute('data-file-local') === '1';
           closeFileContextMenu();
-          handleFileContextAction(action, path, local).catch(function (err) {
-            showStatus(t('文件锁操作失败：') + err.message, 'err');
-          });
+          if (action === 'summary') {
+            showFileSummaryDialog(path);
+          } else if (action === 'download') {
+            downloadRemoteListFile(path, local);
+          } else if (action === 'rename') {
+            startFileRename(path);
+          } else if (action === 'delete') {
+            handleFileDeleteOrRemove(path, local).catch(function (err) {
+              showStatus(t('删除失败：') + err.message, 'err');
+            });
+          } else {
+            handleFileContextAction(action, path, local).catch(function (err) {
+              showStatus(t('文件锁操作失败：') + err.message, 'err');
+            });
+          }
           return;
         }
         const localDirMenuItem = e.target.closest('.folder-context-item[data-local-dir-menu-action]');

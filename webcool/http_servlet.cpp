@@ -228,6 +228,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/delete", &http_servlet::routeDelete },
 		{ "/api/v1/restore", &http_servlet::routeRestore },
 		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
+		{ "/api/v1/files/rename", &http_servlet::routeRenameFile },
 		{ "/api/v1/files", &http_servlet::routeFiles },
 		{ "/api/v1/download", &http_servlet::routeDownload },
 		{ "/api/v1/image/save", &http_servlet::routeImageSave },
@@ -300,6 +301,10 @@ bool http_servlet::routeRestore(request_t& req, response_t& res) {
 
 bool http_servlet::routeMoveFile(request_t& req, response_t& res) {
 	return action::MoveFileAction::run(req, res, action::runtime_upload_dir_get());
+}
+
+bool http_servlet::routeRenameFile(request_t& req, response_t& res) {
+	return action::RenameFileAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeFiles(request_t& req, response_t& res) {
@@ -477,6 +482,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/image/save", &http_servlet::routeImageSave },
 		{ "/api/v1/restore", &http_servlet::routeRestore },
 		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
+		{ "/api/v1/files/rename", &http_servlet::routeRenameFile },
 		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },
 		{ "/api/v1/video/convert/cancel", &http_servlet::routeVideoConvertCancel },
 		{ "/api/v1/video/convert/progress", &http_servlet::routeVideoConvertProgress },
