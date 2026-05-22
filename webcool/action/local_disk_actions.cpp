@@ -1911,8 +1911,9 @@ bool LocalDiskCopyAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
-	if (async && source_is_dir) {
-		const std::string task_id = start_remote_copy_task(source, dest, dest, true);
+	if (async) {
+		const std::string task_id = start_remote_copy_task(source, dest, dest,
+			source_is_dir);
 		acl::json json;
 		acl::json_node& root = json.create_node();
 		root.add_bool("ok", true);
@@ -1921,7 +1922,7 @@ bool LocalDiskCopyAction::run(request_t& req, response_t& res,
 		root.add_text("source", source.c_str());
 		root.add_text("target", target.c_str());
 		root.add_bool("overwritten", overwrite);
-		root.add_bool("directory", true);
+		root.add_bool("directory", source_is_dir);
 		root.add_text("message", "copy task started");
 		return sendJson(res, 200, root, req.isKeepAlive());
 	}
