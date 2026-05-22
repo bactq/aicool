@@ -127,6 +127,12 @@ public:
 		const std::string& upload_dir);
 };
 
+class CopyFileAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
 class RenameFileAction {
 public:
 	static bool run(request_t& req, response_t& res,
@@ -308,6 +314,12 @@ public:
 };
 
 class FolderMoveAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
+class FolderCopyAction {
 public:
 	static bool run(request_t& req, response_t& res,
 		const std::string& upload_dir);

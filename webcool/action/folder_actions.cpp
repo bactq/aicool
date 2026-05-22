@@ -29,6 +29,10 @@ struct folder_node_t {
 	std::vector<folder_node_t> children;
 };
 
+static std::string remote_file_lock_key(const std::string& path) {
+	return std::string("remote:") + path;
+}
+
 static void json_error(response_t& res, int status, const char* msg,
 	bool keep_alive)
 {
@@ -50,6 +54,163 @@ static bool should_skip_entry(const char* name) {
 		return true;
 	}
 	return false;
+}
+
+static bool should_skip_self_parent_entry(const char* name) {
+	if (name == NULL || *name == '\0') {
+		return true;
+	}
+	return strcmp(name, ".") == 0 || strcmp(name, "..") == 0;
+}
+
+static bool copy_regular_file_plain(const std::string& source,
+	const std::string& dest, mode_t mode, std::string& err)
+{
+	FILE* in = fopen(source.c_str(), "rb");
+	if (in == NULL) {
+		err = strerror(errno);
+		return false;
+	}
+	FILE* out = fopen(dest.c_str(), "wb");
+	if (out == NULL) {
+		err = strerror(errno);
+		fclose(in);
+		return false;
+	}
+
+	char buf[1024 * 64];
+	bool ok = true;
+	while (true) {
+		const size_t n = fread(buf, 1, sizeof(buf), in);
+		if (n > 0 && fwrite(buf, 1, n, out) != n) {
+			err = strerror(errno);
+			ok = false;
+			break;
+		}
+		if (n < sizeof(buf)) {
+			if (ferror(in)) {
+				err = strerror(errno);
+				ok = false;
+			}
+			break;
+		}
+	}
+	if (fclose(out) != 0 && ok) {
+		err = strerror(errno);
+		ok = false;
+	}
+	fclose(in);
+	if (!ok) {
+		::unlink(dest.c_str());
+		return false;
+	}
+	(void) chmod(dest.c_str(), mode & 0777);
+	return true;
+}
+
+static bool remove_path_recursive(const std::string& path, std::string& err)
+{
+	struct stat st;
+	if (lstat(path.c_str(), &st) != 0) {
+		if (errno == ENOENT) {
+			return true;
+		}
+		err = strerror(errno);
+		return false;
+	}
+	if (!S_ISDIR(st.st_mode)) {
+		if (::unlink(path.c_str()) != 0) {
+			err = strerror(errno);
+			return false;
+		}
+		return true;
+	}
+
+	DIR* dir = opendir(path.c_str());
+	if (dir == NULL) {
+		err = strerror(errno);
+		return false;
+	}
+	struct dirent* entry = NULL;
+	while ((entry = readdir(dir)) != NULL) {
+		if (should_skip_self_parent_entry(entry->d_name)) {
+			continue;
+		}
+		const std::string child = path + "/" + entry->d_name;
+		if (!remove_path_recursive(child, err)) {
+			closedir(dir);
+			return false;
+		}
+	}
+	closedir(dir);
+	if (::rmdir(path.c_str()) != 0) {
+		err = strerror(errno);
+		return false;
+	}
+	return true;
+}
+
+static bool copy_path_recursive(const std::string& source,
+	const std::string& dest, std::string& err)
+{
+	struct stat st;
+	if (lstat(source.c_str(), &st) != 0) {
+		err = strerror(errno);
+		return false;
+	}
+	if (S_ISREG(st.st_mode)) {
+		return copy_regular_file_plain(source, dest, st.st_mode, err);
+	}
+	if (S_ISLNK(st.st_mode)) {
+		char target[4096];
+		const ssize_t n = readlink(source.c_str(), target, sizeof(target) - 1);
+		if (n < 0) {
+			err = strerror(errno);
+			return false;
+		}
+		target[n] = '\0';
+		if (::symlink(target, dest.c_str()) != 0) {
+			err = strerror(errno);
+			return false;
+		}
+		return true;
+	}
+	if (!S_ISDIR(st.st_mode)) {
+		err = "unsupported file type in directory copy";
+		return false;
+	}
+
+	if (::mkdir(dest.c_str(), st.st_mode & 0777) != 0) {
+		err = strerror(errno);
+		return false;
+	}
+	bool ok = true;
+	DIR* dir = opendir(source.c_str());
+	if (dir == NULL) {
+		err = strerror(errno);
+		ok = false;
+	} else {
+		struct dirent* entry = NULL;
+		while ((entry = readdir(dir)) != NULL) {
+			if (should_skip_self_parent_entry(entry->d_name)) {
+				continue;
+			}
+			const std::string child_source = source + "/" + entry->d_name;
+			const std::string child_dest = dest + "/" + entry->d_name;
+			if (!copy_path_recursive(child_source, child_dest, err)) {
+				ok = false;
+				break;
+			}
+		}
+		closedir(dir);
+	}
+	if (!ok) {
+		std::string remove_err;
+		remove_path_recursive(dest, remove_err);
+		return false;
+	}
+	(void) chmod(dest.c_str(), st.st_mode & 0777);
+	return true;
 }
 
 static bool validate_folder_segment(const std::string& name, std::string& err) {
@@ -1018,6 +1179,146 @@ bool FolderMoveAction::run(request_t& req, response_t& res,
 	root.add_text("parent_path", target_parent.c_str());
 	root.add_text("name", folder_name.c_str());
 	root.add_text("message", "folder moved");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool FolderCopyAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string source_path;
+	std::string err;
+	const bool overwrite = req.getParameter("overwrite") != NULL
+		&& strcmp(req.getParameter("overwrite"), "1") == 0;
+	if (!normalize_relative_path(req.getParameter("path"), source_path, err, false)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (source_path.empty()) {
+		json_error(res, 409, "root folder cannot be copied", req.isKeepAlive());
+		return true;
+	}
+	if (is_recycle_file_path(source_path)) {
+		json_error(res, 409, "recycle folder is protected", req.isKeepAlive());
+		return true;
+	}
+	if (!upload_directory_exists(upload_dir, source_path)) {
+		json_error(res, 404, "folder not found", req.isKeepAlive());
+		return true;
+	}
+
+	bool source_lock_allowed = false;
+	std::string locked_path;
+	if (!folder_lock_path_allows(upload_dir, source_path,
+		req.getParameter("folder_password") ? req.getParameter("folder_password") : "",
+		source_lock_allowed, locked_path, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!source_lock_allowed) {
+		json_error(res, 403, "source folder is locked", req.isKeepAlive());
+		return true;
+	}
+
+	std::string target_parent;
+	if (!normalize_relative_path(req.getParameter("folder"), target_parent, err, true)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (is_recycle_file_path(target_parent)) {
+		json_error(res, 409, "cannot copy folder into recycle folder", req.isKeepAlive());
+		return true;
+	}
+	if (!target_parent.empty() && !upload_directory_exists(upload_dir, target_parent)) {
+		json_error(res, 404, "target folder not found", req.isKeepAlive());
+		return true;
+	}
+	if (is_same_or_child_path(source_path, target_parent)) {
+		json_error(res, 409, "cannot copy folder into itself or its child",
+			req.isKeepAlive());
+		return true;
+	}
+
+	bool target_lock_allowed = false;
+	if (!folder_lock_path_allows(upload_dir, target_parent,
+		req.getParameter("target_folder_password") ? req.getParameter("target_folder_password") : "",
+		target_lock_allowed, locked_path, err))
+	{
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!target_lock_allowed) {
+		json_error(res, 403, "target folder is locked", req.isKeepAlive());
+		return true;
+	}
+
+	const std::string folder_name = base_name_from_relative_path(source_path);
+	const std::string target_path = target_parent.empty()
+		? folder_name
+		: (target_parent + "/" + folder_name);
+	if (target_path == source_path) {
+		json_error(res, 409, "source and destination are the same", req.isKeepAlive());
+		return true;
+	}
+
+	const std::string source_full = join_upload_path(upload_dir, source_path);
+	const std::string target_full = join_upload_path(upload_dir, target_path);
+	struct stat target_st;
+	if (lstat(target_full.c_str(), &target_st) == 0) {
+		if (!overwrite) {
+			json_error(res, 409, "target already contains a path with same name",
+				req.isKeepAlive());
+			return true;
+		}
+		if (S_ISDIR(target_st.st_mode)) {
+			bool dest_lock_allowed = false;
+			if (!folder_lock_path_allows(upload_dir, target_path,
+				req.getParameter("target_folder_password") ? req.getParameter("target_folder_password") : "",
+				dest_lock_allowed, locked_path, err))
+			{
+				json_error(res, 500, err.c_str(), req.isKeepAlive());
+				return true;
+			}
+			if (!dest_lock_allowed) {
+				json_error(res, 403, "destination folder is locked", req.isKeepAlive());
+				return true;
+			}
+		} else {
+			bool dest_file_allowed = false;
+			if (!file_lock_path_allows(upload_dir, remote_file_lock_key(target_path),
+				req.getParameter("file_password") ? req.getParameter("file_password") : "",
+				dest_file_allowed, err))
+			{
+				json_error(res, 500, err.c_str(), req.isKeepAlive());
+				return true;
+			}
+			if (!dest_file_allowed) {
+				json_error(res, 403, "destination file is locked", req.isKeepAlive());
+				return true;
+			}
+		}
+		if (!remove_path_recursive(target_full, err)) {
+			json_error(res, 500, err.c_str(), req.isKeepAlive());
+			return true;
+		}
+	} else if (errno != ENOENT) {
+		json_error(res, 500, strerror(errno), req.isKeepAlive());
+		return true;
+	}
+
+	if (!copy_path_recursive(source_full, target_full, err)) {
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("path", target_path.c_str());
+	root.add_text("source", source_path.c_str());
+	root.add_text("folder_path", target_parent.c_str());
+	root.add_bool("overwritten", overwrite);
+	root.add_text("message", "folder copied");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 

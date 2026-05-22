@@ -224,11 +224,12 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/admin/template/reload", &http_servlet::routeTemplateReload },
 		{ "/api/v1/admin/storage", &http_servlet::routeAdminStorageInfo },
 		{ "/api/v1/admin/storage/migrate", &http_servlet::routeAdminStorageMigrate },
-		{ "/api/v1/admin/storage/migrate/progress", &http_servlet::routeAdminStorageMigrateProgress },
-		{ "/api/v1/delete", &http_servlet::routeDelete },
-		{ "/api/v1/restore", &http_servlet::routeRestore },
-		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
-		{ "/api/v1/files/rename", &http_servlet::routeRenameFile },
+			{ "/api/v1/admin/storage/migrate/progress", &http_servlet::routeAdminStorageMigrateProgress },
+			{ "/api/v1/delete", &http_servlet::routeDelete },
+			{ "/api/v1/restore", &http_servlet::routeRestore },
+			{ "/api/v1/files/move", &http_servlet::routeMoveFile },
+			{ "/api/v1/files/copy", &http_servlet::routeCopyFile },
+			{ "/api/v1/files/rename", &http_servlet::routeRenameFile },
 		{ "/api/v1/files", &http_servlet::routeFiles },
 		{ "/api/v1/download", &http_servlet::routeDownload },
 		{ "/api/v1/open-file", &http_servlet::routeOpenFile },
@@ -254,11 +255,12 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/video/probe", &http_servlet::routeVideoProbe },
 		{ "/api/v1/video/resume", &http_servlet::routeVideoResumeGet },
 		{ "/api/v1/video/resume/save", &http_servlet::routeVideoResumeSet },
-		{ "/api/v1/folders", &http_servlet::routeFolderList },
-		{ "/api/v1/folders/create", &http_servlet::routeFolderCreate },
-		{ "/api/v1/folders/rename", &http_servlet::routeFolderRename },
-		{ "/api/v1/folders/move", &http_servlet::routeFolderMove },
-		{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
+			{ "/api/v1/folders", &http_servlet::routeFolderList },
+			{ "/api/v1/folders/create", &http_servlet::routeFolderCreate },
+			{ "/api/v1/folders/rename", &http_servlet::routeFolderRename },
+			{ "/api/v1/folders/move", &http_servlet::routeFolderMove },
+			{ "/api/v1/folders/copy", &http_servlet::routeFolderCopy },
+			{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
 		{ "/api/v1/folders/lock", &http_servlet::routeFolderLock },
 		{ "/api/v1/folders/unlock", &http_servlet::routeFolderUnlock },
 		{ "/api/v1/folders/lock/verify", &http_servlet::routeFolderLockVerify },
@@ -307,6 +309,10 @@ bool http_servlet::routeRestore(request_t& req, response_t& res) {
 
 bool http_servlet::routeMoveFile(request_t& req, response_t& res) {
 	return action::MoveFileAction::run(req, res, action::runtime_upload_dir_get());
+}
+
+bool http_servlet::routeCopyFile(request_t& req, response_t& res) {
+	return action::CopyFileAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeRenameFile(request_t& req, response_t& res) {
@@ -433,6 +439,10 @@ bool http_servlet::routeFolderMove(request_t& req, response_t& res) {
 	return action::FolderMoveAction::run(req, res, action::runtime_upload_dir_get());
 }
 
+bool http_servlet::routeFolderCopy(request_t& req, response_t& res) {
+	return action::FolderCopyAction::run(req, res, action::runtime_upload_dir_get());
+}
+
 bool http_servlet::routeFolderDelete(request_t& req, response_t& res) {
 	return action::FolderDeleteAction::run(req, res, action::runtime_upload_dir_get());
 }
@@ -512,6 +522,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/image/save", &http_servlet::routeImageSave },
 		{ "/api/v1/restore", &http_servlet::routeRestore },
 		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
+		{ "/api/v1/files/copy", &http_servlet::routeCopyFile },
 		{ "/api/v1/files/rename", &http_servlet::routeRenameFile },
 		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },
 		{ "/api/v1/video/convert/cancel", &http_servlet::routeVideoConvertCancel },
@@ -522,6 +533,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/folders/create", &http_servlet::routeFolderCreate },
 		{ "/api/v1/folders/rename", &http_servlet::routeFolderRename },
 		{ "/api/v1/folders/move", &http_servlet::routeFolderMove },
+		{ "/api/v1/folders/copy", &http_servlet::routeFolderCopy },
 		{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
 		{ "/api/v1/folders/lock", &http_servlet::routeFolderLock },
 		{ "/api/v1/folders/unlock", &http_servlet::routeFolderUnlock },
