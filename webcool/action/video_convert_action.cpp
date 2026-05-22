@@ -2,7 +2,9 @@
 #include "action_util.h"
 #include <sys/stat.h>
 #include <errno.h>
+#include <limits.h>
 #include <signal.h>
+#include <string.h>
 #include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,10 +31,11 @@ struct transcode_task_t {
 	bool done;
 	bool success;
 	bool cancel_requested;
+	bool local;
 	long long size;
 	transcode_task_t()
 	: progress(0), process_pid(-1), done(false), success(false)
-	, cancel_requested(false), size(-1) {}
+	, cancel_requested(false), local(false), size(-1) {}
 };
 
 struct transcode_task_snapshot_t {
@@ -46,10 +49,11 @@ struct transcode_task_snapshot_t {
 	bool done;
 	bool success;
 	bool cancel_requested;
+	bool local;
 	long long size;
 	transcode_task_snapshot_t()
 	: progress(0), process_pid(-1), done(false), success(false)
-	, cancel_requested(false), size(-1) {}
+	, cancel_requested(false), local(false), size(-1) {}
 };
 
 static std::mutex g_transcode_mutex;
@@ -76,6 +80,19 @@ static bool is_video_name(const char* filename) {
 		|| strcasecmp(dot, ".wmv") == 0;
 }
 
+static bool is_local_convertible_video_name(const char* filename) {
+	if (filename == NULL) {
+		return false;
+	}
+	const char* dot = strrchr(filename, '.');
+	if (dot == NULL || *(dot + 1) == '\0') {
+		return false;
+	}
+	return strcasecmp(dot, ".rmvb") == 0
+		|| strcasecmp(dot, ".rm") == 0
+		|| strcasecmp(dot, ".avi") == 0;
+}
+
 static long long file_size_of(const char* path) {
 	if (path == NULL || *path == '\0') {
 		return -1;
@@ -87,6 +104,47 @@ static long long file_size_of(const char* path) {
 	}
 
 	return (long long) st.st_size;
+}
+
+static std::string local_parent_path(const std::string& path) {
+	if (path.empty() || path == "/") {
+		return "/";
+	}
+	std::string text = path;
+	while (text.size() > 1 && text[text.size() - 1] == '/') {
+		text.erase(text.size() - 1);
+	}
+	std::string::size_type pos = text.rfind('/');
+	if (pos == std::string::npos || pos == 0) {
+		return "/";
+	}
+	return text.substr(0, pos);
+}
+
+static std::string local_file_lock_key(const std::string& path) {
+	return std::string("local:") + path;
+}
+
+static bool normalize_local_video_path(const char* input, std::string& path,
+	std::string& err)
+{
+	path.clear();
+	err.clear();
+	if (input == NULL || *input == '\0') {
+		err = "missing query parameter: path";
+		return false;
+	}
+	if (input[0] != '/') {
+		err = "absolute path is required";
+		return false;
+	}
+	char resolved[PATH_MAX];
+	if (realpath(input, resolved) == NULL) {
+		err = strerror(errno);
+		return false;
+	}
+	path = resolved;
+	return true;
 }
 
 static std::string shell_quote(const std::string& s) {
@@ -555,6 +613,7 @@ static bool snapshot_task_by_id(const char* task_id,
 	snapshot.done = it->second->done;
 	snapshot.success = it->second->success;
 	snapshot.cancel_requested = it->second->cancel_requested;
+	snapshot.local = it->second->local;
 	snapshot.size = it->second->size;
 	return true;
 }
@@ -579,6 +638,7 @@ static void snapshot_running_tasks(std::vector<transcode_task_snapshot_t>& out) 
 		snapshot.done = it->second->done;
 		snapshot.success = it->second->success;
 		snapshot.cancel_requested = it->second->cancel_requested;
+		snapshot.local = it->second->local;
 		snapshot.size = it->second->size;
 		out.push_back(snapshot);
 	}
@@ -613,6 +673,7 @@ static bool request_cancel_task(const char* task_id,
 		snapshot.done = it->second->done;
 		snapshot.success = it->second->success;
 		snapshot.cancel_requested = it->second->cancel_requested;
+		snapshot.local = it->second->local;
 		snapshot.size = it->second->size;
 	}
 
@@ -664,6 +725,31 @@ static std::string make_unique_transcoded_name(const std::string& upload_dir,
 		}
 	}
 
+	char buf[64];
+	snprintf(buf, sizeof(buf), "_web_%lu", (unsigned long) g_transcode_seq.load());
+	return stem + std::string(buf) + ext;
+}
+
+static std::string make_unique_local_transcoded_path(const std::string& input_path)
+{
+	std::string base_mp4 = replace_ext_with_mp4(input_path);
+	if (!path_exists(base_mp4)) {
+		return base_mp4;
+	}
+
+	size_t slash = base_mp4.find_last_of("/\\");
+	size_t dot = base_mp4.find_last_of('.');
+	if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) {
+		dot = base_mp4.size();
+	}
+	const std::string stem = base_mp4.substr(0, dot);
+	const std::string ext = ".mp4";
+	for (int i = 2; i < 10000; ++i) {
+		const std::string candidate = stem + "_web_" + std::to_string(i) + ext;
+		if (!path_exists(candidate)) {
+			return candidate;
+		}
+	}
 	char buf[64];
 	snprintf(buf, sizeof(buf), "_web_%lu", (unsigned long) g_transcode_seq.load());
 	return stem + std::string(buf) + ext;
@@ -797,6 +883,130 @@ bool VideoConvertAction::run(request_t& req, response_t& res,
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
+bool LocalDiskVideoConvertAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string local_path;
+	std::string err;
+	if (!normalize_local_video_path(req.getParameter("path"), local_path, err)) {
+		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	struct stat st;
+	if (stat(local_path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+		json_error(res, 404, "source video not found", req.isKeepAlive());
+		return true;
+	}
+	if (!is_local_convertible_video_name(local_path.c_str())) {
+		json_error(res, 400, "local video must be rmvb, rm, or avi", req.isKeepAlive());
+		return true;
+	}
+
+	const std::string parent = local_parent_path(local_path);
+	bool dir_allowed = false;
+	std::string locked_dir;
+	std::string lock_err;
+	if (!local_dir_lock_path_allows(upload_dir, parent,
+		req.getParameter("local_dir_password") ? req.getParameter("local_dir_password") : "",
+		dir_allowed, locked_dir, lock_err))
+	{
+		json_error(res, 500, lock_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!dir_allowed) {
+		json_error(res, 403, "directory is locked", req.isKeepAlive());
+		return true;
+	}
+
+	bool file_allowed = false;
+	if (!file_lock_path_allows(upload_dir, local_file_lock_key(local_path),
+		req.getParameter("file_password") ? req.getParameter("file_password") : "",
+		file_allowed, lock_err))
+	{
+		json_error(res, 500, lock_err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!file_allowed) {
+		json_error(res, 403, "file is locked", req.isKeepAlive());
+		return true;
+	}
+
+	const std::string ffmpeg = choose_ffmpeg_path();
+	if (ffmpeg.empty()) {
+		json_error(res, 500, "ffmpeg not found in tools directory", req.isKeepAlive());
+		return true;
+	}
+
+	const std::string task_key = std::string("local:") + local_path;
+	{
+		std::lock_guard<std::mutex> guard(g_transcode_mutex);
+		std::map<std::string, std::string>::iterator it =
+			g_running_task_by_file.find(task_key);
+		if (it != g_running_task_by_file.end()) {
+			std::map<std::string, std::shared_ptr<transcode_task_t> >::iterator task_it =
+				g_transcode_tasks.find(it->second);
+			if (task_it != g_transcode_tasks.end() && !task_it->second->done) {
+				acl::json json;
+				acl::json_node& root = json.create_node();
+				root.add_bool("ok", true);
+				root.add_bool("started", false);
+				root.add_bool("running", true);
+				root.add_bool("local", true);
+				root.add_text("task_id", task_it->second->id.c_str());
+				root.add_text("name", task_it->second->output_name.c_str());
+				root.add_number("progress", task_it->second->progress);
+				root.add_bool("cancel_requested", task_it->second->cancel_requested);
+				root.add_text("message", task_it->second->message.c_str());
+				return sendJson(res, 200, root, req.isKeepAlive());
+			}
+		}
+	}
+
+	const std::string output_path = make_unique_local_transcoded_path(local_path);
+	acl::string tmp_path;
+	tmp_path.format("%s/.transcoding_tmp.%u.%lu.mp4", parent.c_str(),
+		(unsigned) getpid(), (unsigned long) g_transcode_seq.load());
+
+	std::shared_ptr<transcode_task_t> task(new transcode_task_t);
+	task->id = make_task_id();
+	task->file_name = task_key;
+	task->output_name = output_path;
+	task->message = "等待后台转码";
+	task->local = true;
+
+	{
+		std::lock_guard<std::mutex> guard(g_transcode_mutex);
+		g_transcode_tasks[task->id] = task;
+		g_running_task_by_file[task->file_name] = task->id;
+	}
+
+	transcode_strategy_t strategy;
+	probe_transcode_strategy(ffmpeg, local_path, strategy);
+
+	const std::string input_path(local_path);
+	const std::string temp_path(tmp_path.c_str());
+	go[task, ffmpeg, input_path, temp_path, output_path, strategy] {
+		acl::gofiber_wait_thread([task, ffmpeg, input_path, temp_path, output_path, strategy] {
+			run_transcode_task(task, ffmpeg, input_path, temp_path, output_path, strategy);
+		});
+	};
+
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_bool("started", true);
+	root.add_bool("running", true);
+	root.add_bool("local", true);
+	root.add_bool("playable", false);
+	root.add_text("task_id", task->id.c_str());
+	root.add_text("name", output_path.c_str());
+	root.add_bool("cancel_requested", false);
+	root.add_number("progress", 0);
+	root.add_text("message", "local transcode task started");
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
 bool VideoConvertProgressAction::run(request_t& req, response_t& res,
 	const std::string&)
 {
@@ -816,6 +1026,7 @@ bool VideoConvertProgressAction::run(request_t& req, response_t& res,
 	root.add_bool("done", snapshot.done);
 	root.add_bool("success", snapshot.success);
 	root.add_bool("cancel_requested", snapshot.cancel_requested);
+	root.add_bool("local", snapshot.local);
 	root.add_number("progress", snapshot.progress);
 	root.add_text("message", snapshot.message.c_str());
 	if (!snapshot.error.empty()) {
@@ -846,6 +1057,7 @@ bool VideoConvertTasksAction::run(request_t& req, response_t& res,
 		node.add_bool("done", tasks[i].done);
 		node.add_bool("success", tasks[i].success);
 		node.add_bool("cancel_requested", tasks[i].cancel_requested);
+		node.add_bool("local", tasks[i].local);
 		node.add_number("progress", tasks[i].progress);
 		node.add_text("message", tasks[i].message.c_str());
 	}
@@ -869,6 +1081,7 @@ bool VideoConvertCancelAction::run(request_t& req, response_t& res,
 	root.add_text("task_id", snapshot.id.c_str());
 	root.add_bool("done", snapshot.done);
 	root.add_bool("cancel_requested", true);
+	root.add_bool("local", snapshot.local);
 	root.add_bool("signal_sent", signal_sent);
 	root.add_text("message", snapshot.done ? "task already finished" : "cancel requested");
 	return sendJson(res, 200, root, req.isKeepAlive());

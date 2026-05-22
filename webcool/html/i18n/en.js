@@ -241,6 +241,7 @@
     ,'检测到以下视频为了兼容浏览器建议转换为MP4，请确认是否转换：': 'The following videos should be converted to MP4 for browser compatibility. Please confirm whether to convert:'
     ,'RM/RMVB视频为旧格式，为了兼容浏览器播放，建议转换为MP4': 'RM/RMVB is a legacy video format. Convert it to MP4 for better browser playback compatibility.'
     ,'RM/RMVB格式浏览器兼容性较差，可转换为MP4后播放。': 'RM/RMVB has poor browser compatibility. Convert it to MP4 before playback.'
+    ,'本地磁盘RM/RMVB/AVI格式可转换为MP4，输出文件会保存在源文件相同目录。': 'Local RM/RMVB/AVI videos can be converted to MP4. The output file will be saved in the same folder as the source file.'
     ,'转换为MP4': 'Convert to MP4'
     ,'转换任务已启动': 'Conversion Started'
     ,'上传完成，检测到 ': 'Upload complete. Detected '
