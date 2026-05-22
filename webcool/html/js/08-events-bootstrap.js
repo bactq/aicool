@@ -180,7 +180,7 @@
     "          folderTreeData = [];",
     "          fileList.innerHTML = '';",
     "          fileTable.style.display = 'none';",
-    "          fileEmpty.textContent = '加载远程磁盘失败：' + err.message;",
+    "          fileEmpty.textContent = '加载虚拟磁盘失败：' + err.message;",
     "          fileEmpty.style.display = 'block';",
     "          renderFolderTree();",
     "          renderTagTree();",

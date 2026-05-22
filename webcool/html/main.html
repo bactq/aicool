@@ -25,9 +25,9 @@
       <p class="brand-sub">左帧用于功能切换，右帧展示对应内容与操作结果。</p>
       <nav class="menu" aria-label="功能菜单">
         <button type="button" class="menu-btn" data-panel="panel-upload">上传文件</button>
-        <button type="button" class="menu-btn active" data-panel="panel-files">远程磁盘</button>
+        <button type="button" class="menu-btn active" data-panel="panel-files">虚拟磁盘</button>
         <button type="button" class="menu-btn" data-panel="panel-local-disk">本地磁盘</button>
-        <button type="button" class="menu-btn" data-panel="panel-admin">系统管理</button>
+        <button type="button" class="menu-btn" data-panel="panel-admin">系统设置</button>
       </nav>
       <section class="left-tag-tree-section" aria-label="文件标签树">
         <div class="left-tag-tree-head">
@@ -60,7 +60,7 @@
       </section>
 
       <section class="panel section active" id="panel-files">
-        <h1>远程磁盘</h1>
+        <h1>虚拟磁盘</h1>
         <p class="sub">像资源管理器一样浏览多级文件夹，支持建删目录、预览、下载、删除和拖拽移动文件。</p>
         <div id="file-view-context" class="file-view-context">当前视图：全部文件</div>
         <div class="explorer-shell">
@@ -248,10 +248,10 @@
       </section>
 
       <section class="panel section" id="panel-admin">
-        <h1>系统管理</h1>
+        <h1>系统设置</h1>
         <p class="sub">管理服务运行参数与维护操作。</p>
         <div class="admin-shell">
-          <aside class="admin-command-bar" aria-label="系统管理功能命令">
+          <aside class="admin-command-bar" aria-label="系统设置功能命令">
             <button id="admin-storage-tab" class="admin-command-btn active" type="button">存储路径</button>
             <button id="admin-language-tab" class="admin-command-btn" type="button">语言设置</button>
             <button id="reload-template-btn" class="admin-command-btn" type="button">刷新模板缓存</button>
@@ -259,7 +259,7 @@
           <div class="admin-display">
             <section id="admin-storage-view" class="admin-view">
               <h2>存储路径</h2>
-              <p class="admin-view-desc">当前远程磁盘文件保存的位置。</p>
+              <p class="admin-view-desc">当前虚拟磁盘文件保存的位置。</p>
               <div class="admin-storage-row">
                 <input id="admin-storage-path" class="admin-storage-input" type="text" autocomplete="off" spellcheck="false">
                 <button id="admin-storage-browse-btn" class="admin-storage-browse-btn" type="button" title="浏览本地目录" aria-label="浏览本地目录">...</button>
@@ -372,7 +372,7 @@
     <div class="tag-dialog-card local-import-dialog-card" role="dialog" aria-modal="true" aria-labelledby="local-import-title">
       <div class="tag-dialog-form">
         <div class="tag-dialog-head">
-          <h2 id="local-import-title">上传到远程磁盘</h2>
+          <h2 id="local-import-title">上传到虚拟磁盘</h2>
           <p id="local-import-desc">选择远程目标目录。</p>
         </div>
         <div id="local-import-tree" class="local-import-tree"></div>
@@ -392,7 +392,7 @@
         <div class="tag-dialog-head tag-dialog-head-with-actions">
           <div class="tag-dialog-head-copy">
             <h2 id="local-import-progress-title">上传中</h2>
-            <p id="local-import-progress-desc">正在上传本地文件到远程磁盘。</p>
+            <p id="local-import-progress-desc">正在上传本地文件到虚拟磁盘。</p>
           </div>
           <div class="tag-dialog-window-actions">
             <button type="button" id="local-import-progress-minimize" class="tag-dialog-window-btn" title="最小化" aria-label="最小化" hidden>−</button>

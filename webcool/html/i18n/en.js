@@ -6,10 +6,10 @@
     '左帧用于功能切换，右帧展示对应内容与操作结果。': 'Use the left pane to switch features; the right pane shows content and actions.',
     '功能菜单': 'Main menu',
     '上传文件': 'Upload Files',
-    '远程磁盘': 'Remote Disk',
+    '虚拟磁盘': 'Virtual Disk',
     '本地磁盘': 'Local Disk',
-    '系统管理': 'System Management',
-    '系统管理功能命令': 'System management commands',
+    '系统设置': 'System Settings',
+    '系统设置功能命令': 'System settings commands',
     '文件标签树': 'File tag tree',
     '标签树': 'Tag Tree',
     '支持最多三个文件同时上传，并展示实时上传进度。': 'Upload up to three files at once and show live progress.',
@@ -69,7 +69,7 @@
     '存储路径': 'Storage Path',
     '语言设置': 'Language',
     '刷新模板缓存': 'Refresh Template Cache',
-    '当前远程磁盘文件保存的位置。': 'The current location where remote disk files are stored.',
+    '当前虚拟磁盘文件保存的位置。': 'The current location where virtual disk files are stored.',
     '设置': 'Set',
     '正在移动存储文件': 'Moving stored files',
     '等待开始...': 'Waiting to start...',
@@ -90,11 +90,11 @@
     '请选择一个本地目录作为新的存储路径。': 'Choose a local folder as the new storage path.',
     '当前没有可选择的目录。': 'No folders available.',
     '确定': 'OK',
-    '上传到远程磁盘': 'Upload to Remote Disk',
+    '上传到虚拟磁盘': 'Upload to Virtual Disk',
     '选择远程目标目录。': 'Choose the remote target folder.',
     '当前没有文件夹。': 'No folders available.',
     '上传中': 'Uploading',
-    '正在上传本地文件到远程磁盘。': 'Uploading local files to the remote disk.',
+    '正在上传本地文件到虚拟磁盘。': 'Uploading local files to the virtual disk.',
     '关闭': 'Close',
     '视频': 'Video',
     '音频': 'Audio',
@@ -202,8 +202,8 @@
     ,'音频标签': 'Audio Tag'
     ,'共 ': ''
     ,' 个音频文件': ' audio files'
-    ,'收起远程磁盘': 'Collapse Remote Disk'
-    ,'展开远程磁盘': 'Expand Remote Disk'
+    ,'收起虚拟磁盘': 'Collapse Virtual Disk'
+    ,'展开虚拟磁盘': 'Expand Virtual Disk'
     ,'该标签下没有音频文件': 'There are no audio files under this tag'
     ,'请输入标签名称': 'Enter tag name'
     ,'请输入锁密码': 'Enter lock password'
@@ -314,7 +314,7 @@
     ,'上传失败': 'Upload failed'
     ,'缺少上传任务编号': 'Missing upload task id'
     ,'已上传 ': 'Uploaded '
-    ,' 个本地文件到远程磁盘': ' local files to remote disk'
+    ,' 个本地文件到虚拟磁盘': ' local files to virtual disk'
     ,'上传失败：': 'Upload failed: '
     ,'上传本地文件失败：': 'Uploading local files failed: '
     ,'当前标签': 'Current Tag'
@@ -389,7 +389,7 @@
     ,'已取消粘贴': 'Paste cancelled'
     ,'已粘贴到：': 'Pasted to: '
     ,'粘贴中': 'Pasting'
-    ,'正在将远程磁盘文件或目录粘贴到目标目录。': 'Pasting remote disk files or folders to the target folder.'
+    ,'正在将虚拟磁盘文件或目录粘贴到目标目录。': 'Pasting virtual disk files or folders to the target folder.'
     ,'准备粘贴...': 'Preparing paste...'
     ,'正在取消粘贴...': 'Cancelling paste...'
     ,'取消粘贴失败：': 'Failed to cancel paste: '
