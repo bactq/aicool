@@ -1783,6 +1783,8 @@ bool LocalDiskCopyAction::run(request_t& req, response_t& res,
 	std::string err;
 	const char* source_param = req.getParameter("path");
 	const char* target_param = req.getParameter("target");
+	const bool async = req.getParameter("async") != NULL
+		&& strcmp(req.getParameter("async"), "1") == 0;
 	const bool overwrite = req.getParameter("overwrite") != NULL
 		&& strcmp(req.getParameter("overwrite"), "1") == 0;
 	if (source_param == NULL || *source_param == '\0'
@@ -1907,6 +1909,21 @@ bool LocalDiskCopyAction::run(request_t& req, response_t& res,
 	else if (errno != ENOENT) {
 		json_error(res, 500, strerror(errno), req.isKeepAlive());
 		return true;
+	}
+
+	if (async && source_is_dir) {
+		const std::string task_id = start_remote_copy_task(source, dest, dest, true);
+		acl::json json;
+		acl::json_node& root = json.create_node();
+		root.add_bool("ok", true);
+		root.add_text("task_id", task_id.c_str());
+		root.add_text("path", dest.c_str());
+		root.add_text("source", source.c_str());
+		root.add_text("target", target.c_str());
+		root.add_bool("overwritten", overwrite);
+		root.add_bool("directory", true);
+		root.add_text("message", "copy task started");
+		return sendJson(res, 200, root, req.isKeepAlive());
 	}
 
 	if (!copy_local_path_recursive(source, dest, err)) {

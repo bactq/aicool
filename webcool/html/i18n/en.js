@@ -390,6 +390,7 @@
     ,'已粘贴到：': 'Pasted to: '
     ,'粘贴中': 'Pasting'
     ,'正在将虚拟磁盘文件或目录粘贴到目标目录。': 'Pasting virtual disk files or folders to the target folder.'
+    ,'正在将本地磁盘文件或目录粘贴到目标目录。': 'Pasting local disk files or folders to the target folder.'
     ,'准备粘贴...': 'Preparing paste...'
     ,'正在取消粘贴...': 'Cancelling paste...'
     ,'取消粘贴失败：': 'Failed to cancel paste: '
