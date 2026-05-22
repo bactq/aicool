@@ -27,6 +27,7 @@ struct transcode_task_t {
 	std::string id;
 	std::string file_name;
 	std::string output_name;
+	std::string secondary_output_name;
 	std::string error;
 	std::string message;
 	double progress;
@@ -45,6 +46,7 @@ struct transcode_task_snapshot_t {
 	std::string id;
 	std::string file_name;
 	std::string output_name;
+	std::string secondary_output_name;
 	std::string error;
 	std::string message;
 	double progress;
@@ -95,6 +97,18 @@ static bool is_local_convertible_video_name(const char* filename) {
 	return strcasecmp(dot, ".rmvb") == 0
 		|| strcasecmp(dot, ".rm") == 0
 		|| strcasecmp(dot, ".avi") == 0;
+}
+
+static bool is_audio_split_candidate_video_name(const char* filename) {
+	if (filename == NULL) {
+		return false;
+	}
+	const char* dot = strrchr(filename, '.');
+	if (dot == NULL || *(dot + 1) == '\0') {
+		return false;
+	}
+	return strcasecmp(dot, ".mp4") == 0
+		|| strcasecmp(dot, ".mkv") == 0;
 }
 
 static long long file_size_of(const char* path) {
@@ -365,42 +379,60 @@ static bool browser_can_play_video_by_probe(const std::string& ffmpeg,
 	const std::string& input_file, std::string& reason)
 {
 	reason.clear();
-	std::string cmd = shell_quote(ffmpeg) + " -hide_banner -i "
-		+ shell_quote(input_file) + " 2>&1";
+	struct video_probe_result_t {
+		bool has_video;
+		bool has_avc1_tag;
+		bool has_audio;
+		bool has_aac_audio;
+		bool decode_error;
+		bool browser_friendly_video;
+		std::string primary_video_line;
+		video_probe_result_t()
+		: has_video(false), has_avc1_tag(false), has_audio(false)
+		, has_aac_audio(false), decode_error(false)
+		, browser_friendly_video(false) {}
+	};
 
-	std::string out;
-	run_command_capture(cmd, out);
+	auto probe_video_streams = [&](video_probe_result_t& probe) {
+		std::string cmd = shell_quote(ffmpeg) + " -hide_banner -i "
+			+ shell_quote(input_file) + " 2>&1";
+		std::string out;
+		run_command_capture(cmd, out);
 
-	acl::string lower(out.c_str());
-	lower.lower();
-	const char* s = lower.c_str();
-	std::string primary_video_line;
+		acl::string lower(out.c_str());
+		lower.lower();
+		const char* s = lower.c_str();
+		probe.has_video = extract_primary_video_stream_line(s, probe.primary_video_line);
+		probe.has_avc1_tag = strstr(probe.primary_video_line.c_str(), "(avc1") != NULL
+			|| strstr(probe.primary_video_line.c_str(), "avc1 /") != NULL;
+		probe.has_audio = strstr(s, "audio:") != NULL;
+		probe.has_aac_audio = strstr(s, "audio: aac") != NULL;
+		probe.decode_error = strstr(s, "invalid data found") != NULL
+			|| strstr(s, "could not find codec parameters") != NULL
+			|| strstr(s, "moov atom not found") != NULL;
+		probe.browser_friendly_video = probe.has_video
+			&& is_browser_friendly_h264_video_line(probe.primary_video_line.c_str());
+	};
 
-	const bool has_video = extract_primary_video_stream_line(s, primary_video_line);
-	const bool has_avc1_tag = strstr(primary_video_line.c_str(), "(avc1") != NULL
-		|| strstr(primary_video_line.c_str(), "avc1 /") != NULL;
-	const bool has_aac = strstr(s, "audio: aac") != NULL;
-	const bool has_no_audio = strstr(s, "audio:") == NULL;
-	const bool decode_error = strstr(s, "invalid data found") != NULL
-		|| strstr(s, "could not find codec parameters") != NULL
-		|| strstr(s, "moov atom not found") != NULL;
+	video_probe_result_t probe;
+	probe_video_streams(probe);
 
-	if (!has_video || decode_error) {
+	if (!probe.has_video || probe.decode_error) {
 		reason = "video stream parse failed";
 		return false;
 	}
 
-	if (!is_browser_friendly_h264_video_line(primary_video_line.c_str())) {
+	if (!probe.browser_friendly_video) {
 		reason = "video stream is not browser-friendly h264/yuv420p";
 		return false;
 	}
 
-	if (!has_avc1_tag) {
+	if (!probe.has_avc1_tag) {
 		reason = "video stream is not tagged as avc1";
 		return false;
 	}
 
-	if (!(has_no_audio || has_aac)) {
+	if (probe.has_audio && !probe.has_aac_audio) {
 		reason = "audio codec is not aac";
 		return false;
 	}
@@ -409,18 +441,42 @@ static bool browser_can_play_video_by_probe(const std::string& ffmpeg,
 }
 
 struct transcode_strategy_t {
-	bool copy_video_stream;  // true: use -c:v copy, false: use -c:v libx264
-	transcode_strategy_t() : copy_video_stream(false) {}
+	enum mode_t {
+		full_mp4,
+		audio_only,
+		audio_split,
+	} mode;
+	transcode_strategy_t() : mode(full_mp4) {}
 };
 
 static bool probe_transcode_strategy(const std::string& ffmpeg,
-	const std::string& input_file, transcode_strategy_t& strategy)
+	const std::string& input_file, transcode_strategy_t& strategy,
+	bool allow_audio_split)
 {
-	(void) ffmpeg;
-	(void) input_file;
+	strategy.mode = transcode_strategy_t::full_mp4;
+	if (!allow_audio_split || !is_audio_split_candidate_video_name(input_file.c_str())) {
+		return true;
+	}
 
-	// For QuickTime/Safari compatibility, always re-encode video to H.264.
-	strategy.copy_video_stream = false;
+	std::string cmd = shell_quote(ffmpeg) + " -hide_banner -i "
+		+ shell_quote(input_file) + " 2>&1";
+	std::string out;
+	run_command_capture(cmd, out);
+	acl::string lower(out.c_str());
+	lower.lower();
+	const char* s = lower.c_str();
+	std::string primary_video_line;
+	const bool has_video = extract_primary_video_stream_line(s, primary_video_line);
+	const bool has_audio = strstr(s, "audio:") != NULL;
+	const bool has_aac = strstr(s, "audio: aac") != NULL;
+	const bool decode_error = strstr(s, "invalid data found") != NULL
+		|| strstr(s, "could not find codec parameters") != NULL
+		|| strstr(s, "moov atom not found") != NULL;
+	if (has_video && has_audio && !has_aac && !decode_error
+		&& is_browser_friendly_h264_video_line(primary_video_line.c_str()))
+	{
+		strategy.mode = transcode_strategy_t::audio_split;
+	}
 	return true;
 }
 
@@ -540,10 +596,248 @@ static void finish_task(const std::shared_ptr<transcode_task_t>& task,
 	}
 }
 
-static void run_transcode_task(const std::shared_ptr<transcode_task_t>& task,
+static int wait_transcode_progress(const std::shared_ptr<transcode_task_t>& task,
+	ACL_VSTREAM* stream, long long duration_ms,
+	double start_percent, double progress_span,
+	const char* progress_msg, double end_percent,
+	const char* end_msg)
+{
+	set_task_process_pid(task, (long) stream->pid);
+	update_task_progress(task, start_percent, progress_msg);
+
+	char buf[4096];
+	int ret;
+	while ((ret = acl_vstream_gets_nonl(stream, buf, sizeof(buf) - 1)) != ACL_VSTREAM_EOF) {
+		buf[ret] = '\0';
+		std::string line(buf);
+		long long current_ms = parse_progress_ms_line(line);
+		if (current_ms >= 0 && duration_ms > 0) {
+			double percent = start_percent
+				+ ((double) current_ms * progress_span / (double) duration_ms);
+			update_task_progress(task, percent, progress_msg);
+		} else if (line == "progress=end") {
+			update_task_progress(task, end_percent, end_msg);
+		}
+
+		if (is_task_cancel_requested(task) && stream->pid > 0) {
+			kill((pid_t) stream->pid, SIGTERM);
+		}
+	}
+
+	return acl_vstream_pclose(stream);
+}
+
+static ACL_VSTREAM* start_ffmpeg_process(ACL_ARGV* args)
+{
+	ACL_VSTREAM* stream = acl_vstream_popen(O_RDWR,
+		ACL_VSTREAM_POPEN_ARGV, args->argv,
+		ACL_VSTREAM_POPEN_END);
+	acl_argv_free(args);
+	return stream;
+}
+
+static void run_audio_only_transcode_task(const std::shared_ptr<transcode_task_t>& task,
+	const std::string& ffmpeg, const std::string& input_file,
+	const std::string& tmp_file, const std::string& output_file)
+{
+	if (is_task_cancel_requested(task)) {
+		::unlink(tmp_file.c_str());
+		finish_task(task, false, "已取消", "cancelled", -1);
+		return;
+	}
+
+	::unlink(tmp_file.c_str());
+
+	long long duration_ms = probe_duration_ms(ffmpeg, input_file);
+	ACL_ARGV* args = acl_argv_alloc(24);
+	acl_argv_add(args,
+		ffmpeg.c_str(),
+		"-hide_banner",
+		"-loglevel", "error",
+		"-y",
+		"-i", input_file.c_str(),
+		"-map", "0:a:0",
+		"-vn",
+		"-c:a", "aac",
+		"-ac", "2",
+		"-b:a", "192k",
+		"-movflags", "+faststart",
+		"-progress", "pipe:1",
+		"-nostats",
+		tmp_file.c_str(),
+		NULL);
+
+	ACL_VSTREAM* stream = start_ffmpeg_process(args);
+
+	if (stream == NULL) {
+		::unlink(tmp_file.c_str());
+		finish_task(task, false, "音频转码失败", acl::last_serror(), -1);
+		return;
+	}
+
+	int code = wait_transcode_progress(task, stream, duration_ms,
+		5.0, 91.0, "音频转码中 (转为M4A/AAC)", 96.0, "写入M4A文件");
+	if (is_task_cancel_requested(task)) {
+		::unlink(tmp_file.c_str());
+		finish_task(task, false, "已取消", "cancelled", -1);
+		return;
+	}
+	if (code != 0 || file_size_of(tmp_file.c_str()) <= 0) {
+		::unlink(tmp_file.c_str());
+		finish_task(task, false, "音频转码失败", "audio only ffmpeg failed", -1);
+		return;
+	}
+
+	::unlink(output_file.c_str());
+	if (::rename(tmp_file.c_str(), output_file.c_str()) != 0) {
+		::unlink(tmp_file.c_str());
+		finish_task(task, false, "音频转码失败", "rename audio output failed", -1);
+		return;
+	}
+
+	long long out_size = file_size_of(output_file.c_str());
+	if (out_size <= 0) {
+		::unlink(output_file.c_str());
+		finish_task(task, false, "音频转码失败", "audio output is empty", -1);
+		return;
+	}
+
+	finish_task(task, true, "音频转码完成，已生成M4A文件", "", out_size);
+}
+
+static void run_audio_split_transcode_task(const std::shared_ptr<transcode_task_t>& task,
 	const std::string& ffmpeg, const std::string& input_file,
 	const std::string& tmp_file, const std::string& output_file,
+	const std::string& secondary_output_file)
+{
+	if (is_task_cancel_requested(task)) {
+		::unlink(tmp_file.c_str());
+		finish_task(task, false, "已取消", "cancelled", -1);
+		return;
+	}
+
+	if (secondary_output_file.empty()) {
+		finish_task(task, false, "拆分失败", "missing audio output path", -1);
+		return;
+	}
+
+	const std::string audio_tmp_file = replace_ext(tmp_file, ".m4a");
+	::unlink(tmp_file.c_str());
+	::unlink(audio_tmp_file.c_str());
+
+	long long duration_ms = probe_duration_ms(ffmpeg, input_file);
+	ACL_ARGV* args = acl_argv_alloc(40);
+	acl_argv_add(args,
+		ffmpeg.c_str(),
+		"-hide_banner",
+		"-loglevel", "error",
+		"-y",
+		"-progress", "pipe:1",
+		"-nostats",
+		"-i", input_file.c_str(),
+		"-map", "0:v:0",
+		"-map", "0:s:0?",
+		"-dn",
+		"-c:v", "copy",
+		"-tag:v", "avc1",
+		"-c:s", "mov_text",
+		"-movflags", "+faststart",
+		tmp_file.c_str(),
+		"-map", "0:a:0",
+		"-vn",
+		"-c:a", "aac",
+		"-ac", "2",
+		"-b:a", "192k",
+		"-movflags", "+faststart",
+		audio_tmp_file.c_str(),
+		NULL);
+
+	ACL_VSTREAM* stream = start_ffmpeg_process(args);
+
+	if (stream == NULL) {
+		::unlink(tmp_file.c_str());
+		::unlink(audio_tmp_file.c_str());
+		finish_task(task, false, "拆分失败", acl::last_serror(), -1);
+		return;
+	}
+
+	int code = wait_transcode_progress(task, stream, duration_ms,
+		5.0, 91.0, "拆分中 (复用视频并转M4A/AAC音频)", 96.0,
+		"写入拆分文件");
+	if (is_task_cancel_requested(task)) {
+		::unlink(tmp_file.c_str());
+		::unlink(audio_tmp_file.c_str());
+		finish_task(task, false, "已取消", "cancelled", -1);
+		return;
+	}
+	if (code != 0 || file_size_of(tmp_file.c_str()) <= 0
+		|| file_size_of(audio_tmp_file.c_str()) <= 0)
+	{
+		::unlink(tmp_file.c_str());
+		::unlink(audio_tmp_file.c_str());
+		finish_task(task, false, "拆分失败", "split ffmpeg failed", -1);
+		return;
+	}
+
+	::unlink(output_file.c_str());
+	::unlink(secondary_output_file.c_str());
+	if (::rename(tmp_file.c_str(), output_file.c_str()) != 0) {
+		::unlink(tmp_file.c_str());
+		::unlink(audio_tmp_file.c_str());
+		finish_task(task, false, "拆分失败", "rename video output failed", -1);
+		return;
+	}
+	if (::rename(audio_tmp_file.c_str(), secondary_output_file.c_str()) != 0) {
+		::unlink(audio_tmp_file.c_str());
+		::unlink(output_file.c_str());
+		finish_task(task, false, "拆分失败", "rename audio output failed", -1);
+		return;
+	}
+
+	long long video_size = file_size_of(output_file.c_str());
+	long long audio_size = file_size_of(secondary_output_file.c_str());
+	if (video_size <= 0 || audio_size <= 0) {
+		::unlink(output_file.c_str());
+		::unlink(secondary_output_file.c_str());
+		finish_task(task, false, "拆分失败", "split output is empty", -1);
+		return;
+	}
+
+	std::string vtt_path;
+	std::string subtitle_err;
+	int subtitle_status = export_vtt_sidecar(ffmpeg, input_file, output_file,
+		vtt_path, subtitle_err);
+	if (subtitle_status > 0) {
+		finish_task(task, true, "拆分完成，已生成独立视频、M4A音频和VTT字幕", "", video_size + audio_size);
+	} else if (subtitle_status == 0) {
+		finish_task(task, true, "拆分完成，已生成独立视频和M4A音频", "", video_size + audio_size);
+	} else {
+		finish_task(task, true, "拆分完成，已生成独立视频和M4A音频（字幕导出失败）", "", video_size + audio_size);
+	}
+	return;
+}
+
+static void run_audio_transcode_task(const std::shared_ptr<transcode_task_t>& task,
+	const std::string& ffmpeg, const std::string& input_file,
+	const std::string& tmp_file, const std::string& output_file,
+	const std::string& secondary_output_file,
 	const transcode_strategy_t& strategy)
+{
+	if (strategy.mode == transcode_strategy_t::audio_only) {
+		printf(">>>>>audio only\n");
+		run_audio_only_transcode_task(task, ffmpeg, input_file, tmp_file,
+			output_file);
+		return;
+	}
+
+	printf(">>>audio split\n");
+	run_audio_split_transcode_task(task, ffmpeg, input_file, tmp_file,
+		output_file, secondary_output_file);
+}
+
+static void run_video_transcode_task(const std::shared_ptr<transcode_task_t>& task,
+	const std::string& ffmpeg, const std::string& input_file,
+	const std::string& tmp_file, const std::string& output_file)
 {
 	if (is_task_cancel_requested(task)) {
 		::unlink(tmp_file.c_str());
@@ -565,22 +859,13 @@ static void run_transcode_task(const std::shared_ptr<transcode_task_t>& task,
 		"-dn",
 		NULL);
 
-	const char* strategy_msg = NULL;
-	if (strategy.copy_video_stream) {
-		acl_argv_add(args,
-			"-c:v", "copy",
-			"-tag:v", "avc1",
-			NULL);
-		strategy_msg = "音频转码中 (视频复制并保留字幕)";
-	} else {
-		acl_argv_add(args,
-			"-c:v", "libx264",
-			"-preset", "veryfast",
-			"-crf", "23",
-			"-pix_fmt", "yuv420p",
-			NULL);
-		strategy_msg = "视频转码中 (转换为H.264/AAC MP4)";
-	}
+	const char* strategy_msg = "视频转码中 (转换为H.264/AAC MP4)";
+	acl_argv_add(args,
+		"-c:v", "libx264",
+		"-preset", "veryfast",
+		"-crf", "23",
+		"-pix_fmt", "yuv420p",
+		NULL);
 
 	acl_argv_add(args,
 		"-movflags", "+faststart",
@@ -593,10 +878,7 @@ static void run_transcode_task(const std::shared_ptr<transcode_task_t>& task,
 		tmp_file.c_str(),
 		NULL);
 
-	ACL_VSTREAM* stream = acl_vstream_popen(O_RDWR,
-		ACL_VSTREAM_POPEN_ARGV, args->argv,
-		ACL_VSTREAM_POPEN_END);
-	acl_argv_free(args);
+	ACL_VSTREAM* stream = start_ffmpeg_process(args);
 
 	if (stream == NULL) {
 		::unlink(tmp_file.c_str());
@@ -604,29 +886,8 @@ static void run_transcode_task(const std::shared_ptr<transcode_task_t>& task,
 		return;
 	}
 
-	set_task_process_pid(task, (long) stream->pid);
-
-	update_task_progress(task, 0.1, strategy_msg);
-	char buf[4096];
-	int ret;
-	while ((ret = acl_vstream_gets_nonl(stream, buf, sizeof(buf) - 1)) != ACL_VSTREAM_EOF) {
-		buf[ret] = '\0';
-		std::string line(buf);
-
-		long long current_ms = parse_progress_ms_line(line);
-		if (current_ms >= 0 && duration_ms > 0) {
-			double percent = (double) current_ms * 100.0 / (double) duration_ms;
-			update_task_progress(task, percent, strategy_msg);
-		} else if (line == "progress=end") {
-			update_task_progress(task, 99.5, "写入输出文件");
-		}
-
-		if (is_task_cancel_requested(task) && stream->pid > 0) {
-			kill((pid_t) stream->pid, SIGTERM);
-		}
-	}
-
-	int code = acl_vstream_pclose(stream);
+	int code = wait_transcode_progress(task, stream, duration_ms,
+		0.1, 100.0, strategy_msg, 99.5, "写入输出文件");
 	if (is_task_cancel_requested(task)) {
 		::unlink(tmp_file.c_str());
 		finish_task(task, false, "已取消", "cancelled", -1);
@@ -666,6 +927,22 @@ static void run_transcode_task(const std::shared_ptr<transcode_task_t>& task,
 	}
 }
 
+static void run_transcode_task(const std::shared_ptr<transcode_task_t>& task,
+	const std::string& ffmpeg, const std::string& input_file,
+	const std::string& tmp_file, const std::string& output_file,
+	const std::string& secondary_output_file,
+	const transcode_strategy_t& strategy)
+{
+	if (strategy.mode == transcode_strategy_t::full_mp4) {
+		run_video_transcode_task(task, ffmpeg, input_file, tmp_file,
+			output_file);
+		return;
+	}
+
+	run_audio_transcode_task(task, ffmpeg, input_file, tmp_file,
+		output_file, secondary_output_file, strategy);
+}
+
 static bool snapshot_task_by_id(const char* task_id,
 	transcode_task_snapshot_t& snapshot)
 {
@@ -681,6 +958,7 @@ static bool snapshot_task_by_id(const char* task_id,
 	snapshot.id = it->second->id;
 	snapshot.file_name = it->second->file_name;
 	snapshot.output_name = it->second->output_name;
+	snapshot.secondary_output_name = it->second->secondary_output_name;
 	snapshot.error = it->second->error;
 	snapshot.message = it->second->message;
 	snapshot.progress = it->second->progress;
@@ -706,6 +984,7 @@ static void snapshot_running_tasks(std::vector<transcode_task_snapshot_t>& out) 
 		snapshot.id = it->second->id;
 		snapshot.file_name = it->second->file_name;
 		snapshot.output_name = it->second->output_name;
+		snapshot.secondary_output_name = it->second->secondary_output_name;
 		snapshot.error = it->second->error;
 		snapshot.message = it->second->message;
 		snapshot.progress = it->second->progress;
@@ -741,6 +1020,7 @@ static bool request_cancel_task(const char* task_id,
 		snapshot.id = it->second->id;
 		snapshot.file_name = it->second->file_name;
 		snapshot.output_name = it->second->output_name;
+		snapshot.secondary_output_name = it->second->secondary_output_name;
 		snapshot.error = it->second->error;
 		snapshot.message = it->second->message;
 		snapshot.progress = it->second->progress;
@@ -803,6 +1083,53 @@ static std::string make_unique_transcoded_name(const std::string& upload_dir,
 	char buf[64];
 	snprintf(buf, sizeof(buf), "_web_%lu", (unsigned long) g_transcode_seq.load());
 	return stem + std::string(buf) + ext;
+}
+
+static std::string make_unique_audio_only_name(const std::string& upload_dir,
+	const std::string& input_name)
+{
+	const std::string stem = replace_ext(input_name, "");
+	std::string candidate = stem + "_web_audio.m4a";
+	if (!path_exists(join_upload_path(upload_dir, candidate))) {
+		return candidate;
+	}
+
+	for (int i = 2; i < 10000; ++i) {
+		candidate = stem + "_web_audio_" + std::to_string(i) + ".m4a";
+		if (!path_exists(join_upload_path(upload_dir, candidate))) {
+			return candidate;
+		}
+	}
+
+	char buf[64];
+	snprintf(buf, sizeof(buf), "_web_audio_%lu.m4a",
+		(unsigned long) g_transcode_seq.load());
+	return stem + std::string(buf);
+}
+
+static void make_unique_split_output_names(const std::string& upload_dir,
+	const std::string& input_name, std::string& video_name,
+	std::string& audio_name)
+{
+	video_name.clear();
+	audio_name.clear();
+	const std::string stem = replace_ext(input_name, "");
+	for (int i = 1; i < 10000; ++i) {
+		const std::string suffix = i == 1 ? "" : ("_" + std::to_string(i));
+		const std::string candidate_video = stem + "_web_video" + suffix + ".mp4";
+		const std::string candidate_audio = stem + "_web_audio" + suffix + ".m4a";
+		if (!path_exists(join_upload_path(upload_dir, candidate_video))
+			&& !path_exists(join_upload_path(upload_dir, candidate_audio)))
+		{
+			video_name = candidate_video;
+			audio_name = candidate_audio;
+			return;
+		}
+	}
+	char buf[64];
+	snprintf(buf, sizeof(buf), "_%lu", (unsigned long) g_transcode_seq.load());
+	video_name = stem + "_web_video" + std::string(buf) + ".mp4";
+	audio_name = stem + "_web_audio" + std::string(buf) + ".m4a";
 }
 
 static std::string make_unique_local_transcoded_path(const std::string& input_path)
@@ -1112,18 +1439,48 @@ bool VideoConvertAction::run(request_t& req, response_t& res,
 		}
 	}
 
-	std::string output_name = make_unique_transcoded_name(upload_dir, file_path);
+	transcode_strategy_t strategy;
+	probe_transcode_strategy(ffmpeg, in_path, strategy, true);
+	const char* requested_mode = req.getParameter("mode");
+	if (requested_mode != NULL && strcmp(requested_mode, "audio_only") == 0) {
+		strategy.mode = transcode_strategy_t::audio_only;
+	}
+	if (requested_mode != NULL && strcmp(requested_mode, "audio_split") == 0) {
+		strategy.mode = transcode_strategy_t::audio_split;
+	}
+	if (requested_mode != NULL && strcmp(requested_mode, "full_mp4") == 0) {
+		strategy.mode = transcode_strategy_t::full_mp4;
+	}
+
+	std::string output_name;
+	std::string secondary_output_name;
+	if (strategy.mode == transcode_strategy_t::audio_only) {
+		output_name = make_unique_audio_only_name(upload_dir, file_path);
+	} else if (strategy.mode == transcode_strategy_t::audio_split) {
+		make_unique_split_output_names(upload_dir, file_path, output_name,
+			secondary_output_name);
+	} else {
+		output_name = make_unique_transcoded_name(upload_dir, file_path);
+	}
 	const std::string out_path = join_upload_path(upload_dir, output_name);
 	const std::string out_dir = local_parent_path(out_path);
+	const std::string secondary_out_path = secondary_output_name.empty()
+		? std::string() : join_upload_path(upload_dir, secondary_output_name);
 
 	acl::string tmp_path;
-	tmp_path.format("%s/.transcoding_tmp.%u.%lu.mp4", out_dir.c_str(),
-		(unsigned) getpid(), (unsigned long) g_transcode_seq.load());
+	if (strategy.mode == transcode_strategy_t::audio_only) {
+		tmp_path.format("%s/.transcoding_tmp.%u.%lu.m4a", out_dir.c_str(),
+			(unsigned) getpid(), (unsigned long) g_transcode_seq.load());
+	} else {
+		tmp_path.format("%s/.transcoding_tmp.%u.%lu.mp4", out_dir.c_str(),
+			(unsigned) getpid(), (unsigned long) g_transcode_seq.load());
+	}
 
 	std::shared_ptr<transcode_task_t> task(new transcode_task_t);
 	task->id = make_task_id();
 	task->file_name = file_path;
 	task->output_name = output_name;
+	task->secondary_output_name = secondary_output_name;
 	task->message = "等待后台转码";
 
 	{
@@ -1135,15 +1492,13 @@ bool VideoConvertAction::run(request_t& req, response_t& res,
 	const std::string input_path(in_path);
 	const std::string temp_path(tmp_path.c_str());
 	const std::string output_path(out_path);
-
-	// Probe transcode strategy before starting
-	transcode_strategy_t strategy;
-	probe_transcode_strategy(ffmpeg, input_path, strategy);
+	const std::string secondary_output_path(secondary_out_path);
 
 	// Run conversion in a dedicated fiber and execute heavy work in thread.
-	go[task, ffmpeg, input_path, temp_path, output_path, strategy] {
-		acl::gofiber_wait_thread([task, ffmpeg, input_path, temp_path, output_path, strategy] {
-			run_transcode_task(task, ffmpeg, input_path, temp_path, output_path, strategy);
+	go[task, ffmpeg, input_path, temp_path, output_path, secondary_output_path, strategy] {
+		acl::gofiber_wait_thread([task, ffmpeg, input_path, temp_path, output_path, secondary_output_path, strategy] {
+			run_transcode_task(task, ffmpeg, input_path, temp_path, output_path,
+				secondary_output_path, strategy);
 		});
 	};
 
@@ -1155,9 +1510,15 @@ bool VideoConvertAction::run(request_t& req, response_t& res,
 	root.add_bool("playable", false);
 	root.add_text("task_id", task->id.c_str());
 	root.add_text("name", output_name.c_str());
+	if (!secondary_output_name.empty()) {
+		root.add_text("secondary_name", secondary_output_name.c_str());
+	}
 	root.add_bool("cancel_requested", false);
 	root.add_number("progress", 0);
-	root.add_text("message", "transcode task started");
+	root.add_text("message", strategy.mode == transcode_strategy_t::audio_only
+		? "audio only task started"
+		: (strategy.mode == transcode_strategy_t::audio_split
+			? "audio split task started" : "transcode task started"));
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
@@ -1260,13 +1621,14 @@ bool LocalDiskVideoConvertAction::run(request_t& req, response_t& res,
 	}
 
 	transcode_strategy_t strategy;
-	probe_transcode_strategy(ffmpeg, local_path, strategy);
+	probe_transcode_strategy(ffmpeg, local_path, strategy, false);
 
 	const std::string input_path(local_path);
 	const std::string temp_path(tmp_path.c_str());
 	go[task, ffmpeg, input_path, temp_path, output_path, strategy] {
 		acl::gofiber_wait_thread([task, ffmpeg, input_path, temp_path, output_path, strategy] {
-			run_transcode_task(task, ffmpeg, input_path, temp_path, output_path, strategy);
+			run_transcode_task(task, ffmpeg, input_path, temp_path, output_path,
+				"", strategy);
 		});
 	};
 
@@ -1528,6 +1890,9 @@ bool VideoConvertProgressAction::run(request_t& req, response_t& res,
 	root.add_bool("local", snapshot.local);
 	root.add_number("progress", snapshot.progress);
 	root.add_text("message", snapshot.message.c_str());
+	if (!snapshot.secondary_output_name.empty()) {
+		root.add_text("secondary_name", snapshot.secondary_output_name.c_str());
+	}
 	if (!snapshot.error.empty()) {
 		root.add_text("error", snapshot.error.c_str());
 	}
@@ -1559,6 +1924,9 @@ bool VideoConvertTasksAction::run(request_t& req, response_t& res,
 		node.add_bool("local", tasks[i].local);
 		node.add_number("progress", tasks[i].progress);
 		node.add_text("message", tasks[i].message.c_str());
+		if (!tasks[i].secondary_output_name.empty()) {
+			node.add_text("secondary_name", tasks[i].secondary_output_name.c_str());
+		}
 	}
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
