@@ -172,7 +172,17 @@ static bool normalize_local_video_path(const char* input, std::string& path,
 
 static std::string local_stream_state_path(const std::string& local_path) {
 	return local_parent_path(local_path) + "/." + local_base_name(local_path)
-		+ ".webcool_stream_time";
+		+ ".meta";
+}
+
+static std::string local_stream_tmp_mp4_path(const std::string& local_path) {
+	const std::string base = local_base_name(local_path);
+	std::string stem = base;
+	const std::string::size_type dot = base.rfind('.');
+	if (dot != std::string::npos) {
+		stem = base.substr(0, dot);
+	}
+	return local_parent_path(local_path) + "/." + stem + ".mp4";
 }
 
 static long long read_local_stream_position_ms(const std::string& local_path) {
@@ -903,10 +913,12 @@ static void cleanup_local_stream_sidecars(const std::string& parent)
 }
 
 static void cleanup_current_stream_sidecars(const std::string& tmp_path,
-	const std::string& progress_path)
+	const std::string& progress_path, bool keep_files)
 {
-	::unlink(tmp_path.c_str());
-	::unlink(progress_path.c_str());
+	if (!keep_files) {
+		::unlink(tmp_path.c_str());
+		::unlink(progress_path.c_str());
+	}
 	unregister_stream_sidecar(tmp_path);
 	unregister_stream_sidecar(progress_path);
 }
@@ -1327,13 +1339,8 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 		remove_local_stream_position(local_path);
 		return send_existing_local_mp4(output_path, res);
 	}
-	const unsigned long stream_seq = g_transcode_seq.fetch_add(1);
-	acl::string tmp_path;
-	tmp_path.format("%s/.streaming_tmp.%u.%lu.mp4", parent.c_str(),
-		(unsigned) getpid(), stream_seq);
-	acl::string progress_path;
-	progress_path.format("%s/.streaming_progress.%u.%lu.txt", parent.c_str(),
-		(unsigned) getpid(), stream_seq);
+	const std::string tmp_path = local_stream_tmp_mp4_path(local_path);
+	const std::string progress_path = local_stream_state_path(local_path);
 	::unlink(progress_path.c_str());
 	register_stream_sidecar(tmp_path.c_str());
 	register_stream_sidecar(progress_path.c_str());
@@ -1372,7 +1379,7 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 
 	FILE* fp = popen(command.c_str(), "r");
 	if (fp == NULL) {
-		cleanup_current_stream_sidecars(tmp_path.c_str(), progress_path.c_str());
+		cleanup_current_stream_sidecars(tmp_path.c_str(), progress_path.c_str(), false);
 		if (task) {
 			finish_task(task, false, "转码启动失败", "failed to start ffmpeg", -1);
 		}
@@ -1382,7 +1389,7 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 	FILE* out = fopen(tmp_path.c_str(), "wb");
 	if (out == NULL) {
 		pclose(fp);
-		cleanup_current_stream_sidecars(tmp_path.c_str(), progress_path.c_str());
+		cleanup_current_stream_sidecars(tmp_path.c_str(), progress_path.c_str(), false);
 		if (task) {
 			finish_task(task, false, "转码失败", "failed to create output file", -1);
 		}
@@ -1434,6 +1441,7 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 	if (fclose(out) != 0) {
 		ok = false;
 	}
+	const bool preserve_partial_files = !client_ok;
 	if (code == 0 && ok && file_size_of(tmp_path.c_str()) > 0) {
 		std::string remux_err;
 		if (remux_mp4_faststart(ffmpeg, tmp_path.c_str(), output_path, remux_err)) {
@@ -1443,10 +1451,12 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 			ok = false;
 		}
 	} else {
-		::unlink(tmp_path.c_str());
+		if (!preserve_partial_files) {
+			::unlink(tmp_path.c_str());
+		}
 		ok = false;
 	}
-	cleanup_current_stream_sidecars(tmp_path.c_str(), progress_path.c_str());
+	cleanup_current_stream_sidecars(tmp_path.c_str(), progress_path.c_str(), preserve_partial_files);
 	cleanup_local_stream_sidecars(parent);
 	if (ok) {
 		remove_local_stream_position(local_path);
