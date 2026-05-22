@@ -42,7 +42,18 @@ static std::string make_remote_copy_task_id()
 static void update_remote_copy_task(const remote_copy_task_snapshot_t& task)
 {
 	std::lock_guard<std::mutex> guard(g_remote_copy_mutex);
-	g_remote_copy_tasks[task.id] = task;
+	remote_copy_task_snapshot_t merged = task;
+	std::map<std::string, remote_copy_task_snapshot_t>::const_iterator it =
+		g_remote_copy_tasks.find(task.id);
+	if (it != g_remote_copy_tasks.end() && it->second.cancel_requested) {
+		merged.cancel_requested = true;
+		if (merged.state == "pending" || merged.state == "running") {
+			merged.state = "cancelled";
+			merged.message = "已取消";
+			merged.error.clear();
+		}
+	}
+	g_remote_copy_tasks[task.id] = merged;
 }
 
 static bool is_remote_copy_cancel_requested(const std::string& task_id)
@@ -156,6 +167,9 @@ static bool copy_regular_file_with_remote_progress(const std::string& source,
 	while (true) {
 		if (is_remote_copy_cancel_requested(task.id)) {
 			task.cancel_requested = true;
+			task.state = "cancelled";
+			task.message = "已取消";
+			update_remote_copy_task(task);
 			err = "cancelled";
 			ok = false;
 			break;
@@ -170,6 +184,15 @@ static bool copy_regular_file_with_remote_progress(const std::string& source,
 			task.copied_bytes += (long long) n;
 			task.message = "拷贝中";
 			update_remote_copy_task(task);
+			if (is_remote_copy_cancel_requested(task.id)) {
+				task.cancel_requested = true;
+				task.state = "cancelled";
+				task.message = "已取消";
+				update_remote_copy_task(task);
+				err = "cancelled";
+				ok = false;
+				break;
+			}
 		}
 		if (n < sizeof(buf)) {
 			if (ferror(in)) {
@@ -184,6 +207,14 @@ static bool copy_regular_file_with_remote_progress(const std::string& source,
 		ok = false;
 	}
 	fclose(in);
+	if (ok && is_remote_copy_cancel_requested(task.id)) {
+		task.cancel_requested = true;
+		task.state = "cancelled";
+		task.message = "已取消";
+		update_remote_copy_task(task);
+		err = "cancelled";
+		ok = false;
+	}
 	if (!ok) {
 		::unlink(dest.c_str());
 		return false;
@@ -198,6 +229,9 @@ static bool copy_path_with_remote_progress(const std::string& source,
 {
 	if (is_remote_copy_cancel_requested(task.id)) {
 		task.cancel_requested = true;
+		task.state = "cancelled";
+		task.message = "已取消";
+		update_remote_copy_task(task);
 		err = "cancelled";
 		return false;
 	}
@@ -230,6 +264,14 @@ static bool copy_path_with_remote_progress(const std::string& source,
 		err = strerror(errno);
 		return false;
 	}
+	if (is_remote_copy_cancel_requested(task.id)) {
+		task.cancel_requested = true;
+		task.state = "cancelled";
+		task.message = "已取消";
+		update_remote_copy_task(task);
+		err = "cancelled";
+		return false;
+	}
 	DIR* dir = opendir(source.c_str());
 	if (dir == NULL) {
 		err = strerror(errno);
@@ -240,6 +282,15 @@ static bool copy_path_with_remote_progress(const std::string& source,
 		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
 			continue;
 		}
+		if (is_remote_copy_cancel_requested(task.id)) {
+			task.cancel_requested = true;
+			task.state = "cancelled";
+			task.message = "已取消";
+			update_remote_copy_task(task);
+			err = "cancelled";
+			closedir(dir);
+			return false;
+		}
 		const std::string child_source = source + "/" + entry->d_name;
 		const std::string child_dest = dest + "/" + entry->d_name;
 		if (!copy_path_with_remote_progress(child_source, child_dest, task, err)) {
@@ -248,6 +299,14 @@ static bool copy_path_with_remote_progress(const std::string& source,
 		}
 	}
 	closedir(dir);
+	if (is_remote_copy_cancel_requested(task.id)) {
+		task.cancel_requested = true;
+		task.state = "cancelled";
+		task.message = "已取消";
+		update_remote_copy_task(task);
+		err = "cancelled";
+		return false;
+	}
 	(void) chmod(dest.c_str(), st.st_mode & 0777);
 	return true;
 }
@@ -291,14 +350,24 @@ static void run_remote_copy_task(std::string task_id, std::string source_full,
 	}
 
 	if (!copy_path_with_remote_progress(source_full, target_full, task, err)) {
-		std::string cleanup_err;
-		remove_path_recursive_plain(target_full, cleanup_err);
 		task.state = task.cancel_requested || is_remote_copy_cancel_requested(task.id)
 			? "cancelled"
 			: "failed";
+		if (task.state == "failed") {
+			std::string cleanup_err;
+			remove_path_recursive_plain(target_full, cleanup_err);
+		}
 		task.cancel_requested = task.cancel_requested || task.state == "cancelled";
 		task.error = task.state == "cancelled" ? "" : err;
 		task.message = task.state == "cancelled" ? "已取消" : "拷贝失败";
+		update_remote_copy_task(task);
+		return;
+	}
+	if (is_remote_copy_cancel_requested(task.id)) {
+		task.state = "cancelled";
+		task.message = "已取消";
+		task.error.clear();
+		task.cancel_requested = true;
 		update_remote_copy_task(task);
 		return;
 	}
@@ -354,7 +423,8 @@ bool remote_copy_task_cancel(const std::string& task_id,
 		return false;
 	}
 	it->second.cancel_requested = true;
-	if (it->second.state == "pending") {
+	it->second.error.clear();
+	if (it->second.state != "done" && it->second.state != "failed") {
 		it->second.state = "cancelled";
 		it->second.message = "已取消";
 	}
