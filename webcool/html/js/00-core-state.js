@@ -222,6 +222,7 @@
     "      let localDiskClipboardDirectory = false;",
     "      let activeLocalDiskTreeRootPath = '';",
     "      let localImportTargetFolderPath = '';",
+    "      let localImportOverridePaths = null;",
     "      const localImportExpandedFolderPaths = new Set(['']);",
     "      const localDiskTreeCache = new Map();",
     "      const expandedLocalDiskTreePaths = new Set();",

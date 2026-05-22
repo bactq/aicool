@@ -1783,6 +1783,8 @@ bool LocalDiskCopyAction::run(request_t& req, response_t& res,
 	std::string err;
 	const char* source_param = req.getParameter("path");
 	const char* target_param = req.getParameter("target");
+	const bool overwrite = req.getParameter("overwrite") != NULL
+		&& strcmp(req.getParameter("overwrite"), "1") == 0;
 	if (source_param == NULL || *source_param == '\0'
 		|| target_param == NULL || *target_param == '\0')
 	{
@@ -1866,11 +1868,43 @@ bool LocalDiskCopyAction::run(request_t& req, response_t& res,
 	const std::string dest = join_local_path(target, name.c_str());
 	struct stat dest_st;
 	if (stat(dest.c_str(), &dest_st) == 0) {
-		json_error(res, 409, "target already contains a path with same name",
-			req.isKeepAlive());
-		return true;
+		if (!overwrite) {
+			json_error(res, 409, "target already contains a path with same name",
+				req.isKeepAlive());
+			return true;
+		}
+		if (dest == source) {
+			json_error(res, 409, "source and destination are the same",
+				req.isKeepAlive());
+			return true;
+		}
+		if (S_ISDIR(dest_st.st_mode)
+			&& !ensure_local_dir_unlocked_for_request(upload_dir, req, res, dest,
+				"destination directory is locked", "target_local_dir_password"))
+		{
+			return true;
+		}
+		if (S_ISREG(dest_st.st_mode)) {
+			bool dest_file_allowed = false;
+			std::string lock_err;
+			if (!file_lock_path_allows(upload_dir, local_file_lock_key(dest),
+				req.getParameter("file_password") ? req.getParameter("file_password") : "",
+				dest_file_allowed, lock_err))
+			{
+				json_error(res, 500, lock_err.c_str(), req.isKeepAlive());
+				return true;
+			}
+			if (!dest_file_allowed) {
+				json_error(res, 403, "destination file is locked", req.isKeepAlive());
+				return true;
+			}
+		}
+		if (!remove_local_path_recursive(dest, err)) {
+			json_error(res, 500, err.c_str(), req.isKeepAlive());
+			return true;
+		}
 	}
-	if (errno != ENOENT) {
+	else if (errno != ENOENT) {
 		json_error(res, 500, strerror(errno), req.isKeepAlive());
 		return true;
 	}
@@ -1886,6 +1920,7 @@ bool LocalDiskCopyAction::run(request_t& req, response_t& res,
 	root.add_text("path", dest.c_str());
 	root.add_text("source", source.c_str());
 	root.add_text("target", target.c_str());
+	root.add_bool("overwritten", overwrite);
 	root.add_text("message", source_is_dir ? "directory copied" : "file copied");
 	return sendJson(res, 200, root, req.isKeepAlive());
 }

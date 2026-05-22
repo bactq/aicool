@@ -19,6 +19,7 @@
     "          failLocalImportProgress(t('上传失败：') + err.message);",
     "          showStatus(t('上传本地文件失败：') + err.message, 'err');",
     "        } finally {",
+    "          localImportOverridePaths = null;",
     "          if (localImportConfirmBtn) {",
     "            localImportConfirmBtn.disabled = false;",
     "          }",
