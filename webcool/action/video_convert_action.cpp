@@ -778,6 +778,40 @@ static bool remux_mp4_faststart(const std::string& ffmpeg,
 	return true;
 }
 
+static void update_stream_task_progress_from_file(
+	const std::shared_ptr<transcode_task_t>& task,
+	const std::string& progress_path, long long duration_ms)
+{
+	if (!task || duration_ms <= 0) {
+		return;
+	}
+	FILE* fp = fopen(progress_path.c_str(), "r");
+	if (fp == NULL) {
+		return;
+	}
+	char line_buf[512];
+	long long current_ms = -1;
+	bool ended = false;
+	while (fgets(line_buf, (int) sizeof(line_buf), fp) != NULL) {
+		std::string line = trim_text(line_buf);
+		long long line_ms = parse_progress_ms_line(line);
+		if (line_ms >= 0) {
+			current_ms = line_ms;
+		} else if (line == "progress=end") {
+			ended = true;
+		}
+	}
+	fclose(fp);
+	if (ended) {
+		update_task_progress(task, 99.5, "写入输出文件");
+		return;
+	}
+	if (current_ms >= 0) {
+		const double percent = (double) current_ms * 100.0 / (double) duration_ms;
+		update_task_progress(task, percent, "边转边看中");
+	}
+}
+
 static void json_error(response_t& res, int status, const char* msg,
 	bool keep_alive)
 {
@@ -1078,27 +1112,61 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 		return sendText(res, 500, "ffmpeg not found in tools directory\n", false);
 	}
 
+	const std::string output_path = make_unique_local_transcoded_path(local_path);
+	const unsigned long stream_seq = g_transcode_seq.fetch_add(1);
+	acl::string tmp_path;
+	tmp_path.format("%s/.streaming_tmp.%u.%lu.mp4", parent.c_str(),
+		(unsigned) getpid(), stream_seq);
+	acl::string progress_path;
+	progress_path.format("%s/.streaming_progress.%u.%lu.txt", parent.c_str(),
+		(unsigned) getpid(), stream_seq);
+	::unlink(progress_path.c_str());
+
+	std::shared_ptr<transcode_task_t> task;
+	const char* task_id_param = req.getParameter("stream_task_id");
+	if (task_id_param != NULL && *task_id_param != '\0') {
+		task.reset(new transcode_task_t);
+		task->id = task_id_param;
+		task->file_name = std::string("local-stream:") + local_path;
+		task->output_name = output_path;
+		task->message = "边转边看准备中";
+		task->local = true;
+		{
+			std::lock_guard<std::mutex> guard(g_transcode_mutex);
+			g_transcode_tasks[task->id] = task;
+		}
+	}
+
 	const std::string command = shell_quote(ffmpeg)
 		+ " -hide_banner -loglevel error -nostdin -i " + shell_quote(local_path)
 		+ " -map 0:v:0 -map 0:a:0? -dn"
 		+ " -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p"
 		+ " -c:a aac -ac 2 -b:a 192k"
+		+ " -progress " + shell_quote(progress_path.c_str())
+		+ " -nostats"
 		+ " -movflags frag_keyframe+empty_moov+default_base_moof"
 		+ " -f mp4 pipe:1 2>/dev/null";
 
 	FILE* fp = popen(command.c_str(), "r");
 	if (fp == NULL) {
+		if (task) {
+			finish_task(task, false, "转码启动失败", "failed to start ffmpeg", -1);
+		}
 		return sendText(res, 500, "failed to start ffmpeg\n", false);
 	}
 
-	const std::string output_path = make_unique_local_transcoded_path(local_path);
-	acl::string tmp_path;
-	tmp_path.format("%s/.streaming_tmp.%u.%lu.mp4", parent.c_str(),
-		(unsigned) getpid(), (unsigned long) g_transcode_seq.fetch_add(1));
 	FILE* out = fopen(tmp_path.c_str(), "wb");
 	if (out == NULL) {
 		pclose(fp);
+		if (task) {
+			finish_task(task, false, "转码失败", "failed to create output file", -1);
+		}
 		return sendText(res, 500, "failed to create output file\n", false);
+	}
+
+	const long long duration_ms = probe_duration_ms(ffmpeg, local_path);
+	if (task) {
+		update_task_progress(task, 0.1, "边转边看中");
 	}
 
 	res.setStatus(200)
@@ -1120,6 +1188,10 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 			}
 			if (client_ok && !res.write(buf, n)) {
 				client_ok = false;
+			}
+			if (task) {
+				update_stream_task_progress_from_file(task, progress_path.c_str(),
+					duration_ms);
 			}
 		}
 		if (n < sizeof(buf)) {
@@ -1144,6 +1216,12 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 	} else {
 		::unlink(tmp_path.c_str());
 		ok = false;
+	}
+	::unlink(progress_path.c_str());
+	if (task) {
+		finish_task(task, ok, ok ? "边转边看完成" : "边转边看失败",
+			ok ? "" : "stream transcode failed",
+			ok ? file_size_of(output_path.c_str()) : -1);
 	}
 	if (client_ok) {
 		return res.write(NULL, 0);

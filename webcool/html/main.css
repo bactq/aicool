@@ -2894,6 +2894,42 @@
       opacity: 0.65;
     }
 
+    .preview-stream-progress {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: minmax(160px, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      color: #4f6177;
+      font-size: 12px;
+    }
+
+    .preview-stream-progress[hidden] {
+      display: none;
+    }
+
+    .preview-stream-progress::before {
+      content: "";
+      display: block;
+      grid-column: 1 / 2;
+      grid-row: 1;
+      height: 8px;
+      border-radius: 999px;
+      background: #e8f1fa;
+      border: 1px solid #c9deef;
+    }
+
+    .preview-stream-progress-fill {
+      grid-column: 1 / 2;
+      grid-row: 1;
+      height: 8px;
+      width: 0;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #2f91e8, #2fb87c);
+      transition: width 0.25s ease;
+      z-index: 1;
+    }
+
     .preview-audio {
       width: 100%;
       border-radius: 8px;
