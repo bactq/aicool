@@ -389,9 +389,15 @@
     <div class="tag-dialog-backdrop"></div>
     <div class="tag-dialog-card local-import-progress-card" role="dialog" aria-modal="true" aria-labelledby="local-import-progress-title">
       <div class="tag-dialog-form">
-        <div class="tag-dialog-head">
-          <h2 id="local-import-progress-title">上传中</h2>
-          <p id="local-import-progress-desc">正在上传本地文件到远程磁盘。</p>
+        <div class="tag-dialog-head tag-dialog-head-with-actions">
+          <div class="tag-dialog-head-copy">
+            <h2 id="local-import-progress-title">上传中</h2>
+            <p id="local-import-progress-desc">正在上传本地文件到远程磁盘。</p>
+          </div>
+          <div class="tag-dialog-window-actions">
+            <button type="button" id="local-import-progress-minimize" class="tag-dialog-window-btn" title="最小化" aria-label="最小化" hidden>−</button>
+            <button type="button" id="local-import-progress-restore" class="tag-dialog-window-btn" title="恢复" aria-label="恢复" hidden>□</button>
+          </div>
         </div>
         <div class="local-import-progress-track">
           <div id="local-import-progress-fill" class="local-import-progress-fill"></div>

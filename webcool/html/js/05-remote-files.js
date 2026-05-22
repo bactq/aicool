@@ -6,6 +6,7 @@
     "          resetStatus();",
     "          const title = document.getElementById('local-import-progress-title');",
     "          const desc = document.getElementById('local-import-progress-desc');",
+    "          setLocalImportProgressWindowMode('local-import');",
     "          if (localImportProgressDialog) { localImportProgressDialog.classList.remove('non-modal-progress'); }",
     "          if (title) { title.textContent = t('上传中'); }",
     "          if (desc) { desc.textContent = t('正在上传本地文件到远程磁盘。'); }",

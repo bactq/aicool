@@ -231,11 +231,51 @@
       color: #27476b;
     }
 
+    .tag-dialog-head-with-actions {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .tag-dialog-head-copy {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
     .tag-dialog-head p {
       margin: 6px 0 0;
       font-size: 13px;
       color: #647a94;
       line-height: 1.5;
+    }
+
+    .tag-dialog-window-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .tag-dialog-window-btn {
+      border: 1px solid #d7e3f2;
+      background: #f7fbff;
+      color: #415a77;
+      border-radius: 8px;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      line-height: 1;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .tag-dialog-window-btn:hover {
+      background: #eaf3ff;
     }
 
     .tag-dialog-label {
@@ -336,6 +376,32 @@
 
     .local-import-progress-card {
       width: min(460px, calc(100vw - 32px));
+    }
+
+    .tag-dialog.non-modal-progress.is-minimized {
+      width: min(320px, calc(100vw - 32px));
+    }
+
+    .tag-dialog.non-modal-progress.is-minimized .local-import-progress-card {
+      border-radius: 14px;
+    }
+
+    .tag-dialog.non-modal-progress.is-minimized .tag-dialog-form {
+      gap: 10px;
+    }
+
+    .tag-dialog.non-modal-progress.is-minimized .local-import-progress-track,
+    .tag-dialog.non-modal-progress.is-minimized .local-import-progress-text,
+    .tag-dialog.non-modal-progress.is-minimized .local-import-progress-files,
+    .tag-dialog.non-modal-progress.is-minimized .tag-dialog-actions {
+      display: none;
+    }
+
+    .tag-dialog.non-modal-progress.is-minimized .tag-dialog-head p {
+      margin-top: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .local-import-progress-track {
