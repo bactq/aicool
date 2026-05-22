@@ -1341,7 +1341,8 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 	}
 	const std::string tmp_path = local_stream_tmp_mp4_path(local_path);
 	const std::string progress_path = local_stream_state_path(local_path);
-	::unlink(progress_path.c_str());
+	const bool append_existing_tmp = start_position_ms > 0
+		&& file_size_of(tmp_path.c_str()) > 0;
 	register_stream_sidecar(tmp_path.c_str());
 	register_stream_sidecar(progress_path.c_str());
 
@@ -1386,7 +1387,7 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 		return sendText(res, 500, "failed to start ffmpeg\n", false);
 	}
 
-	FILE* out = fopen(tmp_path.c_str(), "wb");
+	FILE* out = fopen(tmp_path.c_str(), append_existing_tmp ? "ab" : "wb");
 	if (out == NULL) {
 		pclose(fp);
 		cleanup_current_stream_sidecars(tmp_path.c_str(), progress_path.c_str(), false);
@@ -1410,9 +1411,10 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 		.setHeader("Cache-Control", "no-store")
 		.setHeader("Accept-Ranges", "none");
 
-	char buf[64 * 1024];
 	bool ok = true;
 	bool client_ok = true;
+
+	char buf[64 * 1024];
 	while (true) {
 		const size_t n = fread(buf, 1, sizeof(buf), fp);
 		if (n > 0) {
