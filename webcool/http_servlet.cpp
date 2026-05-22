@@ -245,6 +245,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/local-disk/import/progress", &http_servlet::routeLocalDiskImportProgress },
 		{ "/api/v1/local-disk/video/convert", &http_servlet::routeLocalDiskVideoConvert },
 		{ "/api/v1/local-disk/video/stream", &http_servlet::routeLocalDiskVideoStream },
+		{ "/api/v1/local-disk/video/stream-state", &http_servlet::routeLocalDiskVideoStreamState },
 		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },
 		{ "/api/v1/video/convert/cancel", &http_servlet::routeVideoConvertCancel },
 		{ "/api/v1/video/convert/progress", &http_servlet::routeVideoConvertProgress },
@@ -373,6 +374,10 @@ bool http_servlet::routeLocalDiskVideoConvert(request_t& req, response_t& res) {
 
 bool http_servlet::routeLocalDiskVideoStream(request_t& req, response_t& res) {
 	return action::LocalDiskVideoStreamAction::run(req, res, action::runtime_upload_dir_get());
+}
+
+bool http_servlet::routeLocalDiskVideoStreamState(request_t& req, response_t& res) {
+	return action::LocalDiskVideoStreamStateAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeUpload(request_t& req, response_t& res) {
@@ -529,6 +534,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/local-disk/import", &http_servlet::routeLocalDiskImport },
 		{ "/api/v1/local-disk/import/progress", &http_servlet::routeLocalDiskImportProgress },
 		{ "/api/v1/local-disk/video/convert", &http_servlet::routeLocalDiskVideoConvert },
+		{ "/api/v1/local-disk/video/stream-state", &http_servlet::routeLocalDiskVideoStreamState },
 		{ "/api/v1/tags/create", &http_servlet::routeTagCreate },
 		{ "/api/v1/tags/rename", &http_servlet::routeTagRename },
 		{ "/api/v1/tags/delete", &http_servlet::routeTagDelete },

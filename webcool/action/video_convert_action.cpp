@@ -121,6 +121,18 @@ static std::string local_parent_path(const std::string& path) {
 	return text.substr(0, pos);
 }
 
+static std::string local_base_name(const std::string& path) {
+	std::string text = path;
+	while (text.size() > 1 && text[text.size() - 1] == '/') {
+		text.erase(text.size() - 1);
+	}
+	std::string::size_type pos = text.rfind('/');
+	if (pos == std::string::npos) {
+		return text;
+	}
+	return text.substr(pos + 1);
+}
+
 static std::string local_file_lock_key(const std::string& path) {
 	return std::string("local:") + path;
 }
@@ -144,6 +156,43 @@ static bool normalize_local_video_path(const char* input, std::string& path,
 		return false;
 	}
 	path = resolved;
+	return true;
+}
+
+static std::string local_stream_state_path(const std::string& local_path) {
+	return local_parent_path(local_path) + "/." + local_base_name(local_path)
+		+ ".webcool_stream_time";
+}
+
+static long long read_local_stream_position_ms(const std::string& local_path) {
+	FILE* fp = fopen(local_stream_state_path(local_path).c_str(), "r");
+	if (fp == NULL) {
+		return 0;
+	}
+	char buf[128];
+	if (fgets(buf, (int) sizeof(buf), fp) == NULL) {
+		fclose(fp);
+		return 0;
+	}
+	fclose(fp);
+	long long value = atoll(buf);
+	return value > 0 ? value : 0;
+}
+
+static bool write_local_stream_position_ms(const std::string& local_path,
+	long long position_ms, std::string& err)
+{
+	err.clear();
+	FILE* fp = fopen(local_stream_state_path(local_path).c_str(), "w");
+	if (fp == NULL) {
+		err = strerror(errno);
+		return false;
+	}
+	fprintf(fp, "%lld\n", position_ms > 0 ? position_ms : 0);
+	if (fclose(fp) != 0) {
+		err = strerror(errno);
+		return false;
+	}
 	return true;
 }
 
@@ -822,6 +871,58 @@ static void json_error(response_t& res, int status, const char* msg,
 	sendJson(res, status, root, keep_alive);
 }
 
+static bool validate_local_stream_state_request(request_t& req,
+	const std::string& upload_dir, std::string& local_path,
+	std::string& err, int& status)
+{
+	status = 400;
+	if (!normalize_local_video_path(req.getParameter("path"), local_path, err)) {
+		return false;
+	}
+	struct stat st;
+	if (stat(local_path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+		err = "source video not found";
+		status = 404;
+		return false;
+	}
+	if (!is_local_convertible_video_name(local_path.c_str())) {
+		err = "local video must be rmvb, rm, or avi";
+		status = 400;
+		return false;
+	}
+	bool dir_allowed = false;
+	std::string locked_dir;
+	std::string lock_err;
+	if (!local_dir_lock_path_allows(upload_dir, local_parent_path(local_path),
+		req.getParameter("local_dir_password") ? req.getParameter("local_dir_password") : "",
+		dir_allowed, locked_dir, lock_err))
+	{
+		err = lock_err;
+		status = 500;
+		return false;
+	}
+	if (!dir_allowed) {
+		err = "directory is locked";
+		status = 403;
+		return false;
+	}
+	bool file_allowed = false;
+	if (!file_lock_path_allows(upload_dir, local_file_lock_key(local_path),
+		req.getParameter("file_password") ? req.getParameter("file_password") : "",
+		file_allowed, lock_err))
+	{
+		err = lock_err;
+		status = 500;
+		return false;
+	}
+	if (!file_allowed) {
+		err = "file is locked";
+		status = 403;
+		return false;
+	}
+	return true;
+}
+
 bool VideoConvertAction::run(request_t& req, response_t& res,
 	const std::string& upload_dir)
 {
@@ -1112,6 +1213,7 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 		return sendText(res, 500, "ffmpeg not found in tools directory\n", false);
 	}
 
+	const long long start_position_ms = read_local_stream_position_ms(local_path);
 	const std::string output_path = make_unique_local_transcoded_path(local_path);
 	const unsigned long stream_seq = g_transcode_seq.fetch_add(1);
 	acl::string tmp_path;
@@ -1137,8 +1239,15 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 		}
 	}
 
-	const std::string command = shell_quote(ffmpeg)
-		+ " -hide_banner -loglevel error -nostdin -i " + shell_quote(local_path)
+	std::string command = shell_quote(ffmpeg)
+		+ " -hide_banner -loglevel error -nostdin";
+	if (start_position_ms > 0) {
+		char ss_buf[64];
+		snprintf(ss_buf, sizeof(ss_buf), "%.3f", (double) start_position_ms / 1000.0);
+		command += " -ss ";
+		command += ss_buf;
+	}
+	command += " -i " + shell_quote(local_path)
 		+ " -map 0:v:0 -map 0:a:0? -dn"
 		+ " -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p"
 		+ " -c:a aac -ac 2 -b:a 192k"
@@ -1165,6 +1274,8 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 	}
 
 	const long long duration_ms = probe_duration_ms(ffmpeg, local_path);
+	const long long remaining_duration_ms = duration_ms > start_position_ms
+		? (duration_ms - start_position_ms) : duration_ms;
 	if (task) {
 		update_task_progress(task, 0.1, "边转边看中");
 	}
@@ -1191,7 +1302,7 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 			}
 			if (task) {
 				update_stream_task_progress_from_file(task, progress_path.c_str(),
-					duration_ms);
+					remaining_duration_ms);
 			}
 		}
 		if (n < sizeof(buf)) {
@@ -1227,6 +1338,38 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 		return res.write(NULL, 0);
 	}
 	return ok;
+}
+
+bool LocalDiskVideoStreamStateAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string local_path;
+	std::string err;
+	int status = 400;
+	if (!validate_local_stream_state_request(req, upload_dir, local_path, err, status)) {
+		json_error(res, status, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+
+	if (req.getParameter("position_ms") != NULL) {
+		long long position_ms = atoll(req.getParameter("position_ms")
+			? req.getParameter("position_ms") : "0");
+		if (position_ms < 0) {
+			position_ms = 0;
+		}
+		if (!write_local_stream_position_ms(local_path, position_ms, err)) {
+			json_error(res, 500, err.c_str(), req.isKeepAlive());
+			return true;
+		}
+	}
+
+	const long long saved_ms = read_local_stream_position_ms(local_path);
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("path", local_path.c_str());
+	root.add_number("position_ms", saved_ms);
+	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
 bool VideoConvertProgressAction::run(request_t& req, response_t& res,

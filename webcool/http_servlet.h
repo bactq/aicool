@@ -56,6 +56,7 @@ private:
 	bool routeLocalDiskImportProgress(request_t& req, response_t& res);
 	bool routeLocalDiskVideoConvert(request_t& req, response_t& res);
 	bool routeLocalDiskVideoStream(request_t& req, response_t& res);
+	bool routeLocalDiskVideoStreamState(request_t& req, response_t& res);
 	bool routeVideoConvert(request_t& req, response_t& res);
 	bool routeVideoConvertProgress(request_t& req, response_t& res);
 	bool routeVideoConvertTasks(request_t& req, response_t& res);

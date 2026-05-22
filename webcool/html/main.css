@@ -1749,7 +1749,7 @@
 
     .local-disk-explorer {
       display: grid;
-      grid-template-columns: minmax(220px, 270px) minmax(0, 1fr);
+      grid-template-columns: minmax(220px, var(--local-disk-dir-width, 270px)) minmax(0, 1fr);
       gap: 16px;
       align-items: start;
     }
@@ -1769,6 +1769,45 @@
       flex-direction: column;
       max-height: calc(100vh - 170px);
       min-height: 0;
+    }
+
+    .local-disk-dir-resize {
+      position: absolute;
+      top: 14px;
+      right: -8px;
+      bottom: 14px;
+      width: 14px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      cursor: ew-resize;
+      z-index: 3;
+      padding: 0;
+    }
+
+    .local-disk-dir-resize::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 3px;
+      height: 46px;
+      border-radius: 999px;
+      background: #c7d8ea;
+      transform: translate(-50%, -50%);
+      transition: background 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .local-disk-dir-resize:hover::before,
+    .local-disk-dir-resize:focus-visible::before,
+    .local-disk-explorer.is-resizing .local-disk-dir-resize::before {
+      background: #2f7fd0;
+      box-shadow: 0 0 0 3px rgba(47, 127, 208, 0.14);
+    }
+
+    body.local-disk-dir-resizing {
+      cursor: ew-resize;
+      user-select: none;
     }
 
     .local-disk-file-browser {
@@ -2275,6 +2314,10 @@
 
       .local-disk-dir-browser {
         position: static;
+      }
+
+      .local-disk-dir-resize {
+        display: none;
       }
 
       .folder-tree {
