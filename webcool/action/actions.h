@@ -181,6 +181,12 @@ public:
 		const std::string& upload_dir);
 };
 
+class LocalDiskCopyAction {
+public:
+	static bool run(request_t& req, response_t& res,
+		const std::string& upload_dir);
+};
+
 class LocalDiskRenameAction {
 public:
 	static bool run(request_t& req, response_t& res,

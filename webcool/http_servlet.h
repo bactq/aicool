@@ -49,6 +49,7 @@ private:
 	bool routeLocalDiskDelete(request_t& req, response_t& res);
 	bool routeLocalDiskCreateDir(request_t& req, response_t& res);
 	bool routeLocalDiskMove(request_t& req, response_t& res);
+	bool routeLocalDiskCopy(request_t& req, response_t& res);
 	bool routeLocalDiskRename(request_t& req, response_t& res);
 	bool routeLocalDiskOpenTrash(request_t& req, response_t& res);
 	bool routeLocalDiskOpenFile(request_t& req, response_t& res);

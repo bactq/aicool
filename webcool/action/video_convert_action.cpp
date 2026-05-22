@@ -1,5 +1,6 @@
 #include "actions.h"
 #include "action_util.h"
+#include <dirent.h>
 #include <sys/stat.h>
 #include <errno.h>
 #include <limits.h>
@@ -8,10 +9,12 @@
 #include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <atomic>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <vector>
 
 #ifndef _WIN32
@@ -59,6 +62,7 @@ struct transcode_task_snapshot_t {
 static std::mutex g_transcode_mutex;
 static std::map<std::string, std::shared_ptr<transcode_task_t> > g_transcode_tasks;
 static std::map<std::string, std::string> g_running_task_by_file;
+static std::set<std::string> g_active_stream_sidecars;
 static std::atomic<unsigned long> g_transcode_seq(1);
 
 static bool is_video_name(const char* filename) {
@@ -119,6 +123,13 @@ static std::string local_parent_path(const std::string& path) {
 		return "/";
 	}
 	return text.substr(0, pos);
+}
+
+static std::string local_join_path(const std::string& parent, const char* name) {
+	if (parent == "/") {
+		return std::string("/") + name;
+	}
+	return parent + "/" + name;
 }
 
 static std::string local_base_name(const std::string& path) {
@@ -194,6 +205,11 @@ static bool write_local_stream_position_ms(const std::string& local_path,
 		return false;
 	}
 	return true;
+}
+
+static void remove_local_stream_position(const std::string& local_path)
+{
+	::unlink(local_stream_state_path(local_path).c_str());
 }
 
 static std::string shell_quote(const std::string& s) {
@@ -804,6 +820,97 @@ static std::string make_unique_local_transcoded_path(const std::string& input_pa
 	return stem + std::string(buf) + ext;
 }
 
+static bool send_existing_local_mp4(const std::string& path, response_t& res)
+{
+	FILE* fp = fopen(path.c_str(), "rb");
+	if (fp == NULL) {
+		return sendText(res, 403, "file cannot be read\n", false);
+	}
+	const long long fsize = file_size_of(path.c_str());
+	if (fsize <= 0) {
+		fclose(fp);
+		return sendText(res, 404, "converted mp4 not found\n", false);
+	}
+	res.setStatus(200)
+		.setKeepAlive(false)
+		.setContentType("video/mp4")
+		.setHeader("Content-Disposition", "inline")
+		.setHeader("Accept-Ranges", "bytes")
+		.setContentLength(fsize);
+
+	char buf[64 * 1024];
+	bool ok = true;
+	while (!feof(fp)) {
+		const size_t n = fread(buf, 1, sizeof(buf), fp);
+		if (n > 0 && !res.write(buf, n)) {
+			ok = false;
+			break;
+		}
+		if (n < sizeof(buf)) {
+			if (ferror(fp)) {
+				ok = false;
+			}
+			break;
+		}
+	}
+	fclose(fp);
+	return ok ? res.write(NULL, 0) : false;
+}
+
+static bool is_active_stream_sidecar(const std::string& path)
+{
+	std::lock_guard<std::mutex> guard(g_transcode_mutex);
+	return g_active_stream_sidecars.find(path) != g_active_stream_sidecars.end();
+}
+
+static void register_stream_sidecar(const std::string& path)
+{
+	std::lock_guard<std::mutex> guard(g_transcode_mutex);
+	g_active_stream_sidecars.insert(path);
+}
+
+static void unregister_stream_sidecar(const std::string& path)
+{
+	std::lock_guard<std::mutex> guard(g_transcode_mutex);
+	g_active_stream_sidecars.erase(path);
+}
+
+static void cleanup_local_stream_sidecars(const std::string& parent)
+{
+	DIR* dir = opendir(parent.c_str());
+	if (dir == NULL) {
+		return;
+	}
+	struct dirent* entry;
+	while ((entry = readdir(dir)) != NULL) {
+		const char* name = entry->d_name;
+		const bool stream_tmp = strncmp(name, ".streaming_tmp.", 15) == 0;
+		const bool stream_progress = strncmp(name, ".streaming_progress.", 20) == 0;
+		if (!stream_tmp && !stream_progress) {
+			continue;
+		}
+		const std::string full = local_join_path(parent, name);
+		if (is_active_stream_sidecar(full)) {
+			continue;
+		}
+		struct stat st;
+		if (stat(full.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+			continue;
+		}
+		::unlink(full.c_str());
+	}
+	closedir(dir);
+}
+
+static void cleanup_current_stream_sidecars(const std::string& tmp_path,
+	const std::string& progress_path)
+{
+	::unlink(tmp_path.c_str());
+	::unlink(progress_path.c_str());
+	unregister_stream_sidecar(tmp_path);
+	unregister_stream_sidecar(progress_path);
+}
+
 static bool remux_mp4_faststart(const std::string& ffmpeg,
 	const std::string& input_path, const std::string& output_path,
 	std::string& err)
@@ -1213,8 +1320,13 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 		return sendText(res, 500, "ffmpeg not found in tools directory\n", false);
 	}
 
+	cleanup_local_stream_sidecars(parent);
 	const long long start_position_ms = read_local_stream_position_ms(local_path);
-	const std::string output_path = make_unique_local_transcoded_path(local_path);
+	const std::string output_path = replace_ext_with_mp4(local_path);
+	if (file_size_of(output_path.c_str()) > 0) {
+		remove_local_stream_position(local_path);
+		return send_existing_local_mp4(output_path, res);
+	}
 	const unsigned long stream_seq = g_transcode_seq.fetch_add(1);
 	acl::string tmp_path;
 	tmp_path.format("%s/.streaming_tmp.%u.%lu.mp4", parent.c_str(),
@@ -1223,6 +1335,8 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 	progress_path.format("%s/.streaming_progress.%u.%lu.txt", parent.c_str(),
 		(unsigned) getpid(), stream_seq);
 	::unlink(progress_path.c_str());
+	register_stream_sidecar(tmp_path.c_str());
+	register_stream_sidecar(progress_path.c_str());
 
 	std::shared_ptr<transcode_task_t> task;
 	const char* task_id_param = req.getParameter("stream_task_id");
@@ -1258,6 +1372,7 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 
 	FILE* fp = popen(command.c_str(), "r");
 	if (fp == NULL) {
+		cleanup_current_stream_sidecars(tmp_path.c_str(), progress_path.c_str());
 		if (task) {
 			finish_task(task, false, "转码启动失败", "failed to start ffmpeg", -1);
 		}
@@ -1267,6 +1382,7 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 	FILE* out = fopen(tmp_path.c_str(), "wb");
 	if (out == NULL) {
 		pclose(fp);
+		cleanup_current_stream_sidecars(tmp_path.c_str(), progress_path.c_str());
 		if (task) {
 			finish_task(task, false, "转码失败", "failed to create output file", -1);
 		}
@@ -1299,6 +1415,8 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 			}
 			if (client_ok && !res.write(buf, n)) {
 				client_ok = false;
+				ok = false;
+				break;
 			}
 			if (task) {
 				update_stream_task_progress_from_file(task, progress_path.c_str(),
@@ -1328,10 +1446,14 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 		::unlink(tmp_path.c_str());
 		ok = false;
 	}
-	::unlink(progress_path.c_str());
+	cleanup_current_stream_sidecars(tmp_path.c_str(), progress_path.c_str());
+	cleanup_local_stream_sidecars(parent);
+	if (ok) {
+		remove_local_stream_position(local_path);
+	}
 	if (task) {
 		finish_task(task, ok, ok ? "边转边看完成" : "边转边看失败",
-			ok ? "" : "stream transcode failed",
+			ok ? "" : (client_ok ? "stream transcode failed" : "client disconnected"),
 			ok ? file_size_of(output_path.c_str()) : -1);
 	}
 	if (client_ok) {
