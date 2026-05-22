@@ -1644,6 +1644,9 @@ bool LocalDiskVideoConvertAction::run(request_t& req, response_t& res,
 	root.add_bool("cancel_requested", false);
 	root.add_number("progress", 0);
 	root.add_text("message", "local transcode task started");
+	// 删除同名 .meta 文件（全量转码完成后）
+	const std::string meta_path = local_stream_state_path(local_path);
+	::unlink(meta_path.c_str());
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 
@@ -1823,6 +1826,7 @@ bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
 	cleanup_current_stream_sidecars(tmp_path.c_str(), progress_path.c_str(), preserve_partial_files);
 	cleanup_local_stream_sidecars(parent);
 	if (ok) {
+		// 删除同名 .meta 文件（边转边看完成后）
 		remove_local_stream_position(local_path);
 	}
 	if (task) {

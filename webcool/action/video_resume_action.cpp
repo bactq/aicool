@@ -169,12 +169,20 @@ bool video_resume_rename_file(const std::string& upload_dir,
 	}
 	db.set_busy_timeout(3000);
 
-	acl::query query;
-	query.create("UPDATE video_resume SET file_name=:new_file, updated_at=strftime('%s','now')"
+	acl::query delete_query;
+	delete_query.create("DELETE FROM video_resume WHERE file_name=:new_file")
+		.set_parameter("new_file", new_file_name.c_str());
+	if (!db.exec_update(delete_query)) {
+		err = db.get_error();
+		return false;
+	}
+
+	acl::query update_query;
+	update_query.create("UPDATE video_resume SET file_name=:new_file, updated_at=strftime('%s','now')"
 		" WHERE file_name=:old_file")
 		.set_parameter("new_file", new_file_name.c_str())
 		.set_parameter("old_file", old_file_name.c_str());
-	if (!db.exec_update(query)) {
+	if (!db.exec_update(update_query)) {
 		err = db.get_error();
 		return false;
 	}
@@ -202,15 +210,29 @@ bool video_resume_rename_folder_prefix(const std::string& upload_dir,
 	db.set_busy_timeout(3000);
 
 	const std::string old_like = old_prefix + "/%";
-	acl::query query;
-	query.create("UPDATE video_resume "
+	acl::query delete_query;
+	delete_query.create("DELETE FROM video_resume "
+		"WHERE file_name IN ("
+			"SELECT :new_prefix || substr(file_name, length(:old_prefix) + 1) "
+			"FROM video_resume WHERE file_name LIKE :old_like"
+		")")
+		.set_parameter("new_prefix", new_prefix.c_str())
+		.set_parameter("old_prefix", old_prefix.c_str())
+		.set_parameter("old_like", old_like.c_str());
+	if (!db.exec_update(delete_query)) {
+		err = db.get_error();
+		return false;
+	}
+
+	acl::query update_query;
+	update_query.create("UPDATE video_resume "
 		"SET file_name=:new_prefix || substr(file_name, length(:old_prefix) + 1), "
 		"updated_at=strftime('%s','now') "
 		"WHERE file_name LIKE :old_like")
 		.set_parameter("new_prefix", new_prefix.c_str())
 		.set_parameter("old_prefix", old_prefix.c_str())
 		.set_parameter("old_like", old_like.c_str());
-	if (!db.exec_update(query)) {
+	if (!db.exec_update(update_query)) {
 		err = db.get_error();
 		return false;
 	}
