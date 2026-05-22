@@ -237,6 +237,44 @@ static bool ensure_directory(const std::string& path, std::string& err)
 	return true;
 }
 
+static bool ensure_directory_mode(const std::string& path, mode_t mode,
+	std::string& err)
+{
+	struct stat st;
+	if (stat(path.c_str(), &st) == 0) {
+		if (S_ISDIR(st.st_mode)) {
+			return true;
+		}
+		err = "trash path exists but is not a directory";
+		return false;
+	}
+	if (::mkdir(path.c_str(), mode) != 0 && errno != EEXIST) {
+		err = strerror(errno);
+		return false;
+	}
+	return true;
+}
+
+static std::string device_root_for_path(const std::string& path)
+{
+	struct stat st;
+	if (stat(path.c_str(), &st) != 0) {
+		return parent_path(path);
+	}
+	const dev_t dev = st.st_dev;
+	std::string current = S_ISDIR(st.st_mode) ? path : parent_path(path);
+	while (!current.empty() && current != "/") {
+		const std::string parent = parent_path(current);
+		struct stat parent_st;
+		if (stat(parent.c_str(), &parent_st) != 0
+			|| parent_st.st_dev != dev) {
+			break;
+		}
+		current = parent;
+	}
+	return current.empty() ? "/" : current;
+}
+
 static bool current_trash_files_path(std::string& path, std::string& err)
 {
 	err.clear();
@@ -270,6 +308,43 @@ static bool current_trash_files_path(std::string& path, std::string& err)
 }
 
 #ifdef __APPLE__
+static bool trash_files_path_for_source(const std::string& source,
+	std::string& path, std::string& err)
+{
+	err.clear();
+	path.clear();
+	const std::string home = current_home_path();
+	if (home.empty() || home == "/") {
+		err = "user home directory not found";
+		return false;
+	}
+
+	struct stat source_st;
+	struct stat home_st;
+	if (stat(source.c_str(), &source_st) != 0) {
+		err = strerror(errno);
+		return false;
+	}
+	if (stat(home.c_str(), &home_st) == 0 && source_st.st_dev == home_st.st_dev) {
+		path = join_local_path(home, ".Trash");
+		return ensure_directory(path, err);
+	}
+
+	const std::string volume_root = device_root_for_path(source);
+	if (volume_root.empty() || volume_root == "/") {
+		path = join_local_path(home, ".Trash");
+		return ensure_directory(path, err);
+	}
+	const std::string trashes = join_local_path(volume_root, ".Trashes");
+	if (!ensure_directory_mode(trashes, 01777, err)) {
+		return false;
+	}
+	path = join_local_path(trashes, std::to_string((unsigned) getuid()).c_str());
+	return ensure_directory_mode(path, 0700, err);
+}
+#endif
+
+#ifdef __APPLE__
 static bool is_current_trash_files_path(const std::string& path)
 {
 	std::string trash_path;
@@ -277,40 +352,6 @@ static bool is_current_trash_files_path(const std::string& path)
 	return current_trash_files_path(trash_path, err) && path == trash_path;
 }
 #endif
-
-static bool recursive_rmdir(const std::string& path)
-{
-	DIR* dir = opendir(path.c_str());
-	if (!dir) {
-		return false;
-	}
-	struct dirent* entry;
-	while ((entry = readdir(dir)) != nullptr) {
-		if (strcmp(entry->d_name, ".") == 0
-			|| strcmp(entry->d_name, "..") == 0) {
-			continue;
-		}
-		std::string child = path + "/" + entry->d_name;
-		struct stat st;
-		if (lstat(child.c_str(), &st) != 0) {
-			closedir(dir);
-			return false;
-		}
-		if (S_ISDIR(st.st_mode)) {
-			if (!recursive_rmdir(child)) {
-				closedir(dir);
-				return false;
-			}
-		} else {
-			if (unlink(child.c_str()) != 0) {
-				closedir(dir);
-				return false;
-			}
-		}
-	}
-	closedir(dir);
-	return rmdir(path.c_str()) == 0;
-}
 
 static std::string unique_child_path(const std::string& parent,
 	const std::string& name)
@@ -343,7 +384,7 @@ static bool move_file_to_trash(const std::string& path, std::string& trash_path,
 
 #ifdef __APPLE__
 	std::string trash_dir;
-	if (!current_trash_files_path(trash_dir, err)) {
+	if (!trash_files_path_for_source(path, trash_dir, err)) {
 		return false;
 	}
 	trash_path = unique_child_path(trash_dir, local_base_name(path));
@@ -1356,32 +1397,34 @@ bool LocalDiskDeleteAction::run(request_t& req, response_t& res,
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
 	}
+	std::string rename_err;
+	const std::string old_local_key = std::string("local:") + path;
+	const std::string new_local_key = std::string("local:") + trash_path;
 	if (is_dir) {
-		if (!recursive_rmdir(path)) {
-			json_error(res, 500, strerror(errno),
-				req.isKeepAlive());
+		if (!tag_rename_folder_prefix(upload_dir, old_local_key, new_local_key,
+			rename_err)
+			|| !video_resume_rename_folder_prefix(upload_dir, old_local_key,
+				new_local_key, rename_err)
+			|| !file_lock_rename_prefix(upload_dir, local_dir_lock_key(path),
+				local_dir_lock_key(trash_path), rename_err)
+			|| !file_lock_rename_prefix(upload_dir, local_file_lock_key(path),
+				local_file_lock_key(trash_path), rename_err))
+		{
+			(void) ::rename(trash_path.c_str(), path.c_str());
+			json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
 			return true;
 		}
 	} else {
-		if (!move_file_to_trash(path, trash_path, err)) {
-			json_error(res, 500, err.c_str(), req.isKeepAlive());
-            return true;
-        }
-        std::string rename_err;
-        if (!tag_rename_folder_prefix(upload_dir, std::string("local:") + path,
-                    std::string("local:") + trash_path, rename_err)
-                || !video_resume_rename_folder_prefix(upload_dir,
-                    std::string("local:") + path, std::string("local:") + trash_path,
-                    rename_err)
-                || !file_lock_rename_prefix(upload_dir, local_dir_lock_key(path),
-                    local_dir_lock_key(trash_path), rename_err)
-                || !file_lock_rename_prefix(upload_dir, local_file_lock_key(path),
-                    local_file_lock_key(trash_path), rename_err))
-        {
-            (void) ::rename(trash_path.c_str(), path.c_str());
-            json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
-            return true;
-        }
+		if (!tag_rename_file(upload_dir, old_local_key, new_local_key, rename_err)
+			|| !video_resume_rename_file(upload_dir, old_local_key,
+				new_local_key, rename_err)
+			|| !file_lock_rename_key(upload_dir, local_file_lock_key(path),
+				local_file_lock_key(trash_path), rename_err))
+		{
+			(void) ::rename(trash_path.c_str(), path.c_str());
+			json_error(res, 500, rename_err.c_str(), req.isKeepAlive());
+			return true;
+		}
 	}
 
 	acl::json json;
