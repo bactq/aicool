@@ -237,6 +237,7 @@ static bool ensure_directory(const std::string& path, std::string& err)
 	return true;
 }
 
+#ifdef __APPLE__
 static bool ensure_directory_mode(const std::string& path, mode_t mode,
 	std::string& err)
 {
@@ -274,6 +275,7 @@ static std::string device_root_for_path(const std::string& path)
 	}
 	return current.empty() ? "/" : current;
 }
+#endif
 
 static bool current_trash_files_path(std::string& path, std::string& err)
 {
