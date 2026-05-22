@@ -755,6 +755,29 @@ static std::string make_unique_local_transcoded_path(const std::string& input_pa
 	return stem + std::string(buf) + ext;
 }
 
+static bool remux_mp4_faststart(const std::string& ffmpeg,
+	const std::string& input_path, const std::string& output_path,
+	std::string& err)
+{
+	err.clear();
+	::unlink(output_path.c_str());
+	std::string cmd = shell_quote(ffmpeg)
+		+ " -hide_banner -loglevel error -y -i " + shell_quote(input_path)
+		+ " -map 0 -c copy -movflags +faststart " + shell_quote(output_path)
+		+ " 2>&1";
+	std::string out;
+	const int code = run_command_capture(cmd, out);
+	if (code != 0 || file_size_of(output_path.c_str()) <= 0) {
+		err = trim_text(out);
+		if (err.empty()) {
+			err = "faststart remux failed";
+		}
+		::unlink(output_path.c_str());
+		return false;
+	}
+	return true;
+}
+
 static void json_error(response_t& res, int status, const char* msg,
 	bool keep_alive)
 {
@@ -837,9 +860,10 @@ bool VideoConvertAction::run(request_t& req, response_t& res,
 
 	std::string output_name = make_unique_transcoded_name(upload_dir, file_path);
 	const std::string out_path = join_upload_path(upload_dir, output_name);
+	const std::string out_dir = local_parent_path(out_path);
 
 	acl::string tmp_path;
-	tmp_path.format("%s/.transcoding_tmp.%u.%lu.mp4", upload_dir.c_str(),
+	tmp_path.format("%s/.transcoding_tmp.%u.%lu.mp4", out_dir.c_str(),
 		(unsigned) getpid(), (unsigned long) g_transcode_seq.load());
 
 	std::shared_ptr<transcode_task_t> task(new transcode_task_t);
@@ -1005,6 +1029,126 @@ bool LocalDiskVideoConvertAction::run(request_t& req, response_t& res,
 	root.add_number("progress", 0);
 	root.add_text("message", "local transcode task started");
 	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool LocalDiskVideoStreamAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	std::string local_path;
+	std::string err;
+	if (!normalize_local_video_path(req.getParameter("path"), local_path, err)) {
+		return sendText(res, 400, err.c_str(), false);
+	}
+
+	struct stat st;
+	if (stat(local_path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+		return sendText(res, 404, "source video not found\n", false);
+	}
+	if (!is_local_convertible_video_name(local_path.c_str())) {
+		return sendText(res, 400, "local video must be rmvb, rm, or avi\n", false);
+	}
+
+	const std::string parent = local_parent_path(local_path);
+	bool dir_allowed = false;
+	std::string locked_dir;
+	std::string lock_err;
+	if (!local_dir_lock_path_allows(upload_dir, parent,
+		req.getParameter("local_dir_password") ? req.getParameter("local_dir_password") : "",
+		dir_allowed, locked_dir, lock_err))
+	{
+		return sendText(res, 500, lock_err.c_str(), false);
+	}
+	if (!dir_allowed) {
+		return sendText(res, 403, "directory is locked\n", false);
+	}
+
+	bool file_allowed = false;
+	if (!file_lock_path_allows(upload_dir, local_file_lock_key(local_path),
+		req.getParameter("file_password") ? req.getParameter("file_password") : "",
+		file_allowed, lock_err))
+	{
+		return sendText(res, 500, lock_err.c_str(), false);
+	}
+	if (!file_allowed) {
+		return sendText(res, 403, "file is locked\n", false);
+	}
+
+	const std::string ffmpeg = choose_ffmpeg_path();
+	if (ffmpeg.empty()) {
+		return sendText(res, 500, "ffmpeg not found in tools directory\n", false);
+	}
+
+	const std::string command = shell_quote(ffmpeg)
+		+ " -hide_banner -loglevel error -nostdin -i " + shell_quote(local_path)
+		+ " -map 0:v:0 -map 0:a:0? -dn"
+		+ " -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p"
+		+ " -c:a aac -ac 2 -b:a 192k"
+		+ " -movflags frag_keyframe+empty_moov+default_base_moof"
+		+ " -f mp4 pipe:1 2>/dev/null";
+
+	FILE* fp = popen(command.c_str(), "r");
+	if (fp == NULL) {
+		return sendText(res, 500, "failed to start ffmpeg\n", false);
+	}
+
+	const std::string output_path = make_unique_local_transcoded_path(local_path);
+	acl::string tmp_path;
+	tmp_path.format("%s/.streaming_tmp.%u.%lu.mp4", parent.c_str(),
+		(unsigned) getpid(), (unsigned long) g_transcode_seq.fetch_add(1));
+	FILE* out = fopen(tmp_path.c_str(), "wb");
+	if (out == NULL) {
+		pclose(fp);
+		return sendText(res, 500, "failed to create output file\n", false);
+	}
+
+	res.setStatus(200)
+		.setKeepAlive(false)
+		.setContentType("video/mp4")
+		.setHeader("Content-Disposition", "inline")
+		.setHeader("Cache-Control", "no-store")
+		.setHeader("Accept-Ranges", "none");
+
+	char buf[64 * 1024];
+	bool ok = true;
+	bool client_ok = true;
+	while (true) {
+		const size_t n = fread(buf, 1, sizeof(buf), fp);
+		if (n > 0) {
+			if (fwrite(buf, 1, n, out) != n) {
+				ok = false;
+				break;
+			}
+			if (client_ok && !res.write(buf, n)) {
+				client_ok = false;
+			}
+		}
+		if (n < sizeof(buf)) {
+			if (ferror(fp)) {
+				ok = false;
+			}
+			break;
+		}
+	}
+	const int code = pclose(fp);
+	if (fclose(out) != 0) {
+		ok = false;
+	}
+	if (code == 0 && ok && file_size_of(tmp_path.c_str()) > 0) {
+		std::string remux_err;
+		if (remux_mp4_faststart(ffmpeg, tmp_path.c_str(), output_path, remux_err)) {
+			::unlink(tmp_path.c_str());
+		} else if (::rename(tmp_path.c_str(), output_path.c_str()) != 0) {
+			::unlink(tmp_path.c_str());
+			ok = false;
+		}
+	} else {
+		::unlink(tmp_path.c_str());
+		ok = false;
+	}
+	if (client_ok) {
+		return res.write(NULL, 0);
+	}
+	return ok;
 }
 
 bool VideoConvertProgressAction::run(request_t& req, response_t& res,

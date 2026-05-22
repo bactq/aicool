@@ -49,6 +49,7 @@
     "        localDiskImport: '/api/v1/local-disk/import',",
     "        localDiskImportProgress: '/api/v1/local-disk/import/progress',",
     "        localDiskVideoConvert: '/api/v1/local-disk/video/convert',",
+    "        localDiskVideoStream: '/api/v1/local-disk/video/stream',",
     "        reloadTpl: '/api/v1/admin/template/reload',",
     "        adminStorage: '/api/v1/admin/storage',",
     "        adminStorageMigrate: '/api/v1/admin/storage/migrate',",
