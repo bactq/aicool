@@ -46,4 +46,28 @@ bool sendJson(response_t& res, int status, const acl::string& json,
 std::string choose_sqlite_lib_path();
 std::string choose_ffmpeg_path();
 
+struct remote_copy_task_snapshot_t {
+	std::string id;
+	std::string state;
+	std::string message;
+	std::string error;
+	std::string source;
+	std::string target;
+	std::string path;
+	long long total_bytes;
+	long long copied_bytes;
+	bool directory;
+	bool cancel_requested;
+};
+
+std::string start_remote_copy_task(const std::string& source_full,
+	const std::string& target_full, const std::string& path,
+	bool directory);
+
+bool remote_copy_task_snapshot(const std::string& task_id,
+	remote_copy_task_snapshot_t& snapshot);
+
+bool remote_copy_task_cancel(const std::string& task_id,
+	remote_copy_task_snapshot_t& snapshot);
+
 } // namespace action

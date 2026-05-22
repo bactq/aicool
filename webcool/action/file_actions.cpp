@@ -1445,6 +1445,19 @@ bool CopyFileAction::run(request_t& req, response_t& res,
 		json_error(res, 404, "source file not found", req.isKeepAlive());
 		return true;
 	}
+	if (req.getParameter("async") != NULL && strcmp(req.getParameter("async"), "1") == 0) {
+		const std::string task_id = start_remote_copy_task(from_full, to_full,
+			target_path, false);
+		acl::json json;
+		acl::json_node& root = json.create_node();
+		root.add_bool("ok", true);
+		root.add_text("task_id", task_id.c_str());
+		root.add_text("path", target_path.c_str());
+		root.add_text("folder_path", target_folder.c_str());
+		root.add_bool("directory", false);
+		root.add_text("message", "copy task started");
+		return sendJson(res, 200, root, req.isKeepAlive());
+	}
 	if (!copy_regular_file_plain(from_full, to_full, source_st.st_mode, err)) {
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
@@ -1459,6 +1472,62 @@ bool CopyFileAction::run(request_t& req, response_t& res,
 	root.add_bool("overwritten", overwrite);
 	root.add_text("message", "file copied");
 	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+static bool send_remote_copy_task_snapshot(response_t& res,
+	const remote_copy_task_snapshot_t& task, bool keep_alive)
+{
+	const double progress = task.total_bytes > 0
+		? (double) task.copied_bytes * 100.0 / (double) task.total_bytes
+		: (task.state == "done" ? 100.0 : 0.0);
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("task_id", task.id.c_str());
+	root.add_text("state", task.state.c_str());
+	root.add_text("message", task.message.c_str());
+	root.add_text("error", task.error.c_str());
+	root.add_text("path", task.path.c_str());
+	root.add_number("total_bytes", task.total_bytes);
+	root.add_number("copied_bytes", task.copied_bytes);
+	root.add_number("progress", progress);
+	root.add_bool("directory", task.directory);
+	root.add_bool("cancel_requested", task.cancel_requested);
+	return sendJson(res, 200, root, keep_alive);
+}
+
+bool RemoteCopyProgressAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	(void) upload_dir;
+	const char* task_id = req.getParameter("task_id");
+	if (task_id == NULL || *task_id == '\0') {
+		json_error(res, 400, "task_id is required", req.isKeepAlive());
+		return true;
+	}
+	remote_copy_task_snapshot_t task;
+	if (!remote_copy_task_snapshot(task_id, task)) {
+		json_error(res, 404, "copy task not found", req.isKeepAlive());
+		return true;
+	}
+	return send_remote_copy_task_snapshot(res, task, req.isKeepAlive());
+}
+
+bool RemoteCopyCancelAction::run(request_t& req, response_t& res,
+	const std::string& upload_dir)
+{
+	(void) upload_dir;
+	const char* task_id = req.getParameter("task_id");
+	if (task_id == NULL || *task_id == '\0') {
+		json_error(res, 400, "task_id is required", req.isKeepAlive());
+		return true;
+	}
+	remote_copy_task_snapshot_t task;
+	if (!remote_copy_task_cancel(task_id, task)) {
+		json_error(res, 404, "copy task not found", req.isKeepAlive());
+		return true;
+	}
+	return send_remote_copy_task_snapshot(res, task, req.isKeepAlive());
 }
 
 bool RenameFileAction::run(request_t& req, response_t& res,

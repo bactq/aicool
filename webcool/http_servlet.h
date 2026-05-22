@@ -40,6 +40,8 @@ private:
 	bool routeRestore(request_t& req, response_t& res);
 	bool routeMoveFile(request_t& req, response_t& res);
 	bool routeCopyFile(request_t& req, response_t& res);
+	bool routeRemoteCopyProgress(request_t& req, response_t& res);
+	bool routeRemoteCopyCancel(request_t& req, response_t& res);
 	bool routeRenameFile(request_t& req, response_t& res);
 	bool routeFiles(request_t& req, response_t& res);
 	bool routeDownload(request_t& req, response_t& res);

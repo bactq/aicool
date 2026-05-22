@@ -229,6 +229,8 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 			{ "/api/v1/restore", &http_servlet::routeRestore },
 			{ "/api/v1/files/move", &http_servlet::routeMoveFile },
 			{ "/api/v1/files/copy", &http_servlet::routeCopyFile },
+			{ "/api/v1/remote-copy/progress", &http_servlet::routeRemoteCopyProgress },
+			{ "/api/v1/remote-copy/cancel", &http_servlet::routeRemoteCopyCancel },
 			{ "/api/v1/files/rename", &http_servlet::routeRenameFile },
 		{ "/api/v1/files", &http_servlet::routeFiles },
 		{ "/api/v1/download", &http_servlet::routeDownload },
@@ -313,6 +315,14 @@ bool http_servlet::routeMoveFile(request_t& req, response_t& res) {
 
 bool http_servlet::routeCopyFile(request_t& req, response_t& res) {
 	return action::CopyFileAction::run(req, res, action::runtime_upload_dir_get());
+}
+
+bool http_servlet::routeRemoteCopyProgress(request_t& req, response_t& res) {
+	return action::RemoteCopyProgressAction::run(req, res, action::runtime_upload_dir_get());
+}
+
+bool http_servlet::routeRemoteCopyCancel(request_t& req, response_t& res) {
+	return action::RemoteCopyCancelAction::run(req, res, action::runtime_upload_dir_get());
 }
 
 bool http_servlet::routeRenameFile(request_t& req, response_t& res) {
@@ -523,6 +533,8 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/restore", &http_servlet::routeRestore },
 		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
 		{ "/api/v1/files/copy", &http_servlet::routeCopyFile },
+		{ "/api/v1/remote-copy/progress", &http_servlet::routeRemoteCopyProgress },
+		{ "/api/v1/remote-copy/cancel", &http_servlet::routeRemoteCopyCancel },
 		{ "/api/v1/files/rename", &http_servlet::routeRenameFile },
 		{ "/api/v1/video/convert", &http_servlet::routeVideoConvert },
 		{ "/api/v1/video/convert/cancel", &http_servlet::routeVideoConvertCancel },

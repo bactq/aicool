@@ -184,6 +184,25 @@
       padding: 20px;
     }
 
+    .tag-dialog.non-modal-progress {
+      inset: auto 22px 22px auto;
+      width: min(460px, calc(100vw - 32px));
+      padding: 0;
+      display: block;
+      pointer-events: none;
+    }
+
+    .tag-dialog.non-modal-progress .tag-dialog-backdrop {
+      display: none;
+    }
+
+    .tag-dialog.non-modal-progress .tag-dialog-card {
+      pointer-events: auto;
+      width: 100%;
+      border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(26, 49, 78, 0.24);
+    }
+
     .tag-dialog-backdrop {
       position: absolute;
       inset: 0;

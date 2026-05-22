@@ -1306,6 +1306,19 @@ bool FolderCopyAction::run(request_t& req, response_t& res,
 		return true;
 	}
 
+	if (req.getParameter("async") != NULL && strcmp(req.getParameter("async"), "1") == 0) {
+		const std::string task_id = start_remote_copy_task(source_full, target_full,
+			target_path, true);
+		acl::json json;
+		acl::json_node& root = json.create_node();
+		root.add_bool("ok", true);
+		root.add_text("task_id", task_id.c_str());
+		root.add_text("path", target_path.c_str());
+		root.add_text("folder_path", target_parent.c_str());
+		root.add_bool("directory", true);
+		root.add_text("message", "copy task started");
+		return sendJson(res, 200, root, req.isKeepAlive());
+	}
 	if (!copy_path_recursive(source_full, target_full, err)) {
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
