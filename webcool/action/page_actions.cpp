@@ -11,8 +11,7 @@ const char* resolve_index_html_path() {
 	static const char* kCandidates[] = {
 		"html/main.html",
 		"webcool/html/main.html",
-		"html/zh/main.html",
-		"webcool/html/zh/main.html"
+		"/opt/webcool/html/main.html"
 	};
 	for (size_t i = 0; i < sizeof(kCandidates) / sizeof(kCandidates[0]); ++i) {
 		if (access(kCandidates[i], R_OK) == 0) {

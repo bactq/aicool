@@ -9,21 +9,22 @@ namespace {
 
 typedef bool (http_servlet::*route_handler)(request_t& req, response_t& res);
 
-const char* resolve_static_file_path(const char* local_path,
-	const char* workspace_path)
+static std::string html_home = "/opt/webcool/html";
+const char* resolve_static_file_path(const char* local_path, std::string& buff)
 {
-	static thread_local acl::string resolved;
-	if (local_path != NULL && access(local_path, R_OK) == 0) {
-		resolved.clear();
-		resolved = local_path;
-		return resolved.c_str();
+	if (local_path != NULL) {
+		if (access(local_path, R_OK) == 0) {
+			buff = local_path;
+			return buff.c_str();
+		}
+		buff = html_home;
+		buff += local_path;
+		if (access(buff.c_str(), R_OK) == 0) {
+			//printf(">>>buf: %s\n", buff.c_str());
+			return buff.c_str();
+		}
 	}
-	if (workspace_path != NULL && access(workspace_path, R_OK) == 0) {
-		resolved.clear();
-		resolved = workspace_path;
-		return resolved.c_str();
-	}
-	resolved.clear();
+	buff.clear();
 	return NULL;
 }
 
@@ -58,11 +59,10 @@ bool try_route_localized_asset(const char* path, const char* lang,
 		return false;
 	}
 
-	acl::string local_path, workspace_path;
-	local_path.format("html/%s/%s", lang, file_name);
-	workspace_path.format("webcool/html/%s/%s", lang, file_name);
-	const char* file_path = resolve_static_file_path(local_path.c_str(),
-		workspace_path.c_str());
+	acl::string local_path;
+	local_path.format("/%s/%s", lang, file_name);
+	std::string buff;
+	const char* file_path = resolve_static_file_path(local_path.c_str(), buff);
 	return file_path != NULL
 		? send_static_file(file_path, content_type, req, res)
 		: false;
@@ -93,11 +93,10 @@ bool try_route_html_js_module(const char* path, request_t& req, response_t& res)
 		return false;
 	}
 
-	acl::string local_path, workspace_path;
-	local_path.format("html/js/%s", file_name);
-	workspace_path.format("webcool/html/js/%s", file_name);
-	const char* file_path = resolve_static_file_path(local_path.c_str(),
-		workspace_path.c_str());
+	acl::string local_path;
+	local_path.format("/js/%s", file_name);
+	std::string buff;
+	const char* file_path = resolve_static_file_path(local_path.c_str(), buff);
 	return file_path != NULL
 		? send_static_file(file_path, "application/javascript; charset=utf-8", req, res)
 		: false;
@@ -116,8 +115,8 @@ bool try_route_static_asset(const char* path, request_t& req, response_t& res) {
 		|| strcmp(path, "/html/i18n/zh.js") == 0
 		|| strcmp(path, "/i18n/zh.js") == 0)
 	{
-		const char* file_path = resolve_static_file_path("html/i18n/zh.js",
-			"webcool/html/i18n/zh.js");
+		std::string buff;
+		const char* file_path = resolve_static_file_path("i18n/zh.js", buff);
 		return file_path != NULL
 			? send_static_file(file_path, "application/javascript; charset=utf-8", req, res)
 			: false;
@@ -127,8 +126,8 @@ bool try_route_static_asset(const char* path, request_t& req, response_t& res) {
 		|| strcmp(path, "/html/i18n/en.js") == 0
 		|| strcmp(path, "/i18n/en.js") == 0)
 	{
-		const char* file_path = resolve_static_file_path("html/i18n/en.js",
-			"webcool/html/i18n/en.js");
+		std::string buff;
+		const char* file_path = resolve_static_file_path("i18n/en.js", buff);
 		return file_path != NULL
 			? send_static_file(file_path, "application/javascript; charset=utf-8", req, res)
 			: false;
@@ -138,8 +137,8 @@ bool try_route_static_asset(const char* path, request_t& req, response_t& res) {
 		|| strcmp(path, "/html/main.html") == 0
 		|| strcmp(path, "/main.html") == 0)
 	{
-		const char* file_path = resolve_static_file_path("html/main.html",
-			"webcool/html/main.html");
+		std::string buff;
+		const char* file_path = resolve_static_file_path("/main.html", buff);
 		return file_path != NULL
 			? send_static_file(file_path, "text/html; charset=utf-8", req, res)
 			: false;
@@ -147,17 +146,17 @@ bool try_route_static_asset(const char* path, request_t& req, response_t& res) {
 
 	static const char* kLangs[] = { "zh", "en" };
 	for (size_t i = 0; i < sizeof(kLangs) / sizeof(kLangs[0]); ++i) {
-		if (try_route_localized_asset(path, kLangs[i], "main.html",
+		if (try_route_localized_asset(path, kLangs[i], "/main.html",
 			"text/html; charset=utf-8", req, res))
 		{
 			return true;
 		}
-		if (try_route_localized_asset(path, kLangs[i], "main.css",
+		if (try_route_localized_asset(path, kLangs[i], "/main.css",
 			"text/css; charset=utf-8", req, res))
 		{
 			return true;
 		}
-		if (try_route_localized_asset(path, kLangs[i], "main.js",
+		if (try_route_localized_asset(path, kLangs[i], "/main.js",
 			"application/javascript; charset=utf-8", req, res))
 		{
 			return true;
@@ -168,8 +167,8 @@ bool try_route_static_asset(const char* path, request_t& req, response_t& res) {
 		|| strcmp(path, "/html/main.css") == 0
 		|| strcmp(path, "/main.css") == 0)
 	{
-		const char* file_path = resolve_static_file_path("html/main.css",
-			"webcool/html/main.css");
+		std::string buff;
+		const char* file_path = resolve_static_file_path("/main.css", buff);
 		return file_path != NULL
 			? send_static_file(file_path, "text/css; charset=utf-8", req, res)
 			: false;
@@ -179,8 +178,8 @@ bool try_route_static_asset(const char* path, request_t& req, response_t& res) {
 		|| strcmp(path, "/html/main.js") == 0
 		|| strcmp(path, "/main.js") == 0)
 	{
-		const char* file_path = resolve_static_file_path("html/main.js",
-			"webcool/html/main.js");
+		std::string buff;
+		const char* file_path = resolve_static_file_path("/main.js", buff);
 		return file_path != NULL
 			? send_static_file(file_path, "application/javascript; charset=utf-8", req, res)
 			: false;
@@ -224,14 +223,14 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/admin/template/reload", &http_servlet::routeTemplateReload },
 		{ "/api/v1/admin/storage", &http_servlet::routeAdminStorageInfo },
 		{ "/api/v1/admin/storage/migrate", &http_servlet::routeAdminStorageMigrate },
-			{ "/api/v1/admin/storage/migrate/progress", &http_servlet::routeAdminStorageMigrateProgress },
-			{ "/api/v1/delete", &http_servlet::routeDelete },
-			{ "/api/v1/restore", &http_servlet::routeRestore },
-			{ "/api/v1/files/move", &http_servlet::routeMoveFile },
-			{ "/api/v1/files/copy", &http_servlet::routeCopyFile },
-			{ "/api/v1/remote-copy/progress", &http_servlet::routeRemoteCopyProgress },
-			{ "/api/v1/remote-copy/cancel", &http_servlet::routeRemoteCopyCancel },
-			{ "/api/v1/files/rename", &http_servlet::routeRenameFile },
+		{ "/api/v1/admin/storage/migrate/progress", &http_servlet::routeAdminStorageMigrateProgress },
+		{ "/api/v1/delete", &http_servlet::routeDelete },
+		{ "/api/v1/restore", &http_servlet::routeRestore },
+		{ "/api/v1/files/move", &http_servlet::routeMoveFile },
+		{ "/api/v1/files/copy", &http_servlet::routeCopyFile },
+		{ "/api/v1/remote-copy/progress", &http_servlet::routeRemoteCopyProgress },
+		{ "/api/v1/remote-copy/cancel", &http_servlet::routeRemoteCopyCancel },
+		{ "/api/v1/files/rename", &http_servlet::routeRenameFile },
 		{ "/api/v1/files", &http_servlet::routeFiles },
 		{ "/api/v1/download", &http_servlet::routeDownload },
 		{ "/api/v1/open-file", &http_servlet::routeOpenFile },
@@ -257,12 +256,12 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/video/probe", &http_servlet::routeVideoProbe },
 		{ "/api/v1/video/resume", &http_servlet::routeVideoResumeGet },
 		{ "/api/v1/video/resume/save", &http_servlet::routeVideoResumeSet },
-			{ "/api/v1/folders", &http_servlet::routeFolderList },
-			{ "/api/v1/folders/create", &http_servlet::routeFolderCreate },
-			{ "/api/v1/folders/rename", &http_servlet::routeFolderRename },
-			{ "/api/v1/folders/move", &http_servlet::routeFolderMove },
-			{ "/api/v1/folders/copy", &http_servlet::routeFolderCopy },
-			{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
+		{ "/api/v1/folders", &http_servlet::routeFolderList },
+		{ "/api/v1/folders/create", &http_servlet::routeFolderCreate },
+		{ "/api/v1/folders/rename", &http_servlet::routeFolderRename },
+		{ "/api/v1/folders/move", &http_servlet::routeFolderMove },
+		{ "/api/v1/folders/copy", &http_servlet::routeFolderCopy },
+		{ "/api/v1/folders/delete", &http_servlet::routeFolderDelete },
 		{ "/api/v1/folders/lock", &http_servlet::routeFolderLock },
 		{ "/api/v1/folders/unlock", &http_servlet::routeFolderUnlock },
 		{ "/api/v1/folders/lock/verify", &http_servlet::routeFolderLockVerify },
