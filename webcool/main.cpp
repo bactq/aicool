@@ -35,14 +35,15 @@ static char                  g_upload_dir[256] = "./uploads";
 static char                  g_html_home[512] = "./html";
 static char                  g_sqlite_lib[512] = "";
 static char                  g_ffmpeg_path[512] = "";
-static const char*           g_webcool_version = "1.0.5";
+static const char*           g_webcool_version = "1.0.6";
 
 static void apply_default_upload_dir(bool upload_dir_specified) {
 #ifdef MACOSX
 	if (!upload_dir_specified) {
 		const char* home = getenv("HOME");
 		if (home != NULL && *home != '\0') {
-			snprintf(g_upload_dir, sizeof(g_upload_dir), "%s/Library/Application Support/webcool/data", home);
+			snprintf(g_upload_dir, sizeof(g_upload_dir),
+				"%s/Library/Application Support/webcool/data", home);
 		} else {
 			snprintf(g_upload_dir, sizeof(g_upload_dir), "%s", "./uploads");
 		}
