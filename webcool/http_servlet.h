@@ -32,6 +32,7 @@ protected:
 private:
 	std::string upload_dir_;
 
+	bool routeStaticPage(request_t& req, response_t& res);
 	bool routeTemplateReload(request_t& req, response_t& res);
 	bool routeAdminStorageInfo(request_t& req, response_t& res);
 	bool routeAdminStorageMigrate(request_t& req, response_t& res);

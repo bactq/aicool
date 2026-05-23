@@ -9,185 +9,6 @@ namespace {
 
 typedef bool (http_servlet::*route_handler)(request_t& req, response_t& res);
 
-static std::string html_home = "/opt/webcool/html";
-const char* resolve_static_file_path(const char* local_path, std::string& buff)
-{
-	if (local_path != NULL) {
-		if (access(local_path, R_OK) == 0) {
-			buff = local_path;
-			return buff.c_str();
-		}
-		buff = html_home;
-		buff += local_path;
-		if (access(buff.c_str(), R_OK) == 0) {
-			//printf(">>>buf: %s\n", buff.c_str());
-			return buff.c_str();
-		}
-	}
-	buff.clear();
-	return NULL;
-}
-
-bool send_static_file(const char* file_path, const char* content_type,
-	request_t& req, response_t& res)
-{
-	acl::string body;
-	if (!acl::ifstream::load(file_path, &body)) {
-		return false;
-	}
-
-	res.setStatus(200);
-	res.setContentType(content_type);
-	res.setKeepAlive(req.isKeepAlive());
-	res.setContentLength((long long) body.size());
-	return res.write(body) && res.write(NULL, 0);
-}
-
-bool try_route_localized_asset(const char* path, const char* lang,
-	const char* file_name, const char* content_type,
-	request_t& req, response_t& res)
-{
-	acl::string route1, route2, route3;
-	route1.format("/webcool/html/%s/%s", lang, file_name);
-	route2.format("/html/%s/%s", lang, file_name);
-	route3.format("/%s/%s", lang, file_name);
-
-	if (strcmp(path, route1.c_str()) != 0
-		&& strcmp(path, route2.c_str()) != 0
-		&& strcmp(path, route3.c_str()) != 0)
-	{
-		return false;
-	}
-
-	acl::string local_path;
-	local_path.format("/%s/%s", lang, file_name);
-	std::string buff;
-	const char* file_path = resolve_static_file_path(local_path.c_str(), buff);
-	return file_path != NULL
-		? send_static_file(file_path, content_type, req, res)
-		: false;
-}
-
-bool try_route_html_js_module(const char* path, request_t& req, response_t& res)
-{
-	static const char* kPrefixes[] = {
-		"/webcool/html/js/",
-		"/html/js/",
-		"/js/"
-	};
-
-	const char* file_name = NULL;
-	for (size_t i = 0; i < sizeof(kPrefixes) / sizeof(kPrefixes[0]); ++i) {
-		const size_t prefix_len = strlen(kPrefixes[i]);
-		if (strncmp(path, kPrefixes[i], prefix_len) == 0) {
-			file_name = path + prefix_len;
-			break;
-		}
-	}
-	const size_t file_len = file_name != NULL ? strlen(file_name) : 0;
-	if (file_name == NULL || *file_name == '\0' || file_len < 4
-		|| strstr(file_name, "..") != NULL
-		|| strchr(file_name, '/') != NULL
-		|| strcmp(file_name + file_len - 3, ".js") != 0)
-	{
-		return false;
-	}
-
-	acl::string local_path;
-	local_path.format("/js/%s", file_name);
-	std::string buff;
-	const char* file_path = resolve_static_file_path(local_path.c_str(), buff);
-	return file_path != NULL
-		? send_static_file(file_path, "application/javascript; charset=utf-8", req, res)
-		: false;
-}
-
-bool try_route_static_asset(const char* path, request_t& req, response_t& res) {
-	if (path == NULL || *path == '\0') {
-		return false;
-	}
-
-	if (try_route_html_js_module(path, req, res)) {
-		return true;
-	}
-
-	if (strcmp(path, "/webcool/html/i18n/zh.js") == 0
-		|| strcmp(path, "/html/i18n/zh.js") == 0
-		|| strcmp(path, "/i18n/zh.js") == 0)
-	{
-		std::string buff;
-		const char* file_path = resolve_static_file_path("i18n/zh.js", buff);
-		return file_path != NULL
-			? send_static_file(file_path, "application/javascript; charset=utf-8", req, res)
-			: false;
-	}
-
-	if (strcmp(path, "/webcool/html/i18n/en.js") == 0
-		|| strcmp(path, "/html/i18n/en.js") == 0
-		|| strcmp(path, "/i18n/en.js") == 0)
-	{
-		std::string buff;
-		const char* file_path = resolve_static_file_path("i18n/en.js", buff);
-		return file_path != NULL
-			? send_static_file(file_path, "application/javascript; charset=utf-8", req, res)
-			: false;
-	}
-
-	if (strcmp(path, "/webcool/html/main.html") == 0
-		|| strcmp(path, "/html/main.html") == 0
-		|| strcmp(path, "/main.html") == 0)
-	{
-		std::string buff;
-		const char* file_path = resolve_static_file_path("/main.html", buff);
-		return file_path != NULL
-			? send_static_file(file_path, "text/html; charset=utf-8", req, res)
-			: false;
-	}
-
-	static const char* kLangs[] = { "zh", "en" };
-	for (size_t i = 0; i < sizeof(kLangs) / sizeof(kLangs[0]); ++i) {
-		if (try_route_localized_asset(path, kLangs[i], "/main.html",
-			"text/html; charset=utf-8", req, res))
-		{
-			return true;
-		}
-		if (try_route_localized_asset(path, kLangs[i], "/main.css",
-			"text/css; charset=utf-8", req, res))
-		{
-			return true;
-		}
-		if (try_route_localized_asset(path, kLangs[i], "/main.js",
-			"application/javascript; charset=utf-8", req, res))
-		{
-			return true;
-		}
-	}
-
-	if (strcmp(path, "/webcool/html/main.css") == 0
-		|| strcmp(path, "/html/main.css") == 0
-		|| strcmp(path, "/main.css") == 0)
-	{
-		std::string buff;
-		const char* file_path = resolve_static_file_path("/main.css", buff);
-		return file_path != NULL
-			? send_static_file(file_path, "text/css; charset=utf-8", req, res)
-			: false;
-	}
-
-	if (strcmp(path, "/webcool/html/main.js") == 0
-		|| strcmp(path, "/html/main.js") == 0
-		|| strcmp(path, "/main.js") == 0)
-	{
-		std::string buff;
-		const char* file_path = resolve_static_file_path("/main.js", buff);
-		return file_path != NULL
-			? send_static_file(file_path, "application/javascript; charset=utf-8", req, res)
-			: false;
-	}
-
-	return false;
-}
-
 } // namespace
 
 // ────────────────────────────────────────────────────────────────
@@ -211,12 +32,8 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 	if (path == NULL || *path == '\0') {
 		return action::IndexAction::run(req, res);
 	}
-	if (strcmp(path, "/") == 0) {
+	if (strcmp(path, "/") == 0 || strncmp(path, "/webcool/html/", 14) == 0) {
 		return action::IndexAction::run(req, res);
-	}
-
-	if (try_route_static_asset(path, req, res)) {
-		return true;
 	}
 
 	static const std::map<std::string, route_handler> routes = {
@@ -277,11 +94,10 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/upload", &http_servlet::routeUpload },
 	};
 	std::map<std::string, route_handler>::const_iterator it = routes.find(path);
-	if (it == routes.end()) {
-		return action::IndexAction::run(req, res);
+	if (it != routes.end()) {
+		return (this->*(it->second))(req, res);
 	}
-
-	return (this->*(it->second))(req, res);
+	return action::IndexAction::run(req, res);
 }
 
 bool http_servlet::routeTemplateReload(request_t& req, response_t& res) {

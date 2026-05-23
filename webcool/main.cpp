@@ -32,6 +32,7 @@ static size_t                g_stack_size    = 128000;
 static int                   g_rw_timeout    = 0;
 static acl::fiber_event_t    g_event_type    = acl::FIBER_EVENT_T_KERNEL;
 static char                  g_upload_dir[256] = "./uploads";
+static char                  g_html_home[512] = "./html";
 static char                  g_sqlite_lib[512] = "";
 static char                  g_ffmpeg_path[512] = "";
 static const char*           g_webcool_version = "1.0.5";
@@ -180,9 +181,8 @@ private:
 
 		while (servlet.doRun()) {}
 
-		printf("connection closed: fd=%d, fiber-%d, %s\n",
-			conn->sock_handle(), acl::fiber::self(),
-			acl::last_serror());
+		logger_debug(DEBUG_CONN, 1, "connection closed: fd=%d, fiber-%d, %s",
+			conn->sock_handle(), acl::fiber::self(), acl::last_serror());
 		delete conn;
 	}
 
@@ -223,6 +223,7 @@ static void usage(const char* prog) {
 		"  -s addr         监听地址 (默认 0.0.0.0:8080)\n"
 		"  -d upload_dir   上传文件保存目录\n"
 		"                  (macOS 默认 ~/Library/Application Support/webcool/data, 其他平台默认 ./uploads)\n"
+		"  -w html_home     静态资源根目录 (默认 ./html)\n"
 		"  -S sqlite_lib   sqlite 动态库路径 (例如 /usr/local/lib/sqlite3.so)\n"
 		"  -F ffmpeg_path  ffmpeg 可执行文件路径 (例如 /opt/webcool/bin/ffmpeg)\n"
 		"  -t threads      工作线程数 (默认 2)\n"
@@ -246,7 +247,7 @@ int main(int argc, char* argv[]) {
 	int  ch;
 	bool upload_dir_specified = false;
 
-	while ((ch = getopt(argc, argv, "hvVDs:d:S:F:t:Rr:z:e:")) > 0) {
+	while ((ch = getopt(argc, argv, "hvVDs:d:w:S:F:t:Rr:z:e:")) > 0) {
 		switch (ch) {
 		case 'h':
 			usage(argv[0]);
@@ -266,6 +267,9 @@ int main(int argc, char* argv[]) {
 		case 'd':
 			snprintf(g_upload_dir, sizeof(g_upload_dir), "%s", optarg);
 			upload_dir_specified = true;
+			break;
+		case 'w':
+			snprintf(g_html_home, sizeof(g_html_home), "%s", optarg);
 			break;
 		case 'S':
 			snprintf(g_sqlite_lib, sizeof(g_sqlite_lib), "%s", optarg);
@@ -323,6 +327,11 @@ int main(int argc, char* argv[]) {
 	if (g_sqlite_lib[0] != '\0') {
 		action::runtime_sqlite_lib_set(g_sqlite_lib);
 	}
+
+	if (g_html_home[0] != '\0') {
+		action::IndexAction::set_static_home_path(g_html_home);
+	}
+
 
 	if (g_ffmpeg_path[0] != '\0') {
 		action::runtime_ffmpeg_path_set(g_ffmpeg_path);

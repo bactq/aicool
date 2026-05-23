@@ -7,31 +7,85 @@ namespace action {
 
 namespace {
 
-const char* resolve_index_html_path() {
-	static const char* kCandidates[] = {
-		"html/main.html",
-		"webcool/html/main.html",
-		"/opt/webcool/html/main.html"
+static std::string html_home = "/opt/webcool/html";
+
+const char* get_index_html_path(acl::string& buff) {
+	buff = html_home;
+	buff += "/main.html";
+	return buff.c_str();
+}
+
+const char* get_static_file_path(const char* path, acl::string& buff,
+	  std::string& ctype) {
+	buff.clear();
+
+	acl::string tmp = path;
+	static char static_prefix[] = "/webcool/html";
+	char *pos = tmp.find(static_prefix);
+	if (pos == nullptr) {
+		return NULL;
+	}
+	pos += sizeof(static_prefix) - 1;
+
+	buff  = html_home;
+	if (*pos != '/') {
+		buff += '/';
+	}
+	buff += pos;
+	buff.strip(".."); // Sanity check, to avoid access the root path.
+
+	static std::map<std::string, std::string> types = {
+		{ ".text", "text/plain; charset=utf-8"              },
+		{ ".txt",  "text/plain; charset=utf-8"              },
+		{ ".html", "text/html; charset=utf-8"              },
+		{ ".js",   "application/javascript; charset=utf-8" },
+		{ ".css",  "text/css; charset=utf-8"               },
+		{ ".png",  "image/png"                             },
+		{ ".jpg",  "image/jpg"                             },
+		{ ".gif",  "image/gif"                             },
 	};
-	for (size_t i = 0; i < sizeof(kCandidates) / sizeof(kCandidates[0]); ++i) {
-		if (access(kCandidates[i], R_OK) == 0) {
-			return kCandidates[i];
+
+	pos = buff.rfind(".");
+	if (pos == nullptr) {
+		ctype = "application/octet-stream";
+	} else {
+		const auto it = types.find(pos);
+		if (it == types.end()) {
+			ctype = "application/octet-stream";
+		} else {
+			ctype = it->second.c_str();
 		}
 	}
-	return NULL;
+
+	return buff.c_str();
 }
 
 } // namespace
 
+void IndexAction::set_static_home_path(const char* html_home_path) {
+	if (html_home_path != NULL && *html_home_path != '\0') {
+		html_home = html_home_path;
+	}
+}
+
 bool IndexAction::run(request_t& req, response_t& res) {
-	acl::string buf;
-	const char* html_path = resolve_index_html_path();
-	if (html_path == NULL || !acl::ifstream::load(html_path, &buf)) {
-		return sendText(res, 500, "load html/main.html failed\n",
-			req.isKeepAlive());
+	const char* path = req.getPathInfo();
+	const char* filepath = nullptr;
+	std::string ctype = "text/html";
+	acl::string buff;
+	if (path == nullptr || *path == 0 || strcmp(path, "/") == 0) {
+		filepath = get_index_html_path(buff);
+	} else {
+		filepath = get_static_file_path(path, buff, ctype);
 	}
 
-	return sendHtml(res, buf, req.isKeepAlive());
+	acl::string data;
+	if (filepath == NULL || !acl::ifstream::load(filepath, &data)) {
+		buff.format("load %s failed(%s)\r\n", path, acl::last_serror());
+		return sendText(res, 500, buff.c_str(), req.isKeepAlive());
+	}
+
+	return sendData(res, data, ctype.c_str(), req.isKeepAlive());
 }
 
 bool TemplateReloadAction::run(request_t& req, response_t& res) {

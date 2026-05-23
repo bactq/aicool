@@ -7,7 +7,16 @@
 namespace action {
 
 bool make_dir(const char* path);
+
+//#define DEBUG
+
+bool make_dirs(const char* file, int line, const char* path);
+
+#ifdef DEBUG
+#define make_dir_recursive(p) make_dirs(__FILE__, __LINE__, p)
+#else
 bool make_dir_recursive(const char* path);
+#endif
 
 bool normalize_relative_path(const char* input, std::string& normalized,
 	std::string& err, bool allow_empty = false);
@@ -30,6 +39,9 @@ const char* recycle_folder_name();
 bool is_recycle_root_path(const std::string& relative_path);
 
 bool is_recycle_file_path(const std::string& relative_path);
+
+bool sendData(response_t& res, const acl::string& data,
+	const acl::string& type, bool keep_alive = true);
 
 bool sendHtml(response_t& res, const acl::string& html,
 	bool keep_alive = true);

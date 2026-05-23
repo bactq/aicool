@@ -11,3 +11,8 @@
 
 typedef acl::HttpServletRequest  request_t;
 typedef acl::HttpServletResponse response_t;
+
+#define DEBUG_MIN       200
+#define DEBUG_FILE      (DEBUG_MIN + 1)
+#define DEBUG_FOLDER    (DEBUG_MIN + 1)
+#define DEBUG_CONN      (DEBUG_MIN + 1)

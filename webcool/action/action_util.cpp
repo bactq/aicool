@@ -550,46 +550,22 @@ bool make_dir(const char* path) {
 	return mkdir(path, 0755) == 0;
 }
 
-bool make_dir_recursive(const char* path) {
-	if (path == NULL || *path == '\0') {
-		return false;
-	}
-	if (make_dir(path)) {
-		return true;
-	}
-
-	std::string text(path);
-	if (text.empty()) {
-		return false;
-	}
-
-	if (text[text.size() - 1] == '/') {
-		text.erase(text.size() - 1);
-	}
-	if (text.empty()) {
-		return false;
-	}
-
-	std::string current;
-	if (text[0] == '/') {
-		current = "/";
-	}
-
-	for (size_t i = (text[0] == '/') ? 1 : 0; i <= text.size(); ++i) {
-		if (i < text.size() && text[i] != '/') {
-			current.push_back(text[i]);
-			continue;
-		}
-		if (!current.empty() && current != "/" && !make_dir(current.c_str())) {
-			return false;
-		}
-		if (i < text.size()) {
-			current.push_back('/');
-		}
-	}
-
-	return make_dir(path);
+bool make_dirs(const char* file, int line, const char* path) {
+	bool ret = acl_make_dirs(path, 0755) == 0;
+#ifdef DEBUG
+	printf("%s(%d): path=%s, res=%s\r\n", file, line, path, ret ? "ok" : "error");
+#else
+	(void) file;
+	(void) line;
+#endif
+	return ret;
 }
+
+#ifndef DEBUG
+bool make_dir_recursive(const char* path) {
+	return make_dirs(__FILE__, __LINE__, path);
+}
+#endif
 
 bool normalize_relative_path(const char* input, std::string& normalized,
 	std::string& err, bool allow_empty)
@@ -722,11 +698,16 @@ bool is_recycle_file_path(const std::string& relative_path) {
 		&& relative_path.compare(0, prefix.size(), prefix) == 0;
 }
 
-bool sendHtml(response_t& res, const acl::string& html, bool keep_alive) {
-	res.setContentType("text/html; charset=utf-8");
+bool sendData(response_t& res, const acl::string& data,
+	  const acl::string& type, bool keep_alive) {
+	res.setContentType(type);
 	res.setKeepAlive(keep_alive);
-	res.setContentLength(html.size());
-	return res.write(html) && res.write(NULL, 0);
+	res.setContentLength(data.size());
+	return res.write(data) && res.write(NULL, 0);
+}
+
+bool sendHtml(response_t& res, const acl::string& html, bool keep_alive) {
+	return sendData(res, html, "text/html; charset=utf-8", keep_alive);
 }
 
 bool sendText(response_t& res, int status, const char* text, bool keep_alive) {

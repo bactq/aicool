@@ -406,41 +406,15 @@ static bool collect_recycle_directory_entries(const std::string& upload_dir,
 static bool delete_directory_recursive(const std::string& full_path,
 	std::string& err)
 {
-	DIR* dir = opendir(full_path.c_str());
-	if (dir == NULL) {
-		err = strerror(errno);
-		return false;
+	int ndir, nfile;
+	if (acl_scan_dir_rm(full_path.c_str(), 1, &ndir, &nfile) >= 0) {
+		logger_debug(DEBUG_FILE, 1, "[DEBUG] remove %s ok, ndir=%d, nfile=%d",
+			full_path.c_str(), ndir, nfile);
+		return true;
 	}
-
-	struct dirent* entry = NULL;
-	while ((entry = readdir(dir)) != NULL) {
-		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-			continue;
-		}
-		const std::string child = full_path + "/" + entry->d_name;
-		struct stat st;
-		if (lstat(child.c_str(), &st) != 0) {
-			err = strerror(errno);
-			closedir(dir);
-			return false;
-		}
-		if (S_ISDIR(st.st_mode)) {
-			if (!delete_directory_recursive(child, err)) {
-				closedir(dir);
-				return false;
-			}
-		} else if (::unlink(child.c_str()) != 0) {
-			err = strerror(errno);
-			closedir(dir);
-			return false;
-		}
-	}
-	closedir(dir);
-	if (::rmdir(full_path.c_str()) != 0) {
-		err = strerror(errno);
-		return false;
-	}
-	return true;
+	err = acl::last_serror();
+	logger_error("remove %s error=%s", full_path.c_str(), err.c_str());
+	return false;
 }
 
 static bool remove_upload_path_recursive(const std::string& full_path,
@@ -1747,7 +1721,8 @@ bool DownloadAction::run(request_t& req, response_t& res,
 	if (has_range) {
 		acl::string content_range;
 		content_range.format("bytes %lld-%lld/%lld", send_begin, send_end, fsize);
-		printf("content range: %s\n", content_range.c_str());
+		logger_debug(DEBUG_FILE, 1, "content range: %s", content_range.c_str());
+
 		res.setStatus(206)
 			.setKeepAlive(req.isKeepAlive())
 			.setContentType(ctype)
@@ -1772,7 +1747,6 @@ bool DownloadAction::run(request_t& req, response_t& res,
 
 	char buf[8192];
 	long long remain = send_size;
-	long long total_sent = 0;
 	while (remain > 0 && !in.eof()) {
 		size_t want = sizeof(buf);
 		if ((long long) want > remain) {
@@ -1787,15 +1761,11 @@ bool DownloadAction::run(request_t& req, response_t& res,
 		}
 		if (!res.write(buf, (size_t) n)) {
 			in.close();
-			printf("1->sent remain %lld bytes, total sent %lld bytes\n",remain, total_sent);
 			return false;
 		}
 		remain -= n;
-		total_sent += n;
-		//printf("sent %d bytes, remain %lld bytes, total sent %lld bytes\n", n, remain, total_sent);
 	}
 
-	printf("2->sent remain %lld bytes, total sent %lld bytes\n",remain, total_sent);
 	in.close();
 	return res.write(NULL, 0);
 }

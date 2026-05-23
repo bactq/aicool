@@ -79,6 +79,7 @@ bool folder_load_file_bindings(const std::string& upload_dir,
 class IndexAction {
 public:
 	static bool run(request_t& req, response_t& res);
+	static void set_static_home_path(const char* path);
 };
 
 class TemplateReloadAction {
