@@ -353,7 +353,7 @@ static void run_remote_copy_task(std::string task_id, std::string source_full,
 		task.state = task.cancel_requested || is_remote_copy_cancel_requested(task.id)
 			? "cancelled"
 			: "failed";
-		if (task.state == "failed") {
+		if (task.state == "failed" || task.state == "cancelled") {
 			std::string cleanup_err;
 			remove_path_recursive_plain(target_full, cleanup_err);
 		}
@@ -364,6 +364,8 @@ static void run_remote_copy_task(std::string task_id, std::string source_full,
 		return;
 	}
 	if (is_remote_copy_cancel_requested(task.id)) {
+		std::string cleanup_err;
+		remove_path_recursive_plain(target_full, cleanup_err);
 		task.state = "cancelled";
 		task.message = "已取消";
 		task.error.clear();

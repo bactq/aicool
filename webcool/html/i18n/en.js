@@ -288,6 +288,7 @@
     ,'状态：进度查询失败，': 'Status: Failed to query progress, '
     ,'状态：找不到任务号，无法取消': 'Status: Task id not found, cannot cancel'
     ,'取消中': 'Cancelling'
+    ,'取消中...': 'Cancelling...'
     ,'状态：已发送取消请求，等待后台停止': 'Status: Cancel request sent, waiting for backend to stop'
     ,'状态：取消失败，': 'Status: Cancel failed, '
     ,'任务创建中...': 'Creating task...'

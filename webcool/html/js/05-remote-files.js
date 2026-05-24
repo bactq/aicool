@@ -10,7 +10,7 @@
     "          if (localImportProgressDialog) { localImportProgressDialog.classList.remove('non-modal-progress'); }",
     "          if (title) { title.textContent = t('上传中'); }",
     "          if (desc) { desc.textContent = t('正在上传本地文件到虚拟磁盘。'); }",
-    "          if (localImportProgressCancel) { localImportProgressCancel.hidden = true; }",
+    "          if (localImportProgressCancel) { localImportProgressCancel.hidden = true; localImportProgressCancel.disabled = false; localImportProgressCancel.textContent = t('取消'); }",
     "          const started = await fetchJson(url, { method: 'POST' });",
     "          closeLocalImportDialog();",
     "          setLocalImportProgress(0, t('准备上传...'));",

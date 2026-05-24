@@ -233,6 +233,7 @@
     "      let localImportTargetFolderPath = '';",
     "      let localImportOverridePaths = null;",
     "      let activeRemoteCopyTaskId = '';",
+    "      let activeRemoteCopyCancelRequested = false;",
     "      let localImportProgressWindowMode = '';",
     "      let localImportProgressMinimized = false;",
     "      const localImportExpandedFolderPaths = new Set(['']);",
