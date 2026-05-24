@@ -1,7 +1,11 @@
 #include "actions.h"
 #include "action_util.h"
 #include "../template/html_renderer.h"
+#ifdef _WIN32
+#include "../platform_compat.h"
+#else
 #include <unistd.h>
+#endif
 
 namespace action {
 
@@ -26,13 +30,14 @@ const char* get_static_file_path(const char* path, acl::string& buff,
 		return NULL;
 	}
 	pos += sizeof(static_prefix) - 1;
+	acl::string relative_path = pos;
+	relative_path.strip(".."); // Sanity check, to avoid access the root path.
 
 	buff  = html_home;
 	if (*pos != '/') {
 		buff += '/';
 	}
-	buff += pos;
-	buff.strip(".."); // Sanity check, to avoid access the root path.
+	buff += relative_path;
 
 	static std::map<std::string, std::string> types = {
 		{ ".text", "text/plain; charset=utf-8"              },
@@ -78,6 +83,8 @@ bool IndexAction::run(request_t& req, response_t& res) {
 	} else {
 		filepath = get_static_file_path(path, buff, ctype);
 	}
+
+	logger_debug(DEBUG_PAGE, 1, "path=%s, filepath=%s\r\n", path, filepath);
 
 	acl::string data;
 	if (filepath == NULL || !acl::ifstream::load(filepath, &data)) {

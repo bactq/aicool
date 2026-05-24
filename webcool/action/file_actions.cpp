@@ -1,13 +1,17 @@
 #include "actions.h"
 #include "action_util.h"
 
+#ifdef _WIN32
+#include "../platform_compat.h"
+#else
 #include <dirent.h>
-#include <errno.h>
 #include <strings.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <time.h>
 #include <unistd.h>
+#endif
+#include <errno.h>
+#include <time.h>
 
 #include <algorithm>
 #include <map>
@@ -1840,6 +1844,9 @@ namespace {
 
 static void set_display_env_for_open(void)
 {
+#ifdef _WIN32
+	return;
+#else
 	const char *display = getenv("DISPLAY");
 	if (!display || display[0] == '\0') {
 		struct stat st;
@@ -1877,12 +1884,17 @@ static void set_display_env_for_open(void)
 		snprintf(rd, sizeof(rd), "/run/user/%u", (unsigned)getuid());
 		setenv("XDG_RUNTIME_DIR", rd, 1);
 	}
+#endif
 }
 
 static bool run_open_file_command(const std::string& path,
 	bool choose_app, std::string& err)
 {
 	err.clear();
+#ifdef _WIN32
+	(void) choose_app;
+	return webcool_shell_open(path, err);
+#else
 	pid_t pid = fork();
 	if (pid < 0) {
 		err = strerror(errno);
@@ -1949,6 +1961,7 @@ static bool run_open_file_command(const std::string& path,
 		return false;
 	}
 	return true;
+#endif
 }
 
 static std::string get_tmp_open_dir()

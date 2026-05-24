@@ -1,15 +1,19 @@
 #include "actions.h"
 #include "action_util.h"
 
+#ifdef _WIN32
+#include "../platform_compat.h"
+#else
 #include <dirent.h>
-#include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <time.h>
 #include <unistd.h>
+#endif
+#include <errno.h>
+#include <time.h>
 
 #include <algorithm>
 #include <map>
@@ -456,6 +460,9 @@ static bool move_file_to_trash(const std::string& path, std::string& trash_path,
 static bool run_open_command(std::string& err)
 {
 	err.clear();
+#ifdef _WIN32
+	return webcool_shell_open_trash(err);
+#else
 	pid_t pid = fork();
 	if (pid < 0) {
 		err = strerror(errno);
@@ -486,10 +493,14 @@ static bool run_open_command(std::string& err)
 		return false;
 	}
 	return true;
+#endif
 }
 
 static void set_display_env(void)
 {
+#ifdef _WIN32
+	return;
+#else
 	// When webcool runs as a background service (e.g. via systemd or
 	// a wrapper script), the DISPLAY and DBUS_SESSION_BUS_ADDRESS
 	// variables are typically missing.  Without them xdg-open and
@@ -536,12 +547,17 @@ static void set_display_env(void)
 		snprintf(rd, sizeof(rd), "/run/user/%u", (unsigned)getuid());
 		setenv("XDG_RUNTIME_DIR", rd, 1);
 	}
+#endif
 }
 
 static bool run_open_file_command(const std::string& path,
 	bool choose_app, std::string& err)
 {
 	err.clear();
+#ifdef _WIN32
+	(void) choose_app;
+	return webcool_shell_open(path, err);
+#else
 	pid_t pid = fork();
 	if (pid < 0) {
 		err = strerror(errno);
@@ -615,6 +631,7 @@ static bool run_open_file_command(const std::string& path,
 		return false;
 	}
 	return true;
+#endif
 }
 
 static std::string local_file_lock_key(const std::string& path) {

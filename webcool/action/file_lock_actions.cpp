@@ -4,9 +4,13 @@
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
+#ifdef _WIN32
+#include "../platform_compat.h"
+#else
 #include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 #include <fstream>
 #include <map>

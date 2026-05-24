@@ -4,8 +4,12 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include "../platform_compat.h"
+#else
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 #include <mutex>
 #include <string>

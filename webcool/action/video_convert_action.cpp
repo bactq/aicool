@@ -1,12 +1,17 @@
 #include "actions.h"
 #include "action_util.h"
+#ifdef _WIN32
+#include "../platform_compat.h"
+#else
 #include <dirent.h>
 #include <sys/stat.h>
-#include <errno.h>
 #include <limits.h>
 #include <signal.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
+#endif
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -16,10 +21,6 @@
 #include <mutex>
 #include <set>
 #include <vector>
-
-#ifndef _WIN32
-#include <unistd.h>
-#endif
 
 namespace action {
 

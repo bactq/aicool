@@ -1,14 +1,18 @@
 #include "actions.h"
 #include "action_util.h"
 
+#ifdef _WIN32
+#include "../platform_compat.h"
+#else
 #include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <time.h>
-#include <unistd.h>
 
 #include <mutex>
 #include <string>

@@ -1,17 +1,19 @@
 #include "actions.h"
 #include "action_util.h"
+#ifdef _WIN32
+#include "../platform_compat.h"
+#else
 #include <sys/stat.h>
 #include <time.h>
 #include <strings.h>
+#include <unistd.h>
+#endif
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <time.h>
 
 #include <string>
-
-#ifndef _WIN32
-#include <unistd.h>
-#endif
 
 namespace action {
 

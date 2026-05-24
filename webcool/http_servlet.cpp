@@ -3,7 +3,11 @@
 #include "action/actions.h"
 #include "action/action_util.h"
 #include <map>
+#ifdef _WIN32
+#include "platform_compat.h"
+#else
 #include <unistd.h>
+#endif
 
 namespace {
 

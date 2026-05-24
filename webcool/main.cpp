@@ -6,8 +6,12 @@
 #include <cstdio>
 #include <cstring>
 #include <csignal>
+#ifdef _WIN32
+#include "platform_compat.h"
+#else
 #include <fcntl.h>
 #include <unistd.h>
+#endif
 #include <vector>
 #include <map>
 
@@ -85,7 +89,9 @@ static void print_detail_info(const acl::string& addr,
 	printf("  版本号: %s\n", g_webcool_version);
 	printf("  构建时间: %s %s\n", __DATE__, __TIME__);
 	printf("  平台: %s\n",
-#ifdef MACOSX
+#ifdef _WIN32
+		"Windows"
+#elif defined(MACOSX)
 		"macOS"
 #else
 		"Linux/Unix"
@@ -104,6 +110,9 @@ static void print_detail_info(const acl::string& addr,
 }
 
 static bool daemonize_process() {
+#ifdef _WIN32
+	return false;
+#else
 	pid_t pid = fork();
 	if (pid < 0) {
 		return false;
@@ -145,6 +154,7 @@ static bool daemonize_process() {
 	}
 
 	return true;
+#endif
 }
 
 // ────────────────────────────────────────────────────────────────

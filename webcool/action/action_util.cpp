@@ -1,9 +1,13 @@
 #include "action_util.h"
 
+#ifdef _WIN32
+#include "../platform_compat.h"
+#else
 #include <dirent.h>
-#include <errno.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
+#include <errno.h>
 
 #include <cstdlib>
 #include <cstdio>
