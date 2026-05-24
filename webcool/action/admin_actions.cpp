@@ -35,6 +35,12 @@ struct storage_migrate_task_t {
 	std::string error;
 	std::string source_dir;
 	std::string target_dir;
+	std::string conflict_source;
+	std::string conflict_target;
+	std::string conflict_name;
+	std::string conflict_resolution;
+	std::string conflict_default;
+	bool cleanup_done;
 	long long total_bytes;
 	long long moved_bytes;
 	int total_files;
@@ -68,6 +74,12 @@ static void update_task(const storage_migrate_task_t& task)
 {
 	std::lock_guard<std::mutex> guard(g_storage_migrate_mutex);
 	g_storage_migrate_task = task;
+}
+
+static storage_migrate_task_t current_storage_task_snapshot()
+{
+	std::lock_guard<std::mutex> guard(g_storage_migrate_mutex);
+	return g_storage_migrate_task;
 }
 
 static bool canonical_existing_path(const std::string& input,
@@ -110,6 +122,140 @@ static bool is_same_or_child_path(const std::string& base,
 		&& candidate[base.size()] == '/';
 }
 
+static bool init_storage_databases(const std::string& path, std::string& err)
+{
+	return init_video_resume_db(path, err)
+		&& init_tag_db(path, err)
+		&& init_recycle_bin_db(path, err)
+		&& init_category_folder_db(path, err);
+}
+
+static std::string join_storage_path(const std::string& parent,
+	const char* name)
+{
+	if (parent == "/") {
+		return std::string("/") + name;
+	}
+	return parent + "/" + name;
+}
+
+static std::string storage_backup_date_suffix()
+{
+	char buf[32];
+	time_t now = time(NULL);
+	struct tm tm_now;
+	localtime_r(&now, &tm_now);
+	strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tm_now);
+	return buf;
+}
+
+static bool copy_storage_file_plain(const std::string& source,
+	const std::string& dest, std::string& err)
+{
+	FILE* in = fopen(source.c_str(), "rb");
+	if (in == NULL) {
+		err = strerror(errno);
+		return false;
+	}
+	FILE* out = fopen(dest.c_str(), "wb");
+	if (out == NULL) {
+		err = strerror(errno);
+		fclose(in);
+		return false;
+	}
+	char buf[1024 * 64];
+	bool ok = true;
+	while (true) {
+		const size_t n = fread(buf, 1, sizeof(buf), in);
+		if (n > 0 && fwrite(buf, 1, n, out) != n) {
+			err = strerror(errno);
+			ok = false;
+			break;
+		}
+		if (n < sizeof(buf)) {
+			if (ferror(in)) {
+				err = strerror(errno);
+				ok = false;
+			}
+			break;
+		}
+	}
+	if (fclose(out) != 0 && ok) {
+		err = strerror(errno);
+		ok = false;
+	}
+	fclose(in);
+	if (!ok) {
+		(void) unlink(dest.c_str());
+	}
+	return ok;
+}
+
+static bool backup_project_db_files(const std::string& storage_dir,
+	bool move_files, std::string& err)
+{
+	static const char* db_files[] = {
+		".video_resume.db",
+		".tag_catalog.db",
+		".recycle_bin.db",
+		".folder_catalog.db"
+	};
+	const std::string backup_dir = join_storage_path(storage_dir, ".backup");
+	const std::string date_suffix = storage_backup_date_suffix();
+	bool backup_ready = false;
+	for (size_t i = 0; i < sizeof(db_files) / sizeof(db_files[0]); ++i) {
+		const std::string source = join_storage_path(storage_dir, db_files[i]);
+		struct stat st;
+		if (lstat(source.c_str(), &st) != 0) {
+			if (errno == ENOENT) {
+				continue;
+			}
+			err = strerror(errno);
+			return false;
+		}
+		if (!S_ISREG(st.st_mode)) {
+			continue;
+		}
+		if (!backup_ready) {
+			if (!make_dir_recursive(backup_dir.c_str())) {
+				err = "cannot create backup directory";
+				return false;
+			}
+			backup_ready = true;
+		}
+		const std::string backup_name = std::string(db_files[i]) + "." + date_suffix;
+		std::string dest = join_storage_path(backup_dir, backup_name.c_str());
+		struct stat dest_st;
+		if (lstat(dest.c_str(), &dest_st) == 0) {
+			bool found_free_name = false;
+			for (int seq = 1; seq < 10000; ++seq) {
+				const std::string candidate_name = backup_name + "." + std::to_string(seq);
+				dest = join_storage_path(backup_dir, candidate_name.c_str());
+				if (lstat(dest.c_str(), &dest_st) != 0 && errno == ENOENT) {
+					found_free_name = true;
+					break;
+				}
+			}
+			if (!found_free_name) {
+				err = "cannot allocate backup database file name";
+				return false;
+			}
+		} else if (errno != ENOENT) {
+			err = strerror(errno);
+			return false;
+		}
+		if (move_files) {
+			if (rename(source.c_str(), dest.c_str()) != 0) {
+				err = strerror(errno);
+				return false;
+			}
+		} else if (!copy_storage_file_plain(source, dest, err)) {
+			return false;
+		}
+	}
+	return true;
+}
+
 static bool collect_move_items(const std::string& source,
 	const std::string& target, std::vector<storage_move_item_t>& items,
 	std::string& err)
@@ -124,6 +270,9 @@ static bool collect_move_items(const std::string& source,
 		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
 			continue;
 		}
+		if (strcmp(entry->d_name, ".backup") == 0) {
+			continue;
+		}
 		const std::string child_source = source + "/" + entry->d_name;
 		const std::string child_target = target + "/" + entry->d_name;
 		struct stat st;
@@ -134,8 +283,16 @@ static bool collect_move_items(const std::string& source,
 		}
 		struct stat target_st;
 		if (lstat(child_target.c_str(), &target_st) == 0) {
-			err = "target already contains: ";
-			err += entry->d_name;
+			if (!(S_ISDIR(st.st_mode) && S_ISDIR(target_st.st_mode))) {
+				if (!(S_ISREG(st.st_mode) && S_ISREG(target_st.st_mode))) {
+					err = "target already contains: ";
+					err += entry->d_name;
+					closedir(dir);
+					return false;
+				}
+			}
+		} else if (errno != ENOENT) {
+			err = strerror(errno);
 			closedir(dir);
 			return false;
 		}
@@ -209,22 +366,131 @@ static bool copy_file_with_progress(const storage_move_item_t& item,
 	return ok;
 }
 
-static void remove_empty_dirs_reverse(const std::vector<storage_move_item_t>& items)
+static std::string storage_base_name(const std::string& path)
 {
-	for (std::vector<storage_move_item_t>::const_reverse_iterator it = items.rbegin();
-		it != items.rend(); ++it)
-	{
-		if (it->directory) {
-			(void) rmdir(it->source.c_str());
+	if (path.empty() || path == "/") {
+		return path;
+	}
+	std::string text = path;
+	while (text.size() > 1 && text[text.size() - 1] == '/') {
+		text.erase(text.size() - 1);
+	}
+	std::string::size_type pos = text.rfind('/');
+	return pos == std::string::npos ? text : text.substr(pos + 1);
+}
+
+static std::string wait_storage_conflict_resolution(storage_migrate_task_t& task,
+	const storage_move_item_t& item)
+{
+	if (!task.conflict_default.empty()) {
+		return task.conflict_default;
+	}
+	storage_migrate_task_t initial_snapshot = current_storage_task_snapshot();
+	if (initial_snapshot.id == task.id && !initial_snapshot.conflict_default.empty()) {
+		task.conflict_default = initial_snapshot.conflict_default;
+		return task.conflict_default;
+	}
+	task.state = "conflict";
+	task.message = "发现同名文件";
+	task.conflict_source = item.source;
+	task.conflict_target = item.target;
+	task.conflict_name = storage_base_name(item.source);
+	task.conflict_resolution.clear();
+	update_task(task);
+	while (true) {
+		usleep(200 * 1000);
+		storage_migrate_task_t snapshot = current_storage_task_snapshot();
+		if (snapshot.id != task.id) {
+			return "cancel";
+		}
+		if (!snapshot.conflict_resolution.empty()) {
+			const std::string choice = snapshot.conflict_resolution;
+			if (choice == "remember-overwrite") {
+				task.conflict_default = "overwrite";
+			} else if (choice == "remember-skip") {
+				task.conflict_default = "skip";
+			}
+			task.conflict_resolution.clear();
+			task.conflict_source.clear();
+			task.conflict_target.clear();
+			task.conflict_name.clear();
+			task.state = "running";
+			task.message = "继续迁移";
+			update_task(task);
+			return task.conflict_default.empty() ? choice : task.conflict_default;
 		}
 	}
+}
+
+static bool delete_path_recursive_plain(const std::string& path, std::string& err)
+{
+	struct stat st;
+	if (lstat(path.c_str(), &st) != 0) {
+		if (errno == ENOENT) {
+			return true;
+		}
+		err = strerror(errno);
+		return false;
+	}
+	if (S_ISDIR(st.st_mode)) {
+		DIR* dir = opendir(path.c_str());
+		if (dir == NULL) {
+			err = strerror(errno);
+			return false;
+		}
+		struct dirent* entry = NULL;
+		while ((entry = readdir(dir)) != NULL) {
+			if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+				continue;
+			}
+			if (!delete_path_recursive_plain(path + "/" + entry->d_name, err)) {
+				closedir(dir);
+				return false;
+			}
+		}
+		closedir(dir);
+		if (rmdir(path.c_str()) != 0) {
+			err = strerror(errno);
+			return false;
+		}
+		return true;
+	}
+	if (unlink(path.c_str()) != 0) {
+		err = strerror(errno);
+		return false;
+	}
+	return true;
+}
+
+static bool delete_storage_contents_except_backup(const std::string& path,
+	std::string& err)
+{
+	DIR* dir = opendir(path.c_str());
+	if (dir == NULL) {
+		err = strerror(errno);
+		return false;
+	}
+	struct dirent* entry = NULL;
+	while ((entry = readdir(dir)) != NULL) {
+		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0
+			|| strcmp(entry->d_name, ".backup") == 0)
+		{
+			continue;
+		}
+		if (!delete_path_recursive_plain(path + "/" + entry->d_name, err)) {
+			closedir(dir);
+			return false;
+		}
+	}
+	closedir(dir);
+	return true;
 }
 
 static void run_storage_migration(storage_migrate_task_t task,
 	std::vector<storage_move_item_t> items)
 {
 	task.state = "running";
-	task.message = "正在准备移动";
+	task.message = "正在准备迁移";
 	update_task(task);
 
 	std::string err;
@@ -238,17 +504,43 @@ static void run_storage_migration(storage_migrate_task_t task,
 			}
 			continue;
 		}
-		task.message = std::string("正在移动：") + items[i].source;
-		update_task(task);
-		if (!copy_file_with_progress(items[i], task, err)) {
+		struct stat target_st;
+		if (lstat(items[i].target.c_str(), &target_st) == 0) {
+			const std::string choice = wait_storage_conflict_resolution(task, items[i]);
+			if (choice == "cancel") {
+				task.state = "cancelled";
+				task.message = "迁移已取消";
+				update_task(task);
+				return;
+			}
+			if (choice == "skip") {
+				task.moved_bytes += items[i].size;
+				task.moved_files += 1;
+				task.message = std::string("正在处理同名文件(跳过)：") + items[i].source;
+				update_task(task);
+				continue;
+			}
+			if (choice != "overwrite") {
+				task.state = "failed";
+				task.error = "invalid conflict resolution";
+				update_task(task);
+				return;
+			}
+			task.message = std::string("正在处理同名文件(覆盖)：") + items[i].source;
+			update_task(task);
+		} else if (errno != ENOENT) {
 			task.state = "failed";
-			task.error = err;
+			task.error = strerror(errno);
 			update_task(task);
 			return;
 		}
-		if (::unlink(items[i].source.c_str()) != 0) {
+		if (task.message.compare(0, strlen("正在处理同名文件(覆盖)："), "正在处理同名文件(覆盖)：") != 0) {
+			task.message = std::string("正在拷贝：") + items[i].source;
+			update_task(task);
+		}
+		if (!copy_file_with_progress(items[i], task, err)) {
 			task.state = "failed";
-			task.error = strerror(errno);
+			task.error = err;
 			update_task(task);
 			return;
 		}
@@ -256,14 +548,8 @@ static void run_storage_migration(storage_migrate_task_t task,
 		update_task(task);
 	}
 
-	remove_empty_dirs_reverse(items);
-
 	std::string init_err;
-	if (!init_video_resume_db(task.target_dir, init_err)
-		|| !init_tag_db(task.target_dir, init_err)
-		|| !init_recycle_bin_db(task.target_dir, init_err)
-		|| !init_category_folder_db(task.target_dir, init_err))
-	{
+	if (!init_storage_databases(task.target_dir, init_err)) {
 		task.state = "failed";
 		task.error = init_err;
 		update_task(task);
@@ -271,7 +557,7 @@ static void run_storage_migration(storage_migrate_task_t task,
 	}
 	runtime_upload_dir_set(task.target_dir);
 	task.state = "done";
-	task.message = "移动完成";
+	task.message = "迁移完成";
 	task.moved_bytes = task.total_bytes;
 	update_task(task);
 }
@@ -312,14 +598,32 @@ bool AdminStorageMigrateAction::run(request_t& req, response_t& res,
 	const std::string& upload_dir)
 {
 	std::string source_dir, target_dir, err;
-	if (!canonical_existing_path(upload_dir, source_dir, err)) {
-		json_error(res, 500, err.c_str(), req.isKeepAlive());
-		return true;
-	}
+	const char* migrate_param = req.getParameter("migrate");
+	const bool migrate_files = !(migrate_param != NULL
+		&& (strcmp(migrate_param, "0") == 0
+			|| strcasecmp(migrate_param, "false") == 0
+			|| strcasecmp(migrate_param, "no") == 0));
 	if (!ensure_storage_target_path(req.getParameter("path") ? req.getParameter("path") : "",
 		target_dir, err))
 	{
 		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!migrate_files) {
+		if (!init_storage_databases(target_dir, err)) {
+			json_error(res, 500, err.c_str(), req.isKeepAlive());
+			return true;
+		}
+		runtime_upload_dir_set(target_dir);
+		acl::json json;
+		acl::json_node& root = json.create_node();
+		root.add_bool("ok", true);
+		root.add_bool("migrated", false);
+		root.add_text("path", target_dir.c_str());
+		return sendJson(res, 200, root, req.isKeepAlive());
+	}
+	if (!canonical_existing_path(upload_dir, source_dir, err)) {
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
 	}
 	if (source_dir == target_dir) {
@@ -339,6 +643,14 @@ bool AdminStorageMigrateAction::run(request_t& req, response_t& res,
 			return true;
 		}
 	}
+	if (!backup_project_db_files(source_dir, false, err)) {
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!backup_project_db_files(target_dir, true, err)) {
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
 
 	std::vector<storage_move_item_t> items;
 	if (!collect_move_items(source_dir, target_dir, items, err)) {
@@ -352,6 +664,7 @@ bool AdminStorageMigrateAction::run(request_t& req, response_t& res,
 	task.message = "等待移动";
 	task.source_dir = source_dir;
 	task.target_dir = target_dir;
+	task.cleanup_done = false;
 	task.total_bytes = 0;
 	task.moved_bytes = 0;
 	task.total_files = 0;
@@ -398,11 +711,84 @@ bool AdminStorageMigrateProgressAction::run(request_t& req, response_t& res)
 	root.add_text("error", task.error.c_str());
 	root.add_text("source_dir", task.source_dir.c_str());
 	root.add_text("target_dir", task.target_dir.c_str());
+	root.add_text("conflict_source", task.conflict_source.c_str());
+	root.add_text("conflict_target", task.conflict_target.c_str());
+	root.add_text("conflict_name", task.conflict_name.c_str());
+	root.add_bool("cleanup_done", task.cleanup_done);
 	root.add_number("progress", progress);
 	root.add_number("total_bytes", task.total_bytes);
 	root.add_number("moved_bytes", task.moved_bytes);
 	root.add_number("total_files", task.total_files);
 	root.add_number("moved_files", task.moved_files);
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool AdminStorageMigrateResolveAction::run(request_t& req, response_t& res)
+{
+	const char* task_id = req.getParameter("task_id");
+	const char* choice_text = req.getParameter("choice");
+	std::string choice = choice_text ? choice_text : "";
+	if (choice != "overwrite" && choice != "skip" && choice != "cancel"
+		&& choice != "remember-overwrite" && choice != "remember-skip")
+	{
+		json_error(res, 400, "invalid conflict choice", req.isKeepAlive());
+		return true;
+	}
+	{
+		std::lock_guard<std::mutex> guard(g_storage_migrate_mutex);
+		if (task_id != NULL && *task_id != '\0' && g_storage_migrate_task.id != task_id) {
+			json_error(res, 404, "task not found", req.isKeepAlive());
+			return true;
+		}
+		if (g_storage_migrate_task.state != "conflict") {
+			json_error(res, 409, "migration task is not waiting for conflict resolution", req.isKeepAlive());
+			return true;
+		}
+		g_storage_migrate_task.conflict_resolution = choice;
+		if (choice == "remember-overwrite") {
+			g_storage_migrate_task.conflict_default = "overwrite";
+		} else if (choice == "remember-skip") {
+			g_storage_migrate_task.conflict_default = "skip";
+		}
+	}
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("choice", choice.c_str());
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool AdminStorageMigrateCleanupAction::run(request_t& req, response_t& res)
+{
+	const char* task_id = req.getParameter("task_id");
+	storage_migrate_task_t task;
+	{
+		std::lock_guard<std::mutex> guard(g_storage_migrate_mutex);
+		if (task_id != NULL && *task_id != '\0' && g_storage_migrate_task.id != task_id) {
+			json_error(res, 404, "task not found", req.isKeepAlive());
+			return true;
+		}
+		task = g_storage_migrate_task;
+	}
+	if (task.state != "done") {
+		json_error(res, 409, "migration task is not completed", req.isKeepAlive());
+		return true;
+	}
+	std::string err;
+	if (!delete_storage_contents_except_backup(task.source_dir, err)) {
+		json_error(res, 500, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	{
+		std::lock_guard<std::mutex> guard(g_storage_migrate_mutex);
+		if (g_storage_migrate_task.id == task.id) {
+			g_storage_migrate_task.cleanup_done = true;
+		}
+	}
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("source_dir", task.source_dir.c_str());
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 

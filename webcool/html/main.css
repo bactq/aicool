@@ -220,6 +220,10 @@
       padding: 18px;
     }
 
+    .tag-dialog.wide-confirm-dialog .tag-dialog-card {
+      width: min(720px, calc(100vw - 40px));
+    }
+
     .tag-dialog-form {
       display: grid;
       gap: 12px;
@@ -320,6 +324,7 @@
       display: flex;
       justify-content: flex-end;
       gap: 10px;
+      flex-wrap: wrap;
     }
 
     .tag-dialog-btn {
@@ -331,6 +336,7 @@
       font-size: 13px;
       font-weight: 700;
       cursor: pointer;
+      white-space: nowrap;
     }
 
     .tag-dialog-btn:hover {
@@ -1071,6 +1077,28 @@
       color: #244769;
       font-weight: 800;
       word-break: break-all;
+    }
+
+    .admin-storage-picker-shortcuts {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .admin-storage-picker-shortcut {
+      border: 1px solid #c5dbef;
+      background: #f4f9ff;
+      color: #274c70;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .admin-storage-picker-shortcut:hover {
+      background: #dff0ff;
+      border-color: #99c5ea;
     }
 
     .admin-storage-picker-node {

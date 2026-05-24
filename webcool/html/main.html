@@ -343,6 +343,9 @@
         </div>
         <div class="tag-dialog-actions">
           <button type="button" id="confirm-dialog-cancel" class="tag-dialog-btn secondary">取消</button>
+          <button type="button" id="confirm-dialog-extra" class="tag-dialog-btn secondary" hidden>否</button>
+          <button type="button" id="confirm-dialog-extra2" class="tag-dialog-btn secondary" hidden></button>
+          <button type="button" id="confirm-dialog-extra3" class="tag-dialog-btn secondary" hidden></button>
           <button type="button" id="confirm-dialog-confirm" class="tag-dialog-btn danger">确认</button>
         </div>
       </div>
@@ -356,6 +359,10 @@
         <div class="tag-dialog-head">
           <h2 id="admin-storage-picker-title">选择存储路径</h2>
           <p id="admin-storage-picker-path">请选择一个本地目录作为新的存储路径。</p>
+        </div>
+        <div class="admin-storage-picker-shortcuts">
+          <button type="button" id="admin-storage-picker-root" class="admin-storage-picker-shortcut">根路径</button>
+          <button type="button" id="admin-storage-picker-home" class="admin-storage-picker-shortcut">Home路径</button>
         </div>
         <div id="admin-storage-picker-tree" class="admin-storage-picker-tree"></div>
         <p id="admin-storage-picker-empty" class="folder-tree-empty">当前没有可选择的目录。</p>
