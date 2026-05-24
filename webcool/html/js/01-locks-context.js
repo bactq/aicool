@@ -520,14 +520,15 @@ function loadUnlockedFilePasswords() {
           setImageEditHint(win, '图片还没有加载完成，请稍后再试。', true);
           return;
         }
-        const scale = Math.max(0.05, Math.min(20, Number(win.__imageScale || 1) * Number(factor || 1)));
-        const nextWidth = Math.max(1, Math.round(base.width * scale));
-        const nextHeight = Math.max(1, Math.round(base.height * scale));
-        win.__imageScale = scale;
-        renderPreviewImageFromBase(
+        const minScale = previewImageFitScale(win);
+        const currentScale = Math.max(minScale, Math.min(1, Number(win.__imageDisplayScale || minScale || 1)));
+        const nextScale = Math.max(minScale, Math.min(1, currentScale * Number(factor || 1)));
+        const nextWidth = Math.max(1, Math.round(base.width * nextScale));
+        const nextHeight = Math.max(1, Math.round(base.height * nextScale));
+        win.__imageUserZoom = true;
+        setPreviewImageDisplayScale(
           win,
-          nextWidth,
-          nextHeight,
+          nextScale,
           (Number(factor || 1) > 1 ? '已等比例放大至 ' : '已等比例缩小至 ') + nextWidth + ' x ' + nextHeight + '。'
         );
       }
@@ -672,6 +673,9 @@ function loadUnlockedFilePasswords() {
           clampWindowPosition(win);
         }
         syncPreviewWindowButtons(win);
+        window.setTimeout(function () {
+          fitPreviewImageToWindow(win);
+        }, 0);
       }
 
       function handleLocalDiskDragOver(e) {

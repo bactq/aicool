@@ -147,9 +147,13 @@ function appendFilePassword(url, path, local) {
         if (opts.updateBase !== false) {
           win.__imageBaseCanvas = cloneCanvas(canvas);
           win.__imageScale = 1;
+          win.__imageUserZoom = false;
         }
         win.__imageCurrentWidth = canvas.width;
         win.__imageCurrentHeight = canvas.height;
+        img.onload = function () {
+          fitPreviewImageToWindow(win);
+        };
         img.src = canvas.toDataURL(mime, 0.92);
         win.__imageDirty = true;
         win.__imageCropRect = null;
@@ -835,18 +839,17 @@ function deleteUnlockedFolderPassword(path) {
         if (titleEl) {
           titleEl.textContent = '图片预览：' + String(item.name || item.file || '');
         }
+        resetImageEditState(win);
         if (imageEl) {
-
           imageEl.onload = function () {
             if (!win.__imageBaseCanvas) {
               capturePreviewBaseCanvas(win);
             }
-            updatePreviewImageSizeLabel(win);
+            fitPreviewImageToWindow(win);
           };
           imageEl.alt = String(item.name || '图片预览');
           imageEl.src = imagePreviewUrlForItem(item);
         }
-        resetImageEditState(win);
         if (prevBtn) {
           prevBtn.disabled = nextIndex <= 0;
           prevBtn.hidden = gallery.length <= 1;

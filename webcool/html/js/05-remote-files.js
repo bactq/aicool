@@ -1276,7 +1276,7 @@ function loadUnlockedFolderPasswords() {
         win.__imageScale = 1;
         win.__imageCurrentWidth = win.__imageBaseCanvas.width;
         win.__imageCurrentHeight = win.__imageBaseCanvas.height;
-        updatePreviewImageSizeLabel(win);
+        fitPreviewImageToWindow(win);
         return win.__imageBaseCanvas;
       }
 

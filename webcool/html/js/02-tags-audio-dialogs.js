@@ -212,6 +212,64 @@ function getLocalDirPassword(path) {
         }
       }
 
+      function previewImageSourceSize(win) {
+        const base = win && win.__imageBaseCanvas;
+        const img = win ? win.querySelector('.preview-image') : null;
+        const width = Math.max(0, Math.round(Number((base && base.width) || (img && img.naturalWidth) || 0)));
+        const height = Math.max(0, Math.round(Number((base && base.height) || (img && img.naturalHeight) || 0)));
+        return { width: width, height: height };
+      }
+
+      function previewImageFitScale(win) {
+        const shell = win ? win.querySelector('.preview-image-shell') : null;
+        const size = previewImageSourceSize(win);
+        if (!shell || !size.width || !size.height) {
+          return 1;
+        }
+        const style = window.getComputedStyle ? window.getComputedStyle(shell) : null;
+        const padX = style
+          ? (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0)
+          : 0;
+        const padY = style
+          ? (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0)
+          : 0;
+        const availableWidth = Math.max(1, shell.clientWidth - padX);
+        const availableHeight = Math.max(1, shell.clientHeight - padY);
+        return Math.max(0.05, Math.min(1, availableWidth / size.width, availableHeight / size.height));
+      }
+
+      function setPreviewImageDisplayScale(win, scale, message) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        const size = previewImageSourceSize(win);
+        if (!img || !size.width || !size.height) {
+          return;
+        }
+        const safeScale = Math.max(0.05, Math.min(1, Number(scale) || 1));
+        const displayWidth = Math.max(1, Math.round(size.width * safeScale));
+        const displayHeight = Math.max(1, Math.round(size.height * safeScale));
+        win.__imageDisplayScale = safeScale;
+        img.style.width = displayWidth + 'px';
+        img.style.height = displayHeight + 'px';
+        updatePreviewImageSizeLabel(win, displayWidth, displayHeight);
+        if (message) {
+          setImageEditHint(win, message);
+        }
+      }
+
+      function fitPreviewImageToWindow(win, force) {
+        if (!win) {
+          return;
+        }
+        if (win.__imageUserZoom && !force) {
+          return;
+        }
+        const img = win.querySelector('.preview-image');
+        if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) {
+          return;
+        }
+        setPreviewImageDisplayScale(win, previewImageFitScale(win));
+      }
+
       function localDiskPathContains(base, path) {
         const left = String(base || '/');
         const right = String(path || '/');
@@ -341,10 +399,17 @@ function getLocalDirPassword(path) {
         win.__imageCropRect = null;
         win.__imageBaseCanvas = null;
         win.__imageScale = 1;
+        win.__imageDisplayScale = 1;
+        win.__imageUserZoom = false;
         win.__imageCurrentWidth = 0;
         win.__imageCurrentHeight = 0;
+        const img = win.querySelector('.preview-image');
         const shell = win.querySelector('.preview-image-shell');
         const cropRect = win.querySelector('.preview-crop-rect');
+        if (img) {
+          img.style.width = '';
+          img.style.height = '';
+        }
         if (shell) {
           shell.classList.remove('crop-mode');
         }
@@ -455,6 +520,7 @@ function getLocalDirPassword(path) {
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(base, 0, 0, nextWidth, nextHeight);
+          win.__imageUserZoom = false;
           replacePreviewImageWithCanvas(win, canvas, { updateBase: false });
           setImageEditHint(win, message || ('已调整至 ' + nextWidth + ' x ' + nextHeight + '。'));
         } catch (err) {

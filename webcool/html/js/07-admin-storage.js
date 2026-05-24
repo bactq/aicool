@@ -992,6 +992,9 @@ function localDirLockIconHtml(path, locked) {
         win.style.height = 'calc(100vh - 44px)';
         win.style.maxHeight = 'calc(100vh - 44px)';
         syncPreviewWindowButtons(win);
+        window.setTimeout(function () {
+          fitPreviewImageToWindow(win);
+        }, 0);
       }
 
       function handleLocalDiskDragLeave(e) {

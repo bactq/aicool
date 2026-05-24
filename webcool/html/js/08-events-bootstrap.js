@@ -1975,7 +1975,10 @@
 
       window.addEventListener('resize', function () {
         const wins = previewLayer.querySelectorAll('.floating-preview');
-        Array.prototype.forEach.call(wins, clampWindowPosition);
+        Array.prototype.forEach.call(wins, function (win) {
+          clampWindowPosition(win);
+          fitPreviewImageToWindow(win);
+        });
       });
 
       if (sidebarToggleBtn) {
