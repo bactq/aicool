@@ -208,13 +208,18 @@ static bool copy_mime_body_to_file(const std::string& tmp_path,
 		fclose(in);
 		return false;
 	}
+#ifdef _WIN32
+	if (fseek(in, begin, SEEK_SET)) {
+#else
 	if (fseeko(in, begin, SEEK_SET) != 0) {
+#endif
 		err = strerror(errno);
 		fclose(out);
 		fclose(in);
 		::unlink(tmp_dest.c_str());
 		return false;
 	}
+
 
 	char buf[8192];
 	off_t remain = end - begin;

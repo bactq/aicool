@@ -1432,7 +1432,7 @@ bool VideoConvertAction::run(request_t& req, response_t& res,
 				root.add_bool("running", true);
 				root.add_text("task_id", task_it->second->id.c_str());
 				root.add_text("name", task_it->second->output_name.c_str());
-				root.add_number("progress", task_it->second->progress);
+				root.add_number("progress", (long long) task_it->second->progress);
 				root.add_bool("cancel_requested", task_it->second->cancel_requested);
 				root.add_text("message", task_it->second->message.c_str());
 				return sendJson(res, 200, root, req.isKeepAlive());
@@ -1595,7 +1595,7 @@ bool LocalDiskVideoConvertAction::run(request_t& req, response_t& res,
 				root.add_bool("local", true);
 				root.add_text("task_id", task_it->second->id.c_str());
 				root.add_text("name", task_it->second->output_name.c_str());
-				root.add_number("progress", task_it->second->progress);
+				root.add_number("progress", (long long) task_it->second->progress);
 				root.add_bool("cancel_requested", task_it->second->cancel_requested);
 				root.add_text("message", task_it->second->message.c_str());
 				return sendJson(res, 200, root, req.isKeepAlive());
@@ -1893,7 +1893,7 @@ bool VideoConvertProgressAction::run(request_t& req, response_t& res,
 	root.add_bool("success", snapshot.success);
 	root.add_bool("cancel_requested", snapshot.cancel_requested);
 	root.add_bool("local", snapshot.local);
-	root.add_number("progress", snapshot.progress);
+	root.add_number("progress", (long long) snapshot.progress);
 	root.add_text("message", snapshot.message.c_str());
 	if (!snapshot.secondary_output_name.empty()) {
 		root.add_text("secondary_name", snapshot.secondary_output_name.c_str());
@@ -1927,7 +1927,7 @@ bool VideoConvertTasksAction::run(request_t& req, response_t& res,
 		node.add_bool("success", tasks[i].success);
 		node.add_bool("cancel_requested", tasks[i].cancel_requested);
 		node.add_bool("local", tasks[i].local);
-		node.add_number("progress", tasks[i].progress);
+		node.add_number("progress", (long long) tasks[i].progress);
 		node.add_text("message", tasks[i].message.c_str());
 		if (!tasks[i].secondary_output_name.empty()) {
 			node.add_text("secondary_name", tasks[i].secondary_output_name.c_str());

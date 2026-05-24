@@ -154,8 +154,10 @@ static bool alloc_recycle_target_path(const std::string& upload_dir,
 {
 	err.clear();
 	recycle_rel.clear();
-	if (!make_dir_recursive(join_upload_path(upload_dir, recycle_folder_name()).c_str())) {
-		err = "cannot access recycle folder";
+	std::string path = join_upload_path(upload_dir, recycle_folder_name());
+	if (!make_dir_recursive(path.c_str())) {
+		err = "cannot access recycle folder: ";
+		err += path.c_str();
 		return false;
 	}
 
@@ -560,10 +562,7 @@ static void format_upload_time(time_t ts, char* buf, size_t size) {
 		return;
 	}
 	struct tm tmv;
-	if (localtime_r(&ts, &tmv) == NULL) {
-		buf[0] = '\0';
-		return;
-	}
+	acl_localtime_r(&ts, &tmv);
 	if (strftime(buf, size, "%Y-%m-%d %H:%M:%S", &tmv) == 0) {
 		buf[0] = '\0';
 	}
@@ -1493,7 +1492,7 @@ static bool send_remote_copy_task_snapshot(response_t& res,
 	root.add_text("path", task.path.c_str());
 	root.add_number("total_bytes", task.total_bytes);
 	root.add_number("copied_bytes", task.copied_bytes);
-	root.add_number("progress", progress);
+	root.add_number("progress", (long long) progress);
 	root.add_bool("directory", task.directory);
 	root.add_bool("cancel_requested", task.cancel_requested);
 	return sendJson(res, 200, root, keep_alive);
@@ -1815,7 +1814,8 @@ bool init_recycle_bin_db(const std::string& upload_dir, std::string& err) {
 	}
 	const std::string recycle_dir = join_upload_path(upload_dir, recycle_folder_name());
 	if (!make_dir_recursive(recycle_dir.c_str())) {
-		err = "cannot access recycle folder";
+		err = "cannot access recycle folder: ";
+		err += recycle_dir;
 		return false;
 	}
 

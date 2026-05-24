@@ -352,8 +352,10 @@ static bool alloc_recycle_folder_target(const std::string& upload_dir,
 {
 	err.clear();
 	recycle_rel.clear();
-	if (!make_dir_recursive(join_upload_path(upload_dir, recycle_folder_name()).c_str())) {
-		err = "cannot access recycle folder";
+	std::string path = join_upload_path(upload_dir, recycle_folder_name());
+	if (!make_dir_recursive(path.c_str())) {
+		err = "cannot access recycle folder: ";
+		err += path.c_str();
 		return false;
 	}
 	for (int i = 0; i < 1024; ++i) {

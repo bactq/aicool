@@ -180,11 +180,7 @@ static void format_upload_time(time_t ts, char* buf, size_t size) {
 	}
 
 	struct tm tmv;
-	if (localtime_r(&ts, &tmv) == NULL) {
-		buf[0] = '\0';
-		return;
-	}
-
+	acl_localtime_r(&ts, &tmv);
 	if (strftime(buf, size, "%Y-%m-%d %H:%M:%S", &tmv) == 0) {
 		buf[0] = '\0';
 	}

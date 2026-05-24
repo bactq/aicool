@@ -1125,11 +1125,8 @@ static void format_time(time_t ts, char* buf, size_t size) {
 		return;
 	}
 	struct tm tmv;
-	if (localtime_r(&ts, &tmv) == NULL
-		|| strftime(buf, size, "%Y-%m-%d %H:%M:%S", &tmv) == 0)
-	{
-		buf[0] = '\0';
-	}
+	acl_localtime_r(&ts, &tmv);
+	strftime(buf, size, "%Y-%m-%d %H:%M:%S", &tmv);
 }
 
 static bool ends_with_ignore_case(const std::string& text, const char* suffix) {
@@ -2378,7 +2375,7 @@ bool LocalDiskImportProgressAction::run(request_t& req, response_t& res)
 	root.add_text("state", task.state.c_str());
 	root.add_text("message", task.message.c_str());
 	root.add_text("error", task.error.c_str());
-	root.add_number("progress", progress);
+	root.add_number("progress", (long long) progress);
 	root.add_number("copied_bytes", task.copied_bytes);
 	root.add_number("total_bytes", task.total_bytes);
 	root.add_number("count", (long long) task.saved_count);
@@ -2402,7 +2399,7 @@ bool LocalDiskImportProgressAction::run(request_t& req, response_t& res)
 		item.add_bool("saved", state == "done");
 		item.add_number("size", size);
 		item.add_number("copied", copied);
-		item.add_number("progress", file_progress);
+		item.add_number("progress", (long long) file_progress);
 	}
 	return sendJson(res, 200, root, req.isKeepAlive());
 }

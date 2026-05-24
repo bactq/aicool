@@ -131,7 +131,8 @@ static bool storage_task_wait_if_paused_or_cancelled(storage_migrate_task_t& tas
 		task.state = "paused";
 		task.message = "迁移已暂停";
 		update_task(task);
-		usleep(200 * 1000);
+		//usleep(200 * 1000);
+		acl_doze(200);
 	}
 }
 
@@ -197,7 +198,9 @@ static std::string storage_backup_date_suffix()
 	char buf[32];
 	time_t now = time(NULL);
 	struct tm tm_now;
-	localtime_r(&now, &tm_now);
+
+	acl_localtime_r(&now, &tm_now);
+
 	strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tm_now);
 	return buf;
 }
@@ -456,7 +459,8 @@ static std::string wait_storage_conflict_resolution(storage_migrate_task_t& task
 	task.conflict_resolution.clear();
 	update_task(task);
 	while (true) {
-		usleep(200 * 1000);
+		//usleep(200 * 1000);
+		acl_doze(200);
 		storage_migrate_task_t snapshot = current_storage_task_snapshot();
 		if (snapshot.id != task.id) {
 			return "cancel";
@@ -797,7 +801,7 @@ bool AdminStorageMigrateProgressAction::run(request_t& req, response_t& res)
 	root.add_bool("cleanup_done", task.cleanup_done);
 	root.add_bool("pause_requested", task.pause_requested);
 	root.add_bool("cancel_requested", task.cancel_requested);
-	root.add_number("progress", progress);
+	root.add_number("progress", (long long) progress);
 	root.add_number("total_bytes", task.total_bytes);
 	root.add_number("moved_bytes", task.moved_bytes);
 	root.add_number("total_files", task.total_files);

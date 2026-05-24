@@ -56,16 +56,16 @@ typedef int pid_t;
 typedef int uid_t;
 typedef intptr_t ssize_t;
 
-#define strcasecmp _stricmp
-#define strncasecmp _strnicmp
+//#define strcasecmp _stricmp
+//#define strncasecmp _strnicmp
 #define access _access
 #define chmod _chmod
-#define close _close
+//#define close _close
 #define dup2 _dup2
 #define getpid _getpid
 #define lstat _stat
 #define mkdir(path, mode) _mkdir(path)
-#define open _open
+//#define open _open
 #define pclose _pclose
 #define popen _popen
 #define rmdir _rmdir
@@ -246,9 +246,9 @@ inline int webcool_getopt(int argc, char* const argv[], const char* optstring)
 	return ch;
 }
 
-#define getopt webcool_getopt
-#define optarg webcool_optarg
-#define optind webcool_optind
+//#define getopt webcool_getopt
+//#define optarg webcool_optarg
+//#define optind webcool_optind
 
 inline bool webcool_shell_open(const std::string& target, std::string& err)
 {
