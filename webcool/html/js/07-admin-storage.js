@@ -1,494 +1,489 @@
-(function () {
-  window.WebCoolModuleRegistry = window.WebCoolModuleRegistry || { modules: {}, order: [], define: function (id, source) { if (!this.modules[id]) this.order.push(id); this.modules[id] = source; } };
-  window.WebCoolModuleRegistry.define("07-admin-storage.js", [
-    "        if (top < 8) top = 8;",
-    "        if (top > maxTop) top = maxTop;",
-    "",
-    "        win.style.left = Math.round(left) + 'px';",
-    "        win.style.top = Math.round(top) + 'px';",
-    "      }",
-    "",
-    "      function updateSortIndicator() {",
-    "        const key = sortKey.value || 'name';",
-    "        const order = sortOrder.value || 'asc';",
-    "        sortButtons.forEach(btn => {",
-    "          const btnKey = btn.getAttribute('data-sort-key');",
-    "          const arrow = btn.querySelector('.arrow');",
-    "          if (btnKey === key) {",
-    "            btn.classList.add('active');",
-    "            if (arrow) {",
-    "              arrow.textContent = order === 'desc' ? '↓' : '↑';",
-    "            }",
-    "          } else {",
-    "            btn.classList.remove('active');",
-    "            if (arrow) {",
-    "              arrow.textContent = '-';",
-    "            }",
-    "          }",
-    "        });",
-    "      }",
-    "",
-    "      async function fetchJson(url, options) {",
-    "        const res = await fetch(url, options || {});",
-    "        let data = null;",
-    "        try {",
-    "          data = await res.json();",
-    "        } catch (_) {",
-    "          data = { ok: false, error: 'invalid json response' };",
-    "        }",
-    "        if (!res.ok || !data.ok) {",
-    "          const err = new Error(data.error || ('http ' + res.status));",
-    "          err.status = res.status;",
-    "          err.data = data;",
-    "          throw err;",
-    "        }",
-    "        return data;",
-    "      }",
-    "",
-    "      function activateAdminView(name) {",
-    "        const isLanguage = name === 'language';",
-    "        if (adminStorageTab) {",
-    "          adminStorageTab.classList.toggle('active', !isLanguage);",
-    "        }",
-    "        if (adminLanguageTab) {",
-    "          adminLanguageTab.classList.toggle('active', isLanguage);",
-    "        }",
-    "        if (adminStorageView) {",
-    "          adminStorageView.hidden = isLanguage;",
-    "        }",
-    "        if (adminLanguageView) {",
-    "          adminLanguageView.hidden = !isLanguage;",
-    "        }",
-    "        if (!isLanguage) {",
-    "          loadAdminStoragePath();",
-    "        }",
-    "      }",
-    "",
-    "      function localizedPageUrl(lang) {",
-    "        return '/';",
-    "      }",
-    "",
-    "      function applyLanguageSetting() {",
-    "        if (!adminLanguageSelect) {",
-    "          return;",
-    "        }",
-    "        const nextLang = adminLanguageSelect.value === 'en' ? 'en' : 'zh';",
-    "        try {",
-    "          localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLang);",
-    "        } catch (_) {}",
-    "        if (nextLang === UI_LANG) {",
-    "          showStatus(t('语言设置已保存'), 'ok');",
-    "          if (window.WebCoolI18n && typeof window.WebCoolI18n.apply === 'function') {",
-    "            window.WebCoolI18n.apply(document);",
-    "          }",
-    "          return;",
-    "        }",
-    "        window.location.href = localizedPageUrl(nextLang);",
-    "      }",
-    "",
-    "      function redirectToSavedLanguageIfNeeded() {",
-    "        let savedLang = '';",
-    "        try {",
-    "          savedLang = localStorage.getItem(LANGUAGE_STORAGE_KEY) || '';",
-    "        } catch (_) {}",
-    "        if (savedLang !== 'en' && savedLang !== 'zh') {",
-    "          return;",
-    "        }",
-    "        const path = window.location.pathname || '';",
-    "        if (savedLang !== UI_LANG) {",
-    "          window.location.replace(localizedPageUrl(savedLang));",
-    "        }",
-    "      }",
-    "",
-    "      redirectToSavedLanguageIfNeeded();",
-    "",
-    "      function setAdminStorageProgress(visible, percent, message) {",
-    "        if (!adminStorageProgress) {",
-    "          return;",
-    "        }",
-    "        adminStorageProgress.hidden = !visible;",
-    "        const safePercent = Math.max(0, Math.min(100, Number(percent || 0)));",
-    "        if (adminStorageProgressFill) {",
-    "          adminStorageProgressFill.style.width = safePercent.toFixed(1) + '%';",
-    "        }",
-    "        if (adminStorageProgressText) {",
-    "          adminStorageProgressText.textContent = safePercent.toFixed(1).replace(/\\.0$/, '') + '%';",
-    "        }",
-    "        if (adminStorageProgressMessage) {",
-    "          adminStorageProgressMessage.textContent = String(message || '');",
-    "        }",
-    "      }",
-    "",
-    "      function setAdminStorageProgressControls(state) {",
-    "        const running = state === 'running' || state === 'conflict' || state === 'queued';",
-    "        const paused = state === 'paused';",
-    "        const active = running || paused;",
-    "        if (adminStorageProgressPauseBtn) {",
-    "          adminStorageProgressPauseBtn.hidden = !running;",
-    "          adminStorageProgressPauseBtn.disabled = !running;",
-    "        }",
-    "        if (adminStorageProgressResumeBtn) {",
-    "          adminStorageProgressResumeBtn.hidden = !paused;",
-    "          adminStorageProgressResumeBtn.disabled = !paused;",
-    "        }",
-    "        if (adminStorageProgressCancelBtn) {",
-    "          adminStorageProgressCancelBtn.hidden = !active;",
-    "          adminStorageProgressCancelBtn.disabled = !active;",
-    "        }",
-    "      }",
-    "",
-    "      async function controlAdminStorageMigration(action) {",
-    "        const taskId = String(activeAdminStorageMigrateTaskId || '');",
-    "        if (!taskId) { return; }",
-    "        await fetchJson(api.adminStorageMigrateControl + '?task_id=' + encodeURIComponent(taskId) + '&action=' + encodeURIComponent(action), { method: 'POST' });",
-    "      }",
-    "",
-    "      function localizeAdminStorageMigrationMessage(message) {",
-    "        const text = String(message || '');",
-    "        const prefixes = ['正在处理同名文件(覆盖)：', '正在处理同名文件(跳过)：', '正在处理同名文件：', '正在拷贝：'];",
-    "        for (let i = 0; i < prefixes.length; i += 1) {",
-    "          if (text.indexOf(prefixes[i]) === 0) {",
-    "            return t(prefixes[i]) + text.slice(prefixes[i].length);",
-    "          }",
-    "        }",
-    "        return t(text);",
-    "      }",
-    "",
-    "      async function loadAdminStoragePath() {",
-    "        if (!adminStoragePath) {",
-    "          return;",
-    "        }",
-    "        try {",
-    "          const data = await fetchJson(api.adminStorage);",
-    "          currentAdminStoragePath = String(data.path || '');",
-    "          adminStoragePath.value = currentAdminStoragePath;",
-    "        } catch (err) {",
-    "          showStatus(t('加载存储路径失败：') + err.message, 'err');",
-    "        }",
-    "      }",
-    "",
-    "      function stopAdminStorageProgressPolling() {",
-    "        if (adminStorageProgressTimer) {",
-    "          clearInterval(adminStorageProgressTimer);",
-    "          adminStorageProgressTimer = null;",
-    "        }",
-    "        activeAdminStorageMigrateTaskId = '';",
-    "        setAdminStorageProgressControls('done');",
-    "      }",
-    "",
-    "      function pollAdminStorageMigration(taskId) {",
-    "        stopAdminStorageProgressPolling();",
-    "        activeAdminStorageMigrateTaskId = String(taskId || '');",
-    "        setAdminStorageProgressControls('running');",
-    "        return new Promise(function (resolve, reject) {",
-    "          let conflictPrompting = false;",
-    "          let resolvedConflictKey = '';",
-    "          let rememberedConflictAction = '';",
-    "          async function resolveStorageMigrationConflict(data) {",
-    "            const conflictKey = String(data.conflict_source || data.conflict_target || data.conflict_name || '');",
-    "            if (conflictPrompting || (conflictKey && conflictKey === resolvedConflictKey)) {",
-    "              return;",
-    "            }",
-    "            conflictPrompting = true;",
-    "            let action = rememberedConflictAction;",
-    "            const name = String(data.conflict_name || data.conflict_target || '');",
-    "            if (!action) {",
-    "              const choice = await askConfirmDialog({",
-    "                title: t('目标文件已存在'),",
-    "                description: t('目标目录下已存在同名文件：') + name,",
-    "                confirmText: t('记住覆盖'),",
-    "                extraText: t('不覆盖'),",
-    "                extraValue: 'skip',",
-    "                extraButtons: [",
-    "                  { text: t('记住不覆盖'), value: 'remember-skip' },",
-    "                  { text: t('覆盖'), value: 'overwrite' }",
-    "                ],",
-    "                cancelText: t('取消迁移'),",
-    "                wide: true,",
-    "                danger: false",
-    "              });",
-    "              if (choice === true || choice === 'remember-overwrite') {",
-    "                rememberedConflictAction = 'overwrite';",
-    "                action = 'remember-overwrite';",
-    "              } else if (choice === 'remember-skip') {",
-    "                rememberedConflictAction = 'skip';",
-    "                action = 'remember-skip';",
-    "              } else {",
-    "                action = choice === 'overwrite' ? 'overwrite' : (choice === 'skip' ? 'skip' : 'cancel');",
-    "              }",
-    "            }",
-    "            await fetchJson(",
-    "              api.adminStorageMigrateResolve + '?task_id=' + encodeURIComponent(taskId || '') + '&choice=' + encodeURIComponent(action),",
-    "              { method: 'POST' }",
-    "            );",
-    "            resolvedConflictKey = conflictKey;",
-    "            conflictPrompting = false;",
-    "          }",
-    "          async function tick() {",
-    "            try {",
-    "              const data = await fetchJson(",
-    "                api.adminStorageMigrateProgress + '?task_id=' + encodeURIComponent(taskId || '')",
-    "              );",
-    "              const state = String(data.state || '');",
-    "              setAdminStorageProgressControls(state);",
-    "              if (state !== 'conflict') {",
-    "                conflictPrompting = false;",
-    "                resolvedConflictKey = '';",
-    "              }",
-    "              const message = localizeAdminStorageMigrationMessage(data.message || '');",
-    "              const movedFiles = Number(data.moved_files || 0);",
-    "              const totalFiles = Number(data.total_files || 0);",
-    "              const detail = message + (totalFiles > 0 ? ('（' + movedFiles + '/' + totalFiles + '）') : '');",
-    "              setAdminStorageProgress(true, Number(data.progress || 0), detail);",
-    "              if (state === 'conflict') {",
-    "                const conflictPath = String(data.conflict_source || data.conflict_target || data.conflict_name || '');",
-    "                const conflictText = rememberedConflictAction === 'overwrite'",
-    "                  ? (t('正在处理同名文件(覆盖)：') + conflictPath)",
-    "                  : (rememberedConflictAction === 'skip'",
-    "                    ? (t('正在处理同名文件(跳过)：') + conflictPath)",
-    "                    : (t('正在处理同名文件：') + conflictPath));",
-    "                setAdminStorageProgress(true, Number(data.progress || 0), conflictText);",
-    "                await resolveStorageMigrationConflict(data);",
-    "              } else if (state === 'paused') {",
-    "                setAdminStorageProgress(true, Number(data.progress || 0), message || t('迁移已暂停'));",
-    "              } else if (state === 'done') {",
-    "                stopAdminStorageProgressPolling();",
-    "                setAdminStorageProgress(true, 100, t('迁移完成'));",
-    "                resolve(data);",
-    "              } else if (state === 'failed' || state === 'cancelled') {",
-    "                stopAdminStorageProgressPolling();",
-    "                reject(new Error(data.error || (state === 'cancelled' ? t('迁移已取消') : t('存储路径迁移失败'))));",
-    "              }",
-    "            } catch (err) {",
-    "              stopAdminStorageProgressPolling();",
-    "              reject(err);",
-    "            }",
-    "          }",
-    "          adminStorageProgressTimer = setInterval(tick, 800);",
-    "          tick();",
-    "        });",
-    "      }",
-    "",
-    "      async function askCleanupOldStorageAfterMigration(data) {",
-    "        const sourceDir = String((data && data.source_dir) || '');",
-    "        if (!sourceDir) {",
-    "          return;",
-    "        }",
-    "        const cleanup = await askConfirmDialog({",
-    "          title: t('是否删除旧数据？'),",
-    "          description: t('迁移已完成，是否删除原存储路径下的旧数据？备份目录 .backup 会保留。'),",
-    "          confirmText: t('删除旧数据'),",
-    "          cancelText: t('不删除'),",
-    "          danger: true",
-    "        });",
-    "        if (!cleanup) {",
-    "          showStatus(t('已保留旧数据：') + sourceDir, 'warn');",
-    "          return;",
-    "        }",
-    "        await fetchJson(api.adminStorageMigrateCleanup + '?task_id=' + encodeURIComponent(String((data && data.task_id) || '')), { method: 'POST' });",
-    "        showStatus(t('已删除旧数据：') + sourceDir, 'ok');",
-    "      }",
-    "",
-    "      async function applyAdminStoragePathChange() {",
-    "        if (!adminStoragePath || !adminStorageChooseBtn) {",
-    "          return;",
-    "        }",
-    "        const nextPath = String(adminStoragePath.value || '').trim();",
-    "        if (!nextPath) {",
-    "          showStatus(t('存储路径不能为空'), 'err');",
-    "          adminStoragePath.value = currentAdminStoragePath;",
-    "          return;",
-    "        }",
-    "        if (nextPath === currentAdminStoragePath) {",
-    "          showStatus(t('存储路径未改变'), 'warn');",
-    "          return;",
-    "        }",
-    "        const storageChangeChoice = await askConfirmDialog({",
-    "          title: t('确认修改存储路径'),",
-    "          description: t('是否将当前存储路径下的文件移动到目标目录？'),",
-    "          confirmText: t('是，开始移动'),",
-    "          extraText: t('否，只修改路径'),",
-    "          extraValue: 'no-migrate',",
-    "          cancelText: t('取消'),",
-    "          danger: false",
-    "        });",
-    "        if (storageChangeChoice === false) {",
-    "          adminStoragePath.value = currentAdminStoragePath;",
-    "          setAdminStorageProgress(false, 0, '');",
-    "          showStatus(t('已取消，存储路径未修改'), 'warn');",
-    "          return;",
-    "        }",
-    "        if (storageChangeChoice === 'no-migrate') {",
-    "          adminStorageChooseBtn.disabled = true;",
-    "          adminStoragePath.disabled = true;",
-    "          setAdminStorageProgress(false, 0, '');",
-    "          try {",
-    "            await fetchJson(",
-    "              api.adminStorageMigrate + '?path=' + encodeURIComponent(nextPath) + '&migrate=0',",
-    "              { method: 'POST' }",
-    "            );",
-    "            await loadAdminStoragePath();",
-    "            loadFiles();",
-    "            showStatus(t('存储路径已修改，未迁移文件：') + currentAdminStoragePath, 'ok');",
-    "          } catch (err) {",
-    "            adminStoragePath.value = currentAdminStoragePath;",
-    "            showStatus(t('只修改存储路径失败：') + err.message, 'err');",
-    "          } finally {",
-    "            adminStorageChooseBtn.disabled = false;",
-    "            adminStoragePath.disabled = false;",
-    "          }",
-    "          return;",
-    "        }",
-    "        adminStorageChooseBtn.disabled = true;",
-    "        adminStoragePath.disabled = true;",
-    "        setAdminStorageProgress(true, 0, t('正在提交移动任务...'));",
-    "        try {",
-    "          const startData = await fetchJson(",
-    "            api.adminStorageMigrate + '?path=' + encodeURIComponent(nextPath),",
-    "            { method: 'POST' }",
-    "          );",
-    "          const migrateData = await pollAdminStorageMigration(String(startData.task_id || ''));",
-    "          await loadAdminStoragePath();",
-    "          loadFiles();",
-    "          showStatus(t('存储路径已修改：') + currentAdminStoragePath, 'ok');",
-    "          await askCleanupOldStorageAfterMigration(migrateData);",
-    "        } catch (err) {",
-    "          adminStoragePath.value = currentAdminStoragePath;",
-    "          setAdminStorageProgress(true, 0, '移动失败：' + err.message);",
-    "          showStatus('修改存储路径失败：' + err.message, 'err');",
-    "        } finally {",
-    "          adminStorageChooseBtn.disabled = false;",
-    "          adminStoragePath.disabled = false;",
-    "        }",
-    "      }",
-    "",
-    "      function adminStoragePickerUrl(path) {",
-    "        const target = String(path || '');",
-    "        return target",
-    "          ? (api.localDiskList + '?path=' + encodeURIComponent(target))",
-    "          : api.localDiskList;",
-    "      }",
-    "",
-    "      async function loadAdminStoragePickerPath(path) {",
-    "        const data = await fetchJson(adminStoragePickerUrl(path));",
-    "        activeAdminStorageHomePath = String(data.home_path || activeAdminStorageHomePath || '');",
-    "        const nodePath = String(data.path || path || '/');",
-    "        const dirs = (Array.isArray(data.items) ? data.items : []).filter(function (item) {",
-    "          return item && item.directory;",
-    "        }).sort(function (a, b) {",
-    "          return String((a && a.name) || '').localeCompare(String((b && b.name) || ''), 'zh-CN');",
-    "        });",
-    "        adminStoragePickerCache.set(nodePath, dirs);",
-    "        if (!adminStoragePickerRootPath) {",
-    "          adminStoragePickerRootPath = nodePath;",
-    "        }",
-    "        return nodePath;",
-    "      }",
-    "",
-    "      function renderAdminStoragePickerNode(path, level, itemMeta) {",
-    "        const textPath = String(path || '/');",
-    "        const encodedPath = encodeURIComponent(textPath);",
-    "        const dirs = adminStoragePickerCache.get(textPath) || [];",
-    "        const isExpanded = adminStoragePickerExpandedPaths.has(textPath);",
-    "        const hasCache = adminStoragePickerCache.has(textPath);",
-    "        const isActive = adminStoragePickerSelectedPath === textPath;",
-    "        const name = itemMeta && itemMeta.name ? String(itemMeta.name) : (textPath === '/' ? t('根目录') : localDiskBaseName(textPath));",
-    "        let html = '<div class=\"admin-storage-picker-node\" data-admin-storage-picker-node=\"' + escapeHtml(textPath) + '\">' +",
-    "          '<div class=\"admin-storage-picker-line' + (isActive ? ' active' : '') + '\" style=\"padding-left:' + (8 + level * 18) + 'px;\">' +",
-    "            '<button type=\"button\" class=\"admin-storage-picker-toggle' + (hasCache && !dirs.length ? ' placeholder' : '') + '\" data-admin-storage-picker-toggle=\"' + encodedPath + '\" title=\"展开或收起目录\" aria-label=\"展开或收起目录\">' +",
-    "              (isExpanded && dirs.length ? '▾' : (hasCache && !dirs.length ? '•' : '▸')) +",
-    "            '</button>' +",
-    "            '<button type=\"button\" class=\"admin-storage-picker-entry\" data-admin-storage-picker-select=\"' + encodedPath + '\" title=\"' + escapeHtml(textPath) + '\">' +",
-    "              '<span class=\"local-folder-icon\">📁</span>' +",
-    "              '<span class=\"admin-storage-picker-name\">' + escapeHtml(name) + '</span>' +",
-    "            '</button>' +",
-    "          '</div>';",
-    "        if (isExpanded && dirs.length) {",
-    "          html += '<div class=\"admin-storage-picker-children\">';",
-    "          html += dirs.map(function (item) {",
-    "            return renderAdminStoragePickerNode(String(item.path || ''), level + 1, item);",
-    "          }).join('');",
-    "          html += '</div>';",
-    "        }",
-    "        html += '</div>';",
-    "        return html;",
-    "      }",
-    "",
-    "      function renderAdminStoragePicker() {",
-    "        if (!adminStoragePickerTree || !adminStoragePickerEmpty) {",
-    "          return;",
-    "        }",
-    "        if (!adminStoragePickerRootPath) {",
-    "          adminStoragePickerTree.innerHTML = '';",
-    "          adminStoragePickerEmpty.style.display = 'block';",
-    "          return;",
-    "        }",
-    "        adminStoragePickerTree.innerHTML = renderAdminStoragePickerNode(adminStoragePickerRootPath, 0, null);",
-    "        adminStoragePickerEmpty.style.display = 'none';",
-    "        if (adminStoragePickerPath) {",
-    "          adminStoragePickerPath.innerHTML = '当前选择：<span class=\"admin-storage-picker-current\">'",
-    "            + escapeHtml(adminStoragePickerSelectedPath || adminStoragePickerRootPath)",
-    "            + '</span>';",
-    "        }",
-    "      }",
-    "",
-    "      async function jumpAdminStoragePickerPath(path) {",
-    "        const target = String(path || '/');",
-    "        try {",
-    "          adminStoragePickerRootPath = '';",
-    "          adminStoragePickerSelectedPath = '';",
-    "          adminStoragePickerCache.clear();",
-    "          adminStoragePickerExpandedPaths.clear();",
-    "          const rootPath = await loadAdminStoragePickerPath(target);",
-    "          adminStoragePickerRootPath = rootPath;",
-    "          adminStoragePickerSelectedPath = rootPath;",
-    "          adminStoragePickerExpandedPaths.add(rootPath);",
-    "          renderAdminStoragePicker();",
-    "        } catch (err) {",
-    "          showStatus(t('加载本地目录树失败：') + err.message, 'err');",
-    "        }",
-    "      }",
-    "",
-    "      function jumpAdminStoragePickerRoot() {",
-    "        jumpAdminStoragePickerPath('/');",
-    "      }",
-    "",
-    "      function jumpAdminStoragePickerHome() {",
-    "        jumpAdminStoragePickerPath(activeAdminStorageHomePath || '');",
-    "      }",
-    "",
-    "      async function openAdminStoragePickerDialog() {",
-    "        if (!adminStoragePickerDialog) {",
-    "          return;",
-    "        }",
-    "        try {",
-    "          await jumpAdminStoragePickerPath('/');",
-    "          adminStoragePickerDialog.hidden = false;",
-    "          document.body.style.overflow = 'hidden';",
-    "        } catch (err) {",
-    "          showStatus(t('加载本地目录树失败：') + err.message, 'err');",
-    "        }",
-    "      }",
-    "",
-    "      function closeAdminStoragePickerDialog() {",
-    "        if (adminStoragePickerDialog) {",
-    "          adminStoragePickerDialog.hidden = true;",
-    "          document.body.style.overflow = '';",
-    "        }",
-    "      }",
-    "",
-    "      async function toggleAdminStoragePickerPath(path) {",
-    "        const target = String(path || '');",
-    "        if (!target) {",
-    "          return;",
-    "        }",
-    "        if (adminStoragePickerExpandedPaths.has(target) && adminStoragePickerCache.has(target)) {",
-    "          adminStoragePickerExpandedPaths.delete(target);",
-    "          renderAdminStoragePicker();",
-    "          return;",
-    "        }",
-    "        try {",
-    "          await loadAdminStoragePickerPath(target);",
-    "          adminStoragePickerExpandedPaths.add(target);"
-  ].join("\n"));
-})();
+        if (top < 8) top = 8;
+        if (top > maxTop) top = maxTop;
+
+        win.style.left = Math.round(left) + 'px';
+        win.style.top = Math.round(top) + 'px';
+      }
+
+      function updateSortIndicator() {
+        const key = sortKey.value || 'name';
+        const order = sortOrder.value || 'asc';
+        sortButtons.forEach(btn => {
+          const btnKey = btn.getAttribute('data-sort-key');
+          const arrow = btn.querySelector('.arrow');
+          if (btnKey === key) {
+            btn.classList.add('active');
+            if (arrow) {
+              arrow.textContent = order === 'desc' ? '↓' : '↑';
+            }
+          } else {
+            btn.classList.remove('active');
+            if (arrow) {
+              arrow.textContent = '-';
+            }
+          }
+        });
+      }
+
+      async function fetchJson(url, options) {
+        const res = await fetch(url, options || {});
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_) {
+          data = { ok: false, error: 'invalid json response' };
+        }
+        if (!res.ok || !data.ok) {
+          const err = new Error(data.error || ('http ' + res.status));
+          err.status = res.status;
+          err.data = data;
+          throw err;
+        }
+        return data;
+      }
+
+      function activateAdminView(name) {
+        const isLanguage = name === 'language';
+        if (adminStorageTab) {
+          adminStorageTab.classList.toggle('active', !isLanguage);
+        }
+        if (adminLanguageTab) {
+          adminLanguageTab.classList.toggle('active', isLanguage);
+        }
+        if (adminStorageView) {
+          adminStorageView.hidden = isLanguage;
+        }
+        if (adminLanguageView) {
+          adminLanguageView.hidden = !isLanguage;
+        }
+        if (!isLanguage) {
+          loadAdminStoragePath();
+        }
+      }
+
+      function localizedPageUrl(lang) {
+        return '/';
+      }
+
+      function applyLanguageSetting() {
+        if (!adminLanguageSelect) {
+          return;
+        }
+        const nextLang = adminLanguageSelect.value === 'en' ? 'en' : 'zh';
+        try {
+          localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLang);
+        } catch (_) {}
+        if (nextLang === UI_LANG) {
+          showStatus(t('语言设置已保存'), 'ok');
+          if (window.WebCoolI18n && typeof window.WebCoolI18n.apply === 'function') {
+            window.WebCoolI18n.apply(document);
+          }
+          return;
+        }
+        window.location.href = localizedPageUrl(nextLang);
+      }
+
+      function redirectToSavedLanguageIfNeeded() {
+        let savedLang = '';
+        try {
+          savedLang = localStorage.getItem(LANGUAGE_STORAGE_KEY) || '';
+        } catch (_) {}
+        if (savedLang !== 'en' && savedLang !== 'zh') {
+          return;
+        }
+        const path = window.location.pathname || '';
+        if (savedLang !== UI_LANG) {
+          window.location.replace(localizedPageUrl(savedLang));
+        }
+      }
+
+      redirectToSavedLanguageIfNeeded();
+
+      function setAdminStorageProgress(visible, percent, message) {
+        if (!adminStorageProgress) {
+          return;
+        }
+        adminStorageProgress.hidden = !visible;
+        const safePercent = Math.max(0, Math.min(100, Number(percent || 0)));
+        if (adminStorageProgressFill) {
+          adminStorageProgressFill.style.width = safePercent.toFixed(1) + '%';
+        }
+        if (adminStorageProgressText) {
+          adminStorageProgressText.textContent = safePercent.toFixed(1).replace(/\.0$/, '') + '%';
+        }
+        if (adminStorageProgressMessage) {
+          adminStorageProgressMessage.textContent = String(message || '');
+        }
+      }
+
+      function setAdminStorageProgressControls(state) {
+        const running = state === 'running' || state === 'conflict' || state === 'queued';
+        const paused = state === 'paused';
+        const active = running || paused;
+        if (adminStorageProgressPauseBtn) {
+          adminStorageProgressPauseBtn.hidden = !running;
+          adminStorageProgressPauseBtn.disabled = !running;
+        }
+        if (adminStorageProgressResumeBtn) {
+          adminStorageProgressResumeBtn.hidden = !paused;
+          adminStorageProgressResumeBtn.disabled = !paused;
+        }
+        if (adminStorageProgressCancelBtn) {
+          adminStorageProgressCancelBtn.hidden = !active;
+          adminStorageProgressCancelBtn.disabled = !active;
+        }
+      }
+
+      async function controlAdminStorageMigration(action) {
+        const taskId = String(activeAdminStorageMigrateTaskId || '');
+        if (!taskId) { return; }
+        await fetchJson(api.adminStorageMigrateControl + '?task_id=' + encodeURIComponent(taskId) + '&action=' + encodeURIComponent(action), { method: 'POST' });
+      }
+
+      function localizeAdminStorageMigrationMessage(message) {
+        const text = String(message || '');
+        const prefixes = ['正在处理同名文件(覆盖)：', '正在处理同名文件(跳过)：', '正在处理同名文件：', '正在拷贝：'];
+        for (let i = 0; i < prefixes.length; i += 1) {
+          if (text.indexOf(prefixes[i]) === 0) {
+            return t(prefixes[i]) + text.slice(prefixes[i].length);
+          }
+        }
+        return t(text);
+      }
+
+      async function loadAdminStoragePath() {
+        if (!adminStoragePath) {
+          return;
+        }
+        try {
+          const data = await fetchJson(api.adminStorage);
+          currentAdminStoragePath = String(data.path || '');
+          adminStoragePath.value = currentAdminStoragePath;
+        } catch (err) {
+          showStatus(t('加载存储路径失败：') + err.message, 'err');
+        }
+      }
+
+      function stopAdminStorageProgressPolling() {
+        if (adminStorageProgressTimer) {
+          clearInterval(adminStorageProgressTimer);
+          adminStorageProgressTimer = null;
+        }
+        activeAdminStorageMigrateTaskId = '';
+        setAdminStorageProgressControls('done');
+      }
+
+      function pollAdminStorageMigration(taskId) {
+        stopAdminStorageProgressPolling();
+        activeAdminStorageMigrateTaskId = String(taskId || '');
+        setAdminStorageProgressControls('running');
+        return new Promise(function (resolve, reject) {
+          let conflictPrompting = false;
+          let resolvedConflictKey = '';
+          let rememberedConflictAction = '';
+          async function resolveStorageMigrationConflict(data) {
+            const conflictKey = String(data.conflict_source || data.conflict_target || data.conflict_name || '');
+            if (conflictPrompting || (conflictKey && conflictKey === resolvedConflictKey)) {
+              return;
+            }
+            conflictPrompting = true;
+            let action = rememberedConflictAction;
+            const name = String(data.conflict_name || data.conflict_target || '');
+            if (!action) {
+              const choice = await askConfirmDialog({
+                title: t('目标文件已存在'),
+                description: t('目标目录下已存在同名文件：') + name,
+                confirmText: t('记住覆盖'),
+                extraText: t('不覆盖'),
+                extraValue: 'skip',
+                extraButtons: [
+                  { text: t('记住不覆盖'), value: 'remember-skip' },
+                  { text: t('覆盖'), value: 'overwrite' }
+                ],
+                cancelText: t('取消迁移'),
+                wide: true,
+                danger: false
+              });
+              if (choice === true || choice === 'remember-overwrite') {
+                rememberedConflictAction = 'overwrite';
+                action = 'remember-overwrite';
+              } else if (choice === 'remember-skip') {
+                rememberedConflictAction = 'skip';
+                action = 'remember-skip';
+              } else {
+                action = choice === 'overwrite' ? 'overwrite' : (choice === 'skip' ? 'skip' : 'cancel');
+              }
+            }
+            await fetchJson(
+              api.adminStorageMigrateResolve + '?task_id=' + encodeURIComponent(taskId || '') + '&choice=' + encodeURIComponent(action),
+              { method: 'POST' }
+            );
+            resolvedConflictKey = conflictKey;
+            conflictPrompting = false;
+          }
+          async function tick() {
+            try {
+              const data = await fetchJson(
+                api.adminStorageMigrateProgress + '?task_id=' + encodeURIComponent(taskId || '')
+              );
+              const state = String(data.state || '');
+              setAdminStorageProgressControls(state);
+              if (state !== 'conflict') {
+                conflictPrompting = false;
+                resolvedConflictKey = '';
+              }
+              const message = localizeAdminStorageMigrationMessage(data.message || '');
+              const movedFiles = Number(data.moved_files || 0);
+              const totalFiles = Number(data.total_files || 0);
+              const detail = message + (totalFiles > 0 ? ('（' + movedFiles + '/' + totalFiles + '）') : '');
+              setAdminStorageProgress(true, Number(data.progress || 0), detail);
+              if (state === 'conflict') {
+                const conflictPath = String(data.conflict_source || data.conflict_target || data.conflict_name || '');
+                const conflictText = rememberedConflictAction === 'overwrite'
+                  ? (t('正在处理同名文件(覆盖)：') + conflictPath)
+                  : (rememberedConflictAction === 'skip'
+                    ? (t('正在处理同名文件(跳过)：') + conflictPath)
+                    : (t('正在处理同名文件：') + conflictPath));
+                setAdminStorageProgress(true, Number(data.progress || 0), conflictText);
+                await resolveStorageMigrationConflict(data);
+              } else if (state === 'paused') {
+                setAdminStorageProgress(true, Number(data.progress || 0), message || t('迁移已暂停'));
+              } else if (state === 'done') {
+                stopAdminStorageProgressPolling();
+                setAdminStorageProgress(true, 100, t('迁移完成'));
+                resolve(data);
+              } else if (state === 'failed' || state === 'cancelled') {
+                stopAdminStorageProgressPolling();
+                reject(new Error(data.error || (state === 'cancelled' ? t('迁移已取消') : t('存储路径迁移失败'))));
+              }
+            } catch (err) {
+              stopAdminStorageProgressPolling();
+              reject(err);
+            }
+          }
+          adminStorageProgressTimer = setInterval(tick, 800);
+          tick();
+        });
+      }
+
+      async function askCleanupOldStorageAfterMigration(data) {
+        const sourceDir = String((data && data.source_dir) || '');
+        if (!sourceDir) {
+          return;
+        }
+        const cleanup = await askConfirmDialog({
+          title: t('是否删除旧数据？'),
+          description: t('迁移已完成，是否删除原存储路径下的旧数据？备份目录 .backup 会保留。'),
+          confirmText: t('删除旧数据'),
+          cancelText: t('不删除'),
+          danger: true
+        });
+        if (!cleanup) {
+          showStatus(t('已保留旧数据：') + sourceDir, 'warn');
+          return;
+        }
+        await fetchJson(api.adminStorageMigrateCleanup + '?task_id=' + encodeURIComponent(String((data && data.task_id) || '')), { method: 'POST' });
+        showStatus(t('已删除旧数据：') + sourceDir, 'ok');
+      }
+
+      async function applyAdminStoragePathChange() {
+        if (!adminStoragePath || !adminStorageChooseBtn) {
+          return;
+        }
+        const nextPath = String(adminStoragePath.value || '').trim();
+        if (!nextPath) {
+          showStatus(t('存储路径不能为空'), 'err');
+          adminStoragePath.value = currentAdminStoragePath;
+          return;
+        }
+        if (nextPath === currentAdminStoragePath) {
+          showStatus(t('存储路径未改变'), 'warn');
+          return;
+        }
+        const storageChangeChoice = await askConfirmDialog({
+          title: t('确认修改存储路径'),
+          description: t('是否将当前存储路径下的文件移动到目标目录？'),
+          confirmText: t('是，开始移动'),
+          extraText: t('否，只修改路径'),
+          extraValue: 'no-migrate',
+          cancelText: t('取消'),
+          danger: false
+        });
+        if (storageChangeChoice === false) {
+          adminStoragePath.value = currentAdminStoragePath;
+          setAdminStorageProgress(false, 0, '');
+          showStatus(t('已取消，存储路径未修改'), 'warn');
+          return;
+        }
+        if (storageChangeChoice === 'no-migrate') {
+          adminStorageChooseBtn.disabled = true;
+          adminStoragePath.disabled = true;
+          setAdminStorageProgress(false, 0, '');
+          try {
+            await fetchJson(
+              api.adminStorageMigrate + '?path=' + encodeURIComponent(nextPath) + '&migrate=0',
+              { method: 'POST' }
+            );
+            await loadAdminStoragePath();
+            loadFiles();
+            showStatus(t('存储路径已修改，未迁移文件：') + currentAdminStoragePath, 'ok');
+          } catch (err) {
+            adminStoragePath.value = currentAdminStoragePath;
+            showStatus(t('只修改存储路径失败：') + err.message, 'err');
+          } finally {
+            adminStorageChooseBtn.disabled = false;
+            adminStoragePath.disabled = false;
+          }
+          return;
+        }
+        adminStorageChooseBtn.disabled = true;
+        adminStoragePath.disabled = true;
+        setAdminStorageProgress(true, 0, t('正在提交移动任务...'));
+        try {
+          const startData = await fetchJson(
+            api.adminStorageMigrate + '?path=' + encodeURIComponent(nextPath),
+            { method: 'POST' }
+          );
+          const migrateData = await pollAdminStorageMigration(String(startData.task_id || ''));
+          await loadAdminStoragePath();
+          loadFiles();
+          showStatus(t('存储路径已修改：') + currentAdminStoragePath, 'ok');
+          await askCleanupOldStorageAfterMigration(migrateData);
+        } catch (err) {
+          adminStoragePath.value = currentAdminStoragePath;
+          setAdminStorageProgress(true, 0, '移动失败：' + err.message);
+          showStatus('修改存储路径失败：' + err.message, 'err');
+        } finally {
+          adminStorageChooseBtn.disabled = false;
+          adminStoragePath.disabled = false;
+        }
+      }
+
+      function adminStoragePickerUrl(path) {
+        const target = String(path || '');
+        return target
+          ? (api.localDiskList + '?path=' + encodeURIComponent(target))
+          : api.localDiskList;
+      }
+
+      async function loadAdminStoragePickerPath(path) {
+        const data = await fetchJson(adminStoragePickerUrl(path));
+        activeAdminStorageHomePath = String(data.home_path || activeAdminStorageHomePath || '');
+        const nodePath = String(data.path || path || '/');
+        const dirs = (Array.isArray(data.items) ? data.items : []).filter(function (item) {
+          return item && item.directory;
+        }).sort(function (a, b) {
+          return String((a && a.name) || '').localeCompare(String((b && b.name) || ''), 'zh-CN');
+        });
+        adminStoragePickerCache.set(nodePath, dirs);
+        if (!adminStoragePickerRootPath) {
+          adminStoragePickerRootPath = nodePath;
+        }
+        return nodePath;
+      }
+
+      function renderAdminStoragePickerNode(path, level, itemMeta) {
+        const textPath = String(path || '/');
+        const encodedPath = encodeURIComponent(textPath);
+        const dirs = adminStoragePickerCache.get(textPath) || [];
+        const isExpanded = adminStoragePickerExpandedPaths.has(textPath);
+        const hasCache = adminStoragePickerCache.has(textPath);
+        const isActive = adminStoragePickerSelectedPath === textPath;
+        const name = itemMeta && itemMeta.name ? String(itemMeta.name) : (textPath === '/' ? t('根目录') : localDiskBaseName(textPath));
+        let html = '<div class="admin-storage-picker-node" data-admin-storage-picker-node="' + escapeHtml(textPath) + '">' +
+          '<div class="admin-storage-picker-line' + (isActive ? ' active' : '') + '" style="padding-left:' + (8 + level * 18) + 'px;">' +
+            '<button type="button" class="admin-storage-picker-toggle' + (hasCache && !dirs.length ? ' placeholder' : '') + '" data-admin-storage-picker-toggle="' + encodedPath + '" title="展开或收起目录" aria-label="展开或收起目录">' +
+              (isExpanded && dirs.length ? '▾' : (hasCache && !dirs.length ? '•' : '▸')) +
+            '</button>' +
+            '<button type="button" class="admin-storage-picker-entry" data-admin-storage-picker-select="' + encodedPath + '" title="' + escapeHtml(textPath) + '">' +
+              '<span class="local-folder-icon">📁</span>' +
+              '<span class="admin-storage-picker-name">' + escapeHtml(name) + '</span>' +
+            '</button>' +
+          '</div>';
+        if (isExpanded && dirs.length) {
+          html += '<div class="admin-storage-picker-children">';
+          html += dirs.map(function (item) {
+            return renderAdminStoragePickerNode(String(item.path || ''), level + 1, item);
+          }).join('');
+          html += '</div>';
+        }
+        html += '</div>';
+        return html;
+      }
+
+      function renderAdminStoragePicker() {
+        if (!adminStoragePickerTree || !adminStoragePickerEmpty) {
+          return;
+        }
+        if (!adminStoragePickerRootPath) {
+          adminStoragePickerTree.innerHTML = '';
+          adminStoragePickerEmpty.style.display = 'block';
+          return;
+        }
+        adminStoragePickerTree.innerHTML = renderAdminStoragePickerNode(adminStoragePickerRootPath, 0, null);
+        adminStoragePickerEmpty.style.display = 'none';
+        if (adminStoragePickerPath) {
+          adminStoragePickerPath.innerHTML = '当前选择：<span class="admin-storage-picker-current">'
+            + escapeHtml(adminStoragePickerSelectedPath || adminStoragePickerRootPath)
+            + '</span>';
+        }
+      }
+
+      async function jumpAdminStoragePickerPath(path) {
+        const target = String(path || '/');
+        try {
+          adminStoragePickerRootPath = '';
+          adminStoragePickerSelectedPath = '';
+          adminStoragePickerCache.clear();
+          adminStoragePickerExpandedPaths.clear();
+          const rootPath = await loadAdminStoragePickerPath(target);
+          adminStoragePickerRootPath = rootPath;
+          adminStoragePickerSelectedPath = rootPath;
+          adminStoragePickerExpandedPaths.add(rootPath);
+          renderAdminStoragePicker();
+        } catch (err) {
+          showStatus(t('加载本地目录树失败：') + err.message, 'err');
+        }
+      }
+
+      function jumpAdminStoragePickerRoot() {
+        jumpAdminStoragePickerPath('/');
+      }
+
+      function jumpAdminStoragePickerHome() {
+        jumpAdminStoragePickerPath(activeAdminStorageHomePath || '');
+      }
+
+      async function openAdminStoragePickerDialog() {
+        if (!adminStoragePickerDialog) {
+          return;
+        }
+        try {
+          await jumpAdminStoragePickerPath('/');
+          adminStoragePickerDialog.hidden = false;
+          document.body.style.overflow = 'hidden';
+        } catch (err) {
+          showStatus(t('加载本地目录树失败：') + err.message, 'err');
+        }
+      }
+
+      function closeAdminStoragePickerDialog() {
+        if (adminStoragePickerDialog) {
+          adminStoragePickerDialog.hidden = true;
+          document.body.style.overflow = '';
+        }
+      }
+
+      async function toggleAdminStoragePickerPath(path) {
+        const target = String(path || '');
+        if (!target) {
+          return;
+        }
+        if (adminStoragePickerExpandedPaths.has(target) && adminStoragePickerCache.has(target)) {
+          adminStoragePickerExpandedPaths.delete(target);
+          renderAdminStoragePicker();
+          return;
+        }
+        try {
+          await loadAdminStoragePickerPath(target);
+          adminStoragePickerExpandedPaths.add(target);

@@ -1,867 +1,862 @@
-(function () {
-  window.WebCoolModuleRegistry = window.WebCoolModuleRegistry || { modules: {}, order: [], define: function (id, source) { if (!this.modules[id]) this.order.push(id); this.modules[id] = source; } };
-  window.WebCoolModuleRegistry.define("04-remote-folders-import.js", [
-    "          path: String(item.path || ''),",
-    "          parent_path: String(item.parent_path || ''),",
-    "          file_count: Number(item.file_count || 0),",
-    "          locked: !!item.locked,",
-    "          children: children",
-    "        };",
-    "      }",
-    "",
-    "      function ensureFolderPathExpanded(path) {",
-    "        const text = String(path || '');",
-    "        expandedFolderPaths.add('');",
-    "        if (!text) {",
-    "          return;",
-    "        }",
-    "        const parts = text.split('/');",
-    "        let current = '';",
-    "        parts.forEach(function (part) {",
-    "          current = current ? (current + '/' + part) : part;",
-    "          expandedFolderPaths.add(current);",
-    "        });",
-    "      }",
-    "",
-    "      function findFolderNodeByPath(path, nodes) {",
-    "        const target = String(path || '');",
-    "        const list = Array.isArray(nodes) ? nodes : folderTreeData;",
-    "        for (let i = 0; i < list.length; i += 1) {",
-    "          const node = list[i];",
-    "          if (String((node && node.path) || '') === target) {",
-    "            return node;",
-    "          }",
-    "          const found = findFolderNodeByPath(target, node && node.children);",
-    "          if (found) {",
-    "            return found;",
-    "          }",
-    "        }",
-    "        return null;",
-    "      }",
-    "",
-    "      function setFolderNodeLockedState(path, locked) {",
-    "        const node = findFolderNodeByPath(path);",
-    "        if (node) {",
-    "          node.locked = !!locked;",
-    "        }",
-    "      }",
-    "",
-    "      function findFolderTreeNodeElement(path) {",
-    "        if (!folderTree) {",
-    "          return null;",
-    "        }",
-    "        const target = String(path || '');",
-    "        const nodes = folderTree.querySelectorAll('.folder-tree-node[data-folder-path]');",
-    "        for (let i = 0; i < nodes.length; i += 1) {",
-    "          const node = nodes[i];",
-    "          if (String(node.getAttribute('data-folder-path') || '') === target) {",
-    "            return node;",
-    "          }",
-    "        }",
-    "        return null;",
-    "      }",
-    "",
-    "      function scrollFolderPathIntoView(path) {",
-    "        const node = findFolderTreeNodeElement(path);",
-    "        if (!node || typeof node.scrollIntoView !== 'function') {",
-    "          return;",
-    "        }",
-    "        node.scrollIntoView({ block: 'nearest' });",
-    "      }",
-    "",
-    "      function clearFolderAutoExpandTimer() {",
-    "        if (folderAutoExpandTimer) {",
-    "          clearTimeout(folderAutoExpandTimer);",
-    "          folderAutoExpandTimer = null;",
-    "        }",
-    "        activeFolderAutoExpandPath = '';",
-    "      }",
-    "",
-    "      function scheduleFolderAutoExpand(path) {",
-    "        const targetPath = String(path || '');",
-    "        if (!targetPath || expandedFolderPaths.has(targetPath)) {",
-    "          clearFolderAutoExpandTimer();",
-    "          return;",
-    "        }",
-    "        const node = findFolderNodeByPath(targetPath);",
-    "        const hasChildren = !!(node && Array.isArray(node.children) && node.children.length);",
-    "        if (!hasChildren) {",
-    "          clearFolderAutoExpandTimer();",
-    "          return;",
-    "        }",
-    "        if (activeFolderAutoExpandPath === targetPath && folderAutoExpandTimer) {",
-    "          return;",
-    "        }",
-    "        clearFolderAutoExpandTimer();",
-    "        activeFolderAutoExpandPath = targetPath;",
-    "        folderAutoExpandTimer = setTimeout(function () {",
-    "          folderAutoExpandTimer = null;",
-    "          if (!activeFolderAutoExpandPath) {",
-    "            return;",
-    "          }",
-    "          expandedFolderPaths.add(activeFolderAutoExpandPath);",
-    "          renderFolderTree();",
-    "          scrollFolderPathIntoView(activeFolderAutoExpandPath);",
-    "          activeFolderAutoExpandPath = '';",
-    "        }, 600);",
-    "      }",
-    "",
-    "      function syncFolderActionButtons() {",
-    "        if (folderDeleteBtn) {",
-    "          folderDeleteBtn.disabled = !activeFolderPath || isRecycleRootFolderPath(activeFolderPath);",
-    "        }",
-    "        if (folderRestoreBtn) {",
-    "          folderRestoreBtn.disabled = !activeFolderPath || !isRecycleFolderPath(activeFolderPath) || isRecycleRootFolderPath(activeFolderPath);",
-    "        }",
-    "        if (folderCurrentPath) {",
-    "          folderCurrentPath.textContent = getFolderLabel(activeFolderPath);",
-    "        }",
-    "        setUploadTargetFolder(activeFolderPath);",
-    "      }",
-    "",
-    "      function syncFolderDropHighlight() {",
-    "        if (!folderTree) {",
-    "          return;",
-    "        }",
-    "        const nodes = folderTree.querySelectorAll('.folder-tree-node[data-folder-path]');",
-    "        nodes.forEach(function (node) {",
-    "          const path = node.getAttribute('data-folder-path');",
-    "          node.classList.toggle('drop-target', path === activeDropFolderPath);",
-    "        });",
-    "      }",
-    "",
-    "      function buildFolderTreeHtml(nodes, level) {",
-    "        const list = Array.isArray(nodes) ? nodes : [];",
-    "        return list.map(function (node) {",
-    "          const path = String(node.path || '');",
-    "          const expanded = expandedFolderPaths.has(path);",
-    "          const hasChildren = Array.isArray(node.children) && node.children.length > 0;",
-    "          const isActive = activeFolderPath === path;",
-    "          const isSelected = selectedFolderPaths.has(path);",
-    "          const isRenaming = activeFolderRenamePath === path && canRenameFolderPath(path);",
-    "          const padding = 10 + (Math.max(0, Number(level) || 0) * 18);",
-    "          const folderIconHtml = isRecycleRootFolderPath(path)",
-    "            ? '<span class=\"folder-tree-icon recycle\" aria-hidden=\"true\">🗑</span>'",
-    "            : '';",
-    "          const childHtml = hasChildren && expanded",
-    "            ? '<div class=\"folder-tree-children\">' + buildFolderTreeHtml(node.children, (level || 0) + 1) + '</div>'",
-    "            : '';",
-    "          const nameHtml = isRenaming",
-    "            ? '<input class=\"folder-rename-input\" data-folder-rename-input=\"' + escapeHtml(path) + '\" value=\"' + escapeHtml(node.name || '') + '\" maxlength=\"120\">'",
-    "            : '<span class=\"folder-tree-name\">' + folderIconHtml + escapeHtml(node.name || '') + '</span>';",
-    "          const lockHtml = folderLockIconHtml(node);",
-    "          return (",
-    "            '<div class=\"folder-tree-node' + (isActive ? ' active' : '') + (isSelected ? ' selected' : '') + (activeDropFolderPath === path ? ' drop-target' : '') + '\" data-folder-path=\"' + escapeHtml(path) + '\">' +",
-    "              '<div class=\"folder-tree-line\" style=\"padding-left:' + padding + 'px;\">' +",
-    "                (hasChildren",
-    "                  ? '<button type=\"button\" class=\"folder-tree-toggle\" data-folder-toggle=\"' + escapeHtml(path) + '\">' + (expanded ? '▾' : '▸') + '</button>'",
-    "                  : '<span class=\"folder-tree-toggle placeholder\">•</span>') +",
-    "                '<div class=\"folder-tree-entry\" data-folder-select=\"' + escapeHtml(path) + '\" data-drag-folder=\"' + escapeHtml(path) + '\" draggable=\"true\">' +",
-    "                  nameHtml +",
-    "                  lockHtml +",
-    "                  '<span class=\"folder-tree-count\">' + String(Number(node.file_count || 0)) + '</span>' +",
-    "                '</div>' +",
-    "              '</div>' +",
-    "              childHtml +",
-    "            '</div>'",
-    "          );",
-    "        }).join('');",
-    "      }",
-    "",
-    "      function getRootFolderTreeNodesForRender() {",
-    "        const list = Array.isArray(folderTreeData) ? folderTreeData : [];",
-    "        const recycleNodes = [];",
-    "        const otherNodes = [];",
-    "        list.forEach(function (node) {",
-    "          if (node && isRecycleFolderPath(node.path)) {",
-    "            recycleNodes.push(node);",
-    "          } else {",
-    "            otherNodes.push(node);",
-    "          }",
-    "        });",
-    "        return recycleNodes.concat(otherNodes);",
-    "      }",
-    "",
-    "      function renderFolderTree() {",
-    "        if (!folderTree || !folderTreeEmpty) {",
-    "          return;",
-    "        }",
-    "        syncFolderActionButtons();",
-    "        if (!folderTreeData.length) {",
-    "          folderTree.innerHTML = '';",
-    "          folderTreeEmpty.textContent = t('当前没有文件夹。');",
-    "          folderTreeEmpty.style.display = 'block';",
-    "          return;",
-    "        }",
-    "        folderTreeEmpty.style.display = 'none';",
-    "        folderTree.innerHTML =",
-    "          '<div class=\"folder-tree-node' + (activeFolderPath ? '' : ' active') + (activeDropFolderPath === '' ? ' drop-target' : '') + '\" data-folder-path=\"\">' +",
-    "            '<div class=\"folder-tree-line\" style=\"padding-left:10px;\">' +",
-    "              '<span class=\"folder-tree-toggle placeholder\">•</span>' +",
-    "              '<div class=\"folder-tree-entry\" data-folder-select=\"\">' +",
-    "                '<span class=\"folder-tree-name\"><span class=\"folder-tree-icon root\" aria-hidden=\"true\">⌂</span>' + t('根目录') + '</span>' +",
-    "                '<span class=\"folder-tree-count\"></span>' +",
-    "              '</div>' +",
-    "            '</div>' +",
-    "          '</div>' +",
-    "          buildFolderTreeHtml(getRootFolderTreeNodesForRender(), 0);",
-    "        syncFolderDropHighlight();",
-    "        focusActiveFolderRenameInput();",
-    "      }",
-    "",
-    "      function focusActiveFolderRenameInput() {",
-    "        if (!folderTree || !activeFolderRenamePath) {",
-    "          return;",
-    "        }",
-    "        setTimeout(function () {",
-    "          if (!folderTree || !activeFolderRenamePath) {",
-    "            return;",
-    "          }",
-    "          const input = folderTree.querySelector('.folder-rename-input[data-folder-rename-input]');",
-    "          if (!input) {",
-    "            return;",
-    "          }",
-    "          selectRenameInputText(input);",
-    "        }, 0);",
-    "      }",
-    "",
-    "      function startFolderRename(path) {",
-    "        const target = String(path || '');",
-    "        if (!canRenameFolderPath(target)) {",
-    "          return;",
-    "        }",
-    "        activeFolderRenamePath = target;",
-    "        ensureFolderPathExpanded(target);",
-    "        renderFolderTree();",
-    "      }",
-    "",
-    "      function cancelFolderRename() {",
-    "        if (!activeFolderRenamePath) {",
-    "          return;",
-    "        }",
-    "        activeFolderRenamePath = '';",
-    "        renderFolderTree();",
-    "      }",
-    "",
-    "      async function submitFolderRename(input) {",
-    "        if (!input) {",
-    "          return;",
-    "        }",
-    "        const oldPath = String(input.getAttribute('data-folder-rename-input') || '');",
-    "        if (!canRenameFolderPath(oldPath) || activeFolderRenamePath !== oldPath) {",
-    "          return;",
-    "        }",
-    "        if (folderRenameRequestPath === oldPath) {",
-    "          return;",
-    "        }",
-    "        const nextName = String(input.value || '').trim();",
-    "        const oldName = folderNameFromPath(oldPath);",
-    "        if (!nextName) {",
-    "          showStatus(t('文件夹名称不能为空'), 'err');",
-    "          input.focus();",
-    "          return;",
-    "        }",
-    "        if (nextName === oldName) {",
-    "          activeFolderRenamePath = '';",
-    "          renderFolderTree();",
-    "          return;",
-    "        }",
-    "",
-    "        try {",
-    "          folderRenameRequestPath = oldPath;",
-    "          const result = await fetchJson(",
-    "            withFolderPassword(api.folderRename + '?path=' + encodeURIComponent(oldPath) + '&name=' + encodeURIComponent(nextName), oldPath),",
-    "            { method: 'POST' }",
-    "          );",
-    "          const newPath = String((result && result.path) || '');",
-    "          activeFolderRenamePath = '';",
-    "          activeFolderPath = relocatePathAfterFolderMove(activeFolderPath, oldPath, newPath);",
-    "          ensureFolderPathExpanded(activeFolderPath);",
-    "          await loadFiles();",
-    "          showStatus(t('文件夹已改名：') + nextName, 'ok');",
-    "        } catch (err) {",
-    "          showStatus(t('文件夹改名失败：') + err.message, 'err');",
-    "          selectRenameInputText(input);",
-    "        } finally {",
-    "          folderRenameRequestPath = '';",
-    "        }",
-    "      }",
-    "",
-    "      async function loadFolderTreeState() {",
-    "        const data = await fetchJson(folderListUrl());",
-    "        folderTreeData = Array.isArray(data.folders) ? data.folders.map(normalizeFolderNode) : [];",
-    "        ensureFolderPathExpanded(activeFolderPath);",
-    "        renderFolderTree();",
-    "      }",
-    "",
-    "      async function createFolderAtCurrentPath() {",
-    "        if (!(await ensureFolderUnlocked(activeFolderPath))) {",
-    "          return;",
-    "        }",
-    "        const name = await askTagName({",
-    "          title: t('新建子目录'),",
-    "          description: t('请输入要创建在「') + getFolderLabel(activeFolderPath) + t('」下的子目录名称。'),",
-    "          label: t('目录名称'),",
-    "          placeholder: t('请输入目录名称')",
-    "        });",
-    "        if (name === null) {",
-    "          return;",
-    "        }",
-    "        const cleanName = String(name || '').trim();",
-    "        if (!cleanName) {",
-    "          showStatus(t('文件夹名称不能为空'), 'err');",
-    "          return;",
-    "        }",
-    "        await fetchJson(",
-    "          withFolderPassword(",
-    "            api.folderCreate + '?parent=' + encodeURIComponent(activeFolderPath || '') + '&name=' + encodeURIComponent(cleanName),",
-    "            activeFolderPath",
-    "          ),",
-    "          { method: 'POST' }",
-    "        );",
-    "        ensureFolderPathExpanded(activeFolderPath);",
-    "        await loadFolderTreeState();",
-    "        showStatus(t('已创建文件夹：') + cleanName, 'ok');",
-    "      }",
-    "",
-    "      async function deleteCurrentFolder() {",
-    "        if (!activeFolderPath) {",
-    "          return;",
-    "        }",
-    "        if (isRecycleRootFolderPath(activeFolderPath)) {",
-    "          return;",
-    "        }",
-    "        if (isRecycleFolderPath(activeFolderPath)) {",
-    "          const confirmedPermanent = await askConfirmDialog({",
-    "            title: t('彻底删除目录'),",
-    "            description: t('确认彻底删除回收站中的目录「') + activeFolderPath + t('」及其全部内容？此操作不可恢复。'),",
-    "            confirmText: t('彻底删除'),",
-    "            danger: true",
-    "          });",
-    "          if (!confirmedPermanent) {",
-    "            return;",
-    "          }",
-    "          await fetchJson(api.del + '?file=' + encodeURIComponent(activeFolderPath));",
-    "          activeFolderPath = RECYCLE_FOLDER_NAME;",
-    "          ensureFolderPathExpanded(activeFolderPath);",
-    "          await loadFiles();",
-    "          showStatus(t('回收站目录已彻底删除'), 'warn');",
-    "          return;",
-    "        }",
-    "        if (!(await ensureFolderUnlocked(activeFolderPath))) {",
-    "          return;",
-    "        }",
-    "        const confirmed = await askConfirmDialog({",
-    "          title: t('删除目录'),",
-    "          description: t('确认将目录「') + activeFolderPath + t('」及其全部内容移入回收站？'),",
-    "          confirmText: t('移入回收站'),",
-    "          danger: true",
-    "        });",
-    "        if (!confirmed) {",
-    "          return;",
-    "        }",
-    "        await fetchJson(withFolderPassword(api.folderDelete + '?path=' + encodeURIComponent(activeFolderPath), activeFolderPath), { method: 'POST' });",
-    "        activeFolderPath = '';",
-    "        renderFolderTree();",
-    "        renderFiles(activeSourceFiles);",
-    "        showStatus(t('文件夹已移入回收站'), 'warn');",
-    "      }",
-    "",
-    "      async function restoreCurrentRecycleFolder() {",
-    "        if (!activeFolderPath || !isRecycleFolderPath(activeFolderPath) || isRecycleRootFolderPath(activeFolderPath)) {",
-    "          return;",
-    "        }",
-    "        const selected = selectedFolderPaths.has(activeFolderPath)",
-    "          ? normalizeFolderMoveSources(Array.from(selectedFolderPaths)).filter(function (path) {",
-    "            return isRecycleFolderPath(path) && !isRecycleRootFolderPath(path);",
-    "          })",
-    "          : [activeFolderPath];",
-    "        if (!selected.length) {",
-    "          return;",
-    "        }",
-    "        const confirmed = await askConfirmDialog({",
-    "          title: selected.length > 1 ? '批量恢复目录' : '恢复目录',",
-    "          description: selected.length > 1",
-    "            ? ('确认恢复回收站中选中的 ' + selected.length + ' 个目录？将恢复到原路径（如冲突会自动改名）。')",
-    "            : ('确认恢复回收站中的目录「' + activeFolderPath + '」？将恢复到原路径（如冲突会自动改名）。'),",
-    "          confirmText: '恢复',",
-    "          danger: false",
-    "        });",
-    "        if (!confirmed) {",
-    "          return;",
-    "        }",
-    "        let restoredCount = 0;",
-    "        let lastTargetPath = '';",
-    "        for (let i = 0; i < selected.length; i += 1) {",
-    "          const result = await fetchJson(api.restore + '?file=' + encodeURIComponent(selected[i]));",
-    "          lastTargetPath = String((result && result.path) || '');",
-    "          restoredCount += 1;",
-    "        }",
-    "        clearSelectedFolders();",
-    "        activeFolderPath = RECYCLE_FOLDER_NAME;",
-    "        ensureFolderPathExpanded(activeFolderPath);",
-    "        await loadFiles();",
-    "        showStatus(restoredCount > 1",
-    "          ? ('已恢复 ' + restoredCount + ' 个目录')",
-    "          : ('已恢复目录' + (lastTargetPath ? ('：' + lastTargetPath) : '')),",
-    "          'ok');",
-    "      }",
-    "",
-    "      async function moveFilesToFolder(filePaths, folderPath) {",
-    "        const list = Array.isArray(filePaths) ? filePaths.filter(Boolean) : [];",
-    "        if (!list.length) {",
-    "          return;",
-    "        }",
-    "        for (let i = 0; i < list.length; i += 1) {",
-    "          await fetchJson(",
-    "            withFolderPassword(",
-    "              appendFilePassword(withFolderPassword(api.fileMove + '?file=' + encodeURIComponent(list[i]) + '&folder=' + encodeURIComponent(folderPath || ''), parentFolderPathFromFilePath(list[i])), list[i], false),",
-    "              folderPath || '',",
-    "              'target_folder_password'",
-    "            ),",
-    "            { method: 'POST' }",
-    "          );",
-    "          selectedFileNames.delete(list[i]);",
-    "        }",
-    "        await loadFiles();",
-    "        showStatus(list.length > 1 ? ('已移动 ' + list.length + ' 个文件') : '文件已移动', 'ok');",
-    "      }",
-    "",
-    "      function ensureLocalImportFolderPathExpanded(path) {",
-    "        const text = String(path || '');",
-    "        localImportExpandedFolderPaths.add('');",
-    "        if (!text) {",
-    "          return;",
-    "        }",
-    "        const parts = text.split('/');",
-    "        let current = '';",
-    "        for (let i = 0; i < parts.length; i += 1) {",
-    "          current = current ? (current + '/' + parts[i]) : parts[i];",
-    "          localImportExpandedFolderPaths.add(current);",
-    "        }",
-    "      }",
-    "",
-    "      function buildLocalImportFolderTreeHtml(nodes, level) {",
-    "        const list = Array.isArray(nodes) ? nodes : [];",
-    "        return list.filter(function (node) {",
-    "          return node && !isRecycleFolderPath(node.path);",
-    "        }).map(function (node) {",
-    "          const path = String(node.path || '');",
-    "          const expanded = localImportExpandedFolderPaths.has(path);",
-    "          const hasChildren = Array.isArray(node.children) && node.children.length > 0;",
-    "          const isActive = localImportTargetFolderPath === path;",
-    "          const padding = 10 + (Math.max(0, Number(level) || 0) * 18);",
-    "          const childHtml = hasChildren && expanded",
-    "            ? '<div class=\"folder-tree-children\">' + buildLocalImportFolderTreeHtml(node.children, (level || 0) + 1) + '</div>'",
-    "            : '';",
-    "          const lockHtml = folderLockIconHtml(node);",
-    "          return (",
-    "            '<div class=\"folder-tree-node' + (isActive ? ' active' : '') + '\" data-local-import-folder=\"' + escapeHtml(path) + '\">' +",
-    "              '<div class=\"folder-tree-line\" style=\"padding-left:' + padding + 'px;\">' +",
-    "                (hasChildren",
-    "                  ? '<button type=\"button\" class=\"folder-tree-toggle\" data-local-import-toggle=\"' + escapeHtml(path) + '\">' + (expanded ? '▾' : '▸') + '</button>'",
-    "                  : '<span class=\"folder-tree-toggle placeholder\">•</span>') +",
-    "                '<div class=\"folder-tree-entry\" data-local-import-select=\"' + escapeHtml(path) + '\">' +",
-    "                  '<span class=\"folder-tree-name\">' + escapeHtml(node.name || '') + '</span>' +",
-    "                  lockHtml +",
-    "                '</div>' +",
-    "              '</div>' +",
-    "              childHtml +",
-    "            '</div>'",
-    "          );",
-    "        }).join('');",
-    "      }",
-    "",
-    "      function renderLocalImportTree() {",
-    "        if (!localImportTree || !localImportEmpty) {",
-    "          return;",
-    "        }",
-    "        const rootActive = localImportTargetFolderPath === '';",
-    "        const body = buildLocalImportFolderTreeHtml(getRootFolderTreeNodesForRender(), 0);",
-    "        localImportTree.innerHTML =",
-    "          '<div class=\"folder-tree-node' + (rootActive ? ' active' : '') + '\" data-local-import-folder=\"\">' +",
-    "            '<div class=\"folder-tree-line\" style=\"padding-left:10px;\">' +",
-    "              '<span class=\"folder-tree-toggle placeholder\">•</span>' +",
-    "              '<div class=\"folder-tree-entry\" data-local-import-select=\"\">' +",
-    "                '<span class=\"folder-tree-name\">根目录</span>' +",
-    "              '</div>' +",
-    "            '</div>' +",
-    "          '</div>' +",
-    "          body;",
-    "        localImportEmpty.style.display = body ? 'none' : 'block';",
-    "      }",
-    "",
-    "      async function openLocalImportDialog(pathsOverride) {",
-    "        const paths = Array.isArray(pathsOverride)",
-    "          ? pathsOverride.map(function (path) { return String(path || ''); }).filter(Boolean)",
-    "          : getSelectedLocalDiskImportPaths();",
-    "        if (!paths.length) {",
-    "          showStatus(t('请先选择要上传的本地文件或文件夹'), 'err');",
-    "          return;",
-    "        }",
-    "        localImportOverridePaths = Array.isArray(pathsOverride) ? paths : null;",
-    "        try {",
-    "          await loadFolderTreeState();",
-    "        } catch (err) {",
-    "          localImportOverridePaths = null;",
-    "          showStatus(t('加载远程目录失败：') + err.message, 'err');",
-    "          return;",
-    "        }",
-    "        localImportTargetFolderPath = activeFolderPath || '';",
-    "        ensureLocalImportFolderPathExpanded(localImportTargetFolderPath);",
-    "        renderLocalImportTree();",
-    "        if (localImportDialog) {",
-    "          localImportDialog.hidden = false;",
-    "        }",
-    "      }",
-    "",
-    "      function closeLocalImportDialog() {",
-    "        if (localImportDialog) {",
-    "          localImportDialog.hidden = true;",
-    "        }",
-    "        localImportOverridePaths = null;",
-    "      }",
-    "",
-    "      function isCopyTaskWindowMode(mode) {",
-    "        const value = String(mode || '');",
-    "        return value === 'remote-copy' || value === 'local-copy';",
-    "      }",
-    "",
-    "      function getCopyTaskProgressDescription() {",
-    "        return localImportProgressWindowMode === 'local-copy'",
-    "          ? t('正在将本地磁盘文件或目录粘贴到目标目录。')",
-    "          : t('正在将虚拟磁盘文件或目录粘贴到目标目录。');",
-    "      }",
-    "",
-    "      function applyLocalImportProgressWindowState() {",
-    "        if (localImportProgressDialog) {",
-    "          localImportProgressDialog.classList.toggle('is-minimized', !!localImportProgressMinimized);",
-    "        }",
-    "        const showWindowControls = isCopyTaskWindowMode(localImportProgressWindowMode);",
-    "        if (localImportProgressMinimize) {",
-    "          localImportProgressMinimize.hidden = !showWindowControls || !!localImportProgressMinimized;",
-    "        }",
-    "        if (localImportProgressRestore) {",
-    "          localImportProgressRestore.hidden = !showWindowControls || !localImportProgressMinimized;",
-    "        }",
-    "      }",
-    "",
-    "      function updateLocalImportProgressSummary(text) {",
-    "        const desc = document.getElementById('local-import-progress-desc');",
-    "        if (!desc || !isCopyTaskWindowMode(localImportProgressWindowMode) || !localImportProgressMinimized) {",
-    "          return;",
-    "        }",
-    "        desc.textContent = text || t('粘贴中');",
-    "      }",
-    "",
-    "      function setLocalImportProgressWindowMode(mode) {",
-    "        const nextMode = String(mode || '');",
-    "        if (nextMode !== localImportProgressWindowMode) {",
-    "          localImportProgressMinimized = false;",
-    "        }",
-    "        localImportProgressWindowMode = nextMode;",
-    "        applyLocalImportProgressWindowState();",
-    "      }",
-    "",
-    "      function minimizeLocalImportProgressWindow() {",
-    "        if (!isCopyTaskWindowMode(localImportProgressWindowMode)) {",
-    "          return;",
-    "        }",
-    "        localImportProgressMinimized = true;",
-    "        updateLocalImportProgressSummary(localImportProgressText ? localImportProgressText.textContent : '');",
-    "        applyLocalImportProgressWindowState();",
-    "      }",
-    "",
-    "      function restoreLocalImportProgressWindow() {",
-    "        localImportProgressMinimized = false;",
-    "        const desc = document.getElementById('local-import-progress-desc');",
-    "        if (desc && isCopyTaskWindowMode(localImportProgressWindowMode)) {",
-    "          desc.textContent = getCopyTaskProgressDescription();",
-    "        }",
-    "        applyLocalImportProgressWindowState();",
-    "      }",
-    "",
-    "      function setLocalImportProgress(percent, text) {",
-    "        const p = Math.max(0, Math.min(100, Number(percent) || 0));",
-    "        if (localImportProgressDialog) {",
-    "          localImportProgressDialog.hidden = false;",
-    "        }",
-    "        if (localImportProgressFill) {",
-    "          localImportProgressFill.style.width = p + '%';",
-    "        }",
-    "        if (localImportProgressText) {",
-    "          localImportProgressText.textContent = text || (t('上传中 ') + Math.round(p) + '%');",
-    "        }",
-    "        updateLocalImportProgressSummary(localImportProgressText ? localImportProgressText.textContent : text);",
-    "        if (localImportProgressClose) {",
-    "          localImportProgressClose.hidden = true;",
-    "        }",
-    "      }",
-    "",
-    "      function localImportFileStateText(state) {",
-    "        if (state === 'done') { return t('完成'); }",
-    "        if (state === 'running') { return t('上传中'); }",
-    "        if (state === 'failed') { return t('失败'); }",
-    "        if (state === 'cancelled') { return t('已取消'); }",
-    "        return t('等待');",
-    "      }",
-    "",
-    "      function renderLocalImportProgressFiles(files) {",
-    "        if (!localImportProgressFiles) {",
-    "          return;",
-    "        }",
-    "        const list = Array.isArray(files) ? files : [];",
-    "        if (!list.length) {",
-    "          localImportProgressFiles.innerHTML = '';",
-    "          return;",
-    "        }",
-    "        localImportProgressFiles.innerHTML = list.map(function (file) {",
-    "          const name = String((file && file.name) || '');",
-    "          const state = String((file && file.state) || 'pending');",
-    "          const progress = Math.max(0, Math.min(100, Number((file && file.progress) || 0)));",
-    "          const size = Number((file && file.size) || 0);",
-    "          const copied = Number((file && file.copied) || 0);",
-    "          return '<div class=\"local-import-progress-file state-' + escapeHtml(state) + '\">' +",
-    "            '<div class=\"local-import-progress-file-main\">' +",
-    "              '<span class=\"local-import-progress-file-name\">' + escapeHtml(name) + '</span>' +",
-    "              '<span class=\"local-import-progress-file-state\">' + localImportFileStateText(state) + '</span>' +",
-    "            '</div>' +",
-    "            '<div class=\"local-import-progress-file-track\"><div class=\"local-import-progress-file-fill\" style=\"width:' + progress + '%\"></div></div>' +",
-    "            '<div class=\"local-import-progress-file-meta\">' + formatNumber(copied) + ' / ' + formatNumber(size) + t(' 字节') + '</div>' +",
-    "          '</div>';",
-    "        }).join('');",
-    "      }",
-    "",
-    "      function finishLocalImportProgress(text) {",
-    "        setLocalImportProgress(100, text || t('上传完成 100%'));",
-    "        if (localImportProgressClose) {",
-    "          localImportProgressClose.hidden = false;",
-    "        }",
-    "        if (localImportProgressCancel) {",
-    "          localImportProgressCancel.hidden = true;",
-    "        }",
-    "      }",
-    "",
-    "      function failLocalImportProgress(text) {",
-    "        setLocalImportProgress(0, text || t('上传失败'));",
-    "        if (localImportProgressClose) {",
-    "          localImportProgressClose.hidden = false;",
-    "        }",
-    "        if (localImportProgressCancel) {",
-    "          localImportProgressCancel.hidden = true;",
-    "        }",
-    "      }",
-    "",
-    "      function closeLocalImportProgressDialog() {",
-    "        if (localImportProgressDialog) {",
-    "          localImportProgressDialog.hidden = true;",
-    "          localImportProgressDialog.classList.remove('non-modal-progress');",
-    "        }",
-    "        activeRemoteCopyCancelRequested = false;",
-    "        localImportProgressWindowMode = '';",
-    "        localImportProgressMinimized = false;",
-    "        applyLocalImportProgressWindowState();",
-    "        if (localImportProgressFill) {",
-    "          localImportProgressFill.style.width = '0%';",
-    "        }",
-    "        if (localImportProgressText) {",
-    "          localImportProgressText.textContent = t('准备上传...');",
-    "        }",
-    "        if (localImportProgressFiles) {",
-    "          localImportProgressFiles.innerHTML = '';",
-    "        }",
-    "        if (localImportProgressCancel) {",
-    "          localImportProgressCancel.hidden = true;",
-    "          localImportProgressCancel.disabled = false;",
-    "          localImportProgressCancel.textContent = t('取消');",
-    "        }",
-    "      }",
-    "",
-    "      function setCopyTaskProgress(mode, progress, text, item) {",
-    "        const title = document.getElementById('local-import-progress-title');",
-    "        const desc = document.getElementById('local-import-progress-desc');",
-    "        setLocalImportProgressWindowMode(mode);",
-    "        if (localImportProgressDialog) {",
-    "          localImportProgressDialog.classList.add('non-modal-progress');",
-    "        }",
-    "        if (title) { title.textContent = t('粘贴中'); }",
-    "        if (desc && !localImportProgressMinimized) { desc.textContent = getCopyTaskProgressDescription(); }",
-    "        setLocalImportProgress(progress, text);",
-    "        if (localImportProgressCancel) {",
-    "          localImportProgressCancel.hidden = false;",
-    "          localImportProgressCancel.disabled = !!activeRemoteCopyCancelRequested;",
-    "          localImportProgressCancel.textContent = activeRemoteCopyCancelRequested ? t('取消中...') : t('取消');",
-    "        }",
-    "        renderLocalImportProgressFiles(item ? [item] : []);",
-    "      }",
-    "",
-    "      function setRemoteCopyProgress(progress, text, item) {",
-    "        setCopyTaskProgress('remote-copy', progress, text, item);",
-    "      }",
-    "",
-    "      async function cancelRemoteCopyTask() {",
-    "        const taskId = String(activeRemoteCopyTaskId || '');",
-    "        if (!taskId) {",
-    "          return;",
-    "        }",
-    "        activeRemoteCopyCancelRequested = true;",
-    "        if (localImportProgressCancel) {",
-    "          localImportProgressCancel.disabled = true;",
-    "          localImportProgressCancel.textContent = t('取消中...');",
-    "        }",
-    "        await fetchJson(api.remoteCopyCancel + '?task_id=' + encodeURIComponent(taskId), { method: 'POST' });",
-    "        showStatus(t('正在取消粘贴...'), 'warn');",
-    "      }",
-    "",
-    "      function pollCopyTask(taskId, options) {",
-    "        return new Promise(function (resolve, reject) {",
-    "          if (!taskId) {",
-    "            reject(new Error(t('缺少拷贝任务编号')));",
-    "            return;",
-    "          }",
-    "          const opts = options || {};",
-    "          const mode = String(opts.mode || 'remote-copy');",
-    "          const copiedPath = String(opts.copiedPath || '');",
-    "          const itemName = String(opts.itemName || copiedPath || '');",
-    "          const onProgressTick = typeof opts.onProgressTick === 'function' ? opts.onProgressTick : null;",
-    "          const onDone = typeof opts.onDone === 'function' ? opts.onDone : null;",
-    "          activeRemoteCopyTaskId = String(taskId);",
-    "          activeRemoteCopyCancelRequested = false;",
-    "          let tick = 0;",
-    "          const timer = setInterval(function () {",
-    "            fetchJson(api.remoteCopyProgress + '?task_id=' + encodeURIComponent(taskId))",
-    "              .then(async function (data) {",
-    "                tick += 1;",
-    "                const progress = Math.max(0, Math.min(100, Number(data.progress || 0)));",
-    "                const state = String(data.state || '');",
-    "                const displayName = String(itemName || data.path || remoteDiskClipboardPath || localDiskClipboardPath || '');",
-    "                setCopyTaskProgress(mode, progress, (data.message || t('粘贴中')) + ' ' + Math.round(progress) + '%', {",
-    "                  name: displayName,",
-    "                  state: state === 'done' ? 'done' : (state === 'failed' ? 'failed' : (state === 'cancelled' ? 'cancelled' : 'running')),",
-    "                  progress: progress,",
-    "                  size: Number(data.total_bytes || 0),",
-    "                  copied: Number(data.copied_bytes || 0)",
-    "                });",
-    "                if (tick % 5 === 0 && onProgressTick) {",
-    "                  await onProgressTick(data);",
-    "                }",
-    "                if (state === 'done') {",
-    "                  clearInterval(timer);",
-    "                  activeRemoteCopyTaskId = '';",
-    "                  activeRemoteCopyCancelRequested = false;",
-    "                  finishLocalImportProgress(t('粘贴完成 100%'));",
-    "                  if (onDone) {",
-    "                    await onDone(data);",
-    "                  }",
-    "                  resolve(data);",
-    "                } else if (state === 'failed' || state === 'cancelled') {",
-    "                  clearInterval(timer);",
-    "                  activeRemoteCopyTaskId = '';",
-    "                  activeRemoteCopyCancelRequested = false;",
-    "                  if (state === 'cancelled') {",
-    "                    failLocalImportProgress(t('粘贴已取消'));",
-    "                    resolve(data);",
-    "                  } else {",
-    "                    failLocalImportProgress(data.error || t('粘贴失败'));",
-    "                    reject(new Error(data.error || t('粘贴失败')));",
-    "                  }",
-    "                }",
-    "              })",
-    "              .catch(function (err) {",
-    "                clearInterval(timer);",
-    "                activeRemoteCopyTaskId = '';",
-    "                activeRemoteCopyCancelRequested = false;",
-    "                reject(err);",
-    "              });",
-    "          }, 400);",
-    "        });",
-    "      }",
-    "",
-    "      function pollRemoteCopyTask(taskId, targetPath, copiedPath, copiedDirectory) {",
-    "        return pollCopyTask(taskId, {",
-    "          mode: 'remote-copy',",
-    "          copiedPath: copiedPath,",
-    "          onProgressTick: async function () {",
-    "            if (!activeFilterTagId) {",
-    "              ensureFolderPathExpanded(targetPath);",
-    "              await loadFolderTreeState();",
-    "            }",
-    "          },",
-    "          onDone: async function () {",
-    "            remoteDiskClipboardPath = '';",
-    "            remoteDiskClipboardDirectory = false;",
-    "            remoteDiskClipboardPaths = [];",
-    "            remoteDiskClipboardDirectoryFlags = [];",
-    "            activeFolderPath = targetPath;",
-    "            ensureFolderPathExpanded(targetPath);",
-    "            if (copiedDirectory && copiedPath) { ensureFolderPathExpanded(copiedPath); }",
-    "            await loadFiles();",
-    "            if (copiedDirectory && copiedPath) {",
-    "              ensureFolderPathExpanded(copiedPath);",
-    "              renderFolderTree();",
-    "            }",
-    "          }",
-    "        });",
-    "      }",
-    "",
-    "      function pollLocalDiskCopyTask(taskId, targetPath, copiedPath) {",
-    "        return pollCopyTask(taskId, {",
-    "          mode: 'local-copy',",
-    "          copiedPath: copiedPath,",
-    "          onDone: async function () {",
-    "            localDiskTreeCache.delete(targetPath);",
-    "            await loadLocalDisk(targetPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, targetPath) });",
-    "          }",
-    "        });",
-    "      }",
-    "",
-    "      function pollLocalImportProgress(taskId) {",
-    "        return new Promise(function (resolve, reject) {",
-    "          if (!taskId) {",
-    "            reject(new Error(t('缺少上传任务编号')));",
-    "            return;",
-    "          }",
-    "          const timer = setInterval(function () {",
-    "            fetchJson(api.localDiskImportProgress + '?task_id=' + encodeURIComponent(taskId))",
-    "              .then(function (data) {",
-    "                const progress = Math.max(0, Math.min(100, Number(data.progress || 0)));",
-    "                const state = String(data.state || '');",
-    "                setLocalImportProgress(progress, (data.message || t('上传中')) + ' ' + Math.round(progress) + '%');",
-    "                renderLocalImportProgressFiles(data.files);",
-    "                if (state === 'done') {",
-    "                  clearInterval(timer);",
-    "                  finishLocalImportProgress(t('上传完成 100%'));",
-    "                  resolve(data);",
-    "                } else if (state === 'failed') {",
-    "                  clearInterval(timer);",
-    "                  reject(new Error(data.error || t('上传失败')));",
-    "                }",
-    "              })",
-    "              .catch(function (err) {",
-    "                clearInterval(timer);",
-    "                reject(err);",
-    "              });",
-    "          }, 400);",
-    "        });",
-    "      }",
-    "",
-    "      async function confirmLocalImport() {",
-    "        const paths = Array.isArray(localImportOverridePaths) ? localImportOverridePaths : getSelectedLocalDiskImportPaths();",
-    "        if (!paths.length) {",
-    "          closeLocalImportDialog();",
-    "          return;",
-    "        }",
-    "        if (!(await ensureFolderUnlocked(localImportTargetFolderPath))) {",
-    "          return;",
-    "        }",
-    "        const password = getFolderPasswordForPath(localImportTargetFolderPath);",
-    "        let url = api.localDiskImport",
-    "          + '?folder=' + encodeURIComponent(localImportTargetFolderPath || '')",
-    "          + '&paths=' + encodeURIComponent(paths.join('\\n'));",
-    "        if (password) {",
-    "          url += '&folder_password=' + encodeURIComponent(password);",
-    "        }",
-    "        if (localImportConfirmBtn) {",
-    "          localImportConfirmBtn.disabled = true;"
-  ].join("\n"));
-})();
+          path: String(item.path || ''),
+          parent_path: String(item.parent_path || ''),
+          file_count: Number(item.file_count || 0),
+          locked: !!item.locked,
+          children: children
+        };
+      }
+
+      function ensureFolderPathExpanded(path) {
+        const text = String(path || '');
+        expandedFolderPaths.add('');
+        if (!text) {
+          return;
+        }
+        const parts = text.split('/');
+        let current = '';
+        parts.forEach(function (part) {
+          current = current ? (current + '/' + part) : part;
+          expandedFolderPaths.add(current);
+        });
+      }
+
+      function findFolderNodeByPath(path, nodes) {
+        const target = String(path || '');
+        const list = Array.isArray(nodes) ? nodes : folderTreeData;
+        for (let i = 0; i < list.length; i += 1) {
+          const node = list[i];
+          if (String((node && node.path) || '') === target) {
+            return node;
+          }
+          const found = findFolderNodeByPath(target, node && node.children);
+          if (found) {
+            return found;
+          }
+        }
+        return null;
+      }
+
+      function setFolderNodeLockedState(path, locked) {
+        const node = findFolderNodeByPath(path);
+        if (node) {
+          node.locked = !!locked;
+        }
+      }
+
+      function findFolderTreeNodeElement(path) {
+        if (!folderTree) {
+          return null;
+        }
+        const target = String(path || '');
+        const nodes = folderTree.querySelectorAll('.folder-tree-node[data-folder-path]');
+        for (let i = 0; i < nodes.length; i += 1) {
+          const node = nodes[i];
+          if (String(node.getAttribute('data-folder-path') || '') === target) {
+            return node;
+          }
+        }
+        return null;
+      }
+
+      function scrollFolderPathIntoView(path) {
+        const node = findFolderTreeNodeElement(path);
+        if (!node || typeof node.scrollIntoView !== 'function') {
+          return;
+        }
+        node.scrollIntoView({ block: 'nearest' });
+      }
+
+      function clearFolderAutoExpandTimer() {
+        if (folderAutoExpandTimer) {
+          clearTimeout(folderAutoExpandTimer);
+          folderAutoExpandTimer = null;
+        }
+        activeFolderAutoExpandPath = '';
+      }
+
+      function scheduleFolderAutoExpand(path) {
+        const targetPath = String(path || '');
+        if (!targetPath || expandedFolderPaths.has(targetPath)) {
+          clearFolderAutoExpandTimer();
+          return;
+        }
+        const node = findFolderNodeByPath(targetPath);
+        const hasChildren = !!(node && Array.isArray(node.children) && node.children.length);
+        if (!hasChildren) {
+          clearFolderAutoExpandTimer();
+          return;
+        }
+        if (activeFolderAutoExpandPath === targetPath && folderAutoExpandTimer) {
+          return;
+        }
+        clearFolderAutoExpandTimer();
+        activeFolderAutoExpandPath = targetPath;
+        folderAutoExpandTimer = setTimeout(function () {
+          folderAutoExpandTimer = null;
+          if (!activeFolderAutoExpandPath) {
+            return;
+          }
+          expandedFolderPaths.add(activeFolderAutoExpandPath);
+          renderFolderTree();
+          scrollFolderPathIntoView(activeFolderAutoExpandPath);
+          activeFolderAutoExpandPath = '';
+        }, 600);
+      }
+
+      function syncFolderActionButtons() {
+        if (folderDeleteBtn) {
+          folderDeleteBtn.disabled = !activeFolderPath || isRecycleRootFolderPath(activeFolderPath);
+        }
+        if (folderRestoreBtn) {
+          folderRestoreBtn.disabled = !activeFolderPath || !isRecycleFolderPath(activeFolderPath) || isRecycleRootFolderPath(activeFolderPath);
+        }
+        if (folderCurrentPath) {
+          folderCurrentPath.textContent = getFolderLabel(activeFolderPath);
+        }
+        setUploadTargetFolder(activeFolderPath);
+      }
+
+      function syncFolderDropHighlight() {
+        if (!folderTree) {
+          return;
+        }
+        const nodes = folderTree.querySelectorAll('.folder-tree-node[data-folder-path]');
+        nodes.forEach(function (node) {
+          const path = node.getAttribute('data-folder-path');
+          node.classList.toggle('drop-target', path === activeDropFolderPath);
+        });
+      }
+
+      function buildFolderTreeHtml(nodes, level) {
+        const list = Array.isArray(nodes) ? nodes : [];
+        return list.map(function (node) {
+          const path = String(node.path || '');
+          const expanded = expandedFolderPaths.has(path);
+          const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+          const isActive = activeFolderPath === path;
+          const isSelected = selectedFolderPaths.has(path);
+          const isRenaming = activeFolderRenamePath === path && canRenameFolderPath(path);
+          const padding = 10 + (Math.max(0, Number(level) || 0) * 18);
+          const folderIconHtml = isRecycleRootFolderPath(path)
+            ? '<span class="folder-tree-icon recycle" aria-hidden="true">🗑</span>'
+            : '';
+          const childHtml = hasChildren && expanded
+            ? '<div class="folder-tree-children">' + buildFolderTreeHtml(node.children, (level || 0) + 1) + '</div>'
+            : '';
+          const nameHtml = isRenaming
+            ? '<input class="folder-rename-input" data-folder-rename-input="' + escapeHtml(path) + '" value="' + escapeHtml(node.name || '') + '" maxlength="120">'
+            : '<span class="folder-tree-name">' + folderIconHtml + escapeHtml(node.name || '') + '</span>';
+          const lockHtml = folderLockIconHtml(node);
+          return (
+            '<div class="folder-tree-node' + (isActive ? ' active' : '') + (isSelected ? ' selected' : '') + (activeDropFolderPath === path ? ' drop-target' : '') + '" data-folder-path="' + escapeHtml(path) + '">' +
+              '<div class="folder-tree-line" style="padding-left:' + padding + 'px;">' +
+                (hasChildren
+                  ? '<button type="button" class="folder-tree-toggle" data-folder-toggle="' + escapeHtml(path) + '">' + (expanded ? '▾' : '▸') + '</button>'
+                  : '<span class="folder-tree-toggle placeholder">•</span>') +
+                '<div class="folder-tree-entry" data-folder-select="' + escapeHtml(path) + '" data-drag-folder="' + escapeHtml(path) + '" draggable="true">' +
+                  nameHtml +
+                  lockHtml +
+                  '<span class="folder-tree-count">' + String(Number(node.file_count || 0)) + '</span>' +
+                '</div>' +
+              '</div>' +
+              childHtml +
+            '</div>'
+          );
+        }).join('');
+      }
+
+      function getRootFolderTreeNodesForRender() {
+        const list = Array.isArray(folderTreeData) ? folderTreeData : [];
+        const recycleNodes = [];
+        const otherNodes = [];
+        list.forEach(function (node) {
+          if (node && isRecycleFolderPath(node.path)) {
+            recycleNodes.push(node);
+          } else {
+            otherNodes.push(node);
+          }
+        });
+        return recycleNodes.concat(otherNodes);
+      }
+
+      function renderFolderTree() {
+        if (!folderTree || !folderTreeEmpty) {
+          return;
+        }
+        syncFolderActionButtons();
+        if (!folderTreeData.length) {
+          folderTree.innerHTML = '';
+          folderTreeEmpty.textContent = t('当前没有文件夹。');
+          folderTreeEmpty.style.display = 'block';
+          return;
+        }
+        folderTreeEmpty.style.display = 'none';
+        folderTree.innerHTML =
+          '<div class="folder-tree-node' + (activeFolderPath ? '' : ' active') + (activeDropFolderPath === '' ? ' drop-target' : '') + '" data-folder-path="">' +
+            '<div class="folder-tree-line" style="padding-left:10px;">' +
+              '<span class="folder-tree-toggle placeholder">•</span>' +
+              '<div class="folder-tree-entry" data-folder-select="">' +
+                '<span class="folder-tree-name"><span class="folder-tree-icon root" aria-hidden="true">⌂</span>' + t('根目录') + '</span>' +
+                '<span class="folder-tree-count"></span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          buildFolderTreeHtml(getRootFolderTreeNodesForRender(), 0);
+        syncFolderDropHighlight();
+        focusActiveFolderRenameInput();
+      }
+
+      function focusActiveFolderRenameInput() {
+        if (!folderTree || !activeFolderRenamePath) {
+          return;
+        }
+        setTimeout(function () {
+          if (!folderTree || !activeFolderRenamePath) {
+            return;
+          }
+          const input = folderTree.querySelector('.folder-rename-input[data-folder-rename-input]');
+          if (!input) {
+            return;
+          }
+          selectRenameInputText(input);
+        }, 0);
+      }
+
+      function startFolderRename(path) {
+        const target = String(path || '');
+        if (!canRenameFolderPath(target)) {
+          return;
+        }
+        activeFolderRenamePath = target;
+        ensureFolderPathExpanded(target);
+        renderFolderTree();
+      }
+
+      function cancelFolderRename() {
+        if (!activeFolderRenamePath) {
+          return;
+        }
+        activeFolderRenamePath = '';
+        renderFolderTree();
+      }
+
+      async function submitFolderRename(input) {
+        if (!input) {
+          return;
+        }
+        const oldPath = String(input.getAttribute('data-folder-rename-input') || '');
+        if (!canRenameFolderPath(oldPath) || activeFolderRenamePath !== oldPath) {
+          return;
+        }
+        if (folderRenameRequestPath === oldPath) {
+          return;
+        }
+        const nextName = String(input.value || '').trim();
+        const oldName = folderNameFromPath(oldPath);
+        if (!nextName) {
+          showStatus(t('文件夹名称不能为空'), 'err');
+          input.focus();
+          return;
+        }
+        if (nextName === oldName) {
+          activeFolderRenamePath = '';
+          renderFolderTree();
+          return;
+        }
+
+        try {
+          folderRenameRequestPath = oldPath;
+          const result = await fetchJson(
+            withFolderPassword(api.folderRename + '?path=' + encodeURIComponent(oldPath) + '&name=' + encodeURIComponent(nextName), oldPath),
+            { method: 'POST' }
+          );
+          const newPath = String((result && result.path) || '');
+          activeFolderRenamePath = '';
+          activeFolderPath = relocatePathAfterFolderMove(activeFolderPath, oldPath, newPath);
+          ensureFolderPathExpanded(activeFolderPath);
+          await loadFiles();
+          showStatus(t('文件夹已改名：') + nextName, 'ok');
+        } catch (err) {
+          showStatus(t('文件夹改名失败：') + err.message, 'err');
+          selectRenameInputText(input);
+        } finally {
+          folderRenameRequestPath = '';
+        }
+      }
+
+      async function loadFolderTreeState() {
+        const data = await fetchJson(folderListUrl());
+        folderTreeData = Array.isArray(data.folders) ? data.folders.map(normalizeFolderNode) : [];
+        ensureFolderPathExpanded(activeFolderPath);
+        renderFolderTree();
+      }
+
+      async function createFolderAtCurrentPath() {
+        if (!(await ensureFolderUnlocked(activeFolderPath))) {
+          return;
+        }
+        const name = await askTagName({
+          title: t('新建子目录'),
+          description: t('请输入要创建在「') + getFolderLabel(activeFolderPath) + t('」下的子目录名称。'),
+          label: t('目录名称'),
+          placeholder: t('请输入目录名称')
+        });
+        if (name === null) {
+          return;
+        }
+        const cleanName = String(name || '').trim();
+        if (!cleanName) {
+          showStatus(t('文件夹名称不能为空'), 'err');
+          return;
+        }
+        await fetchJson(
+          withFolderPassword(
+            api.folderCreate + '?parent=' + encodeURIComponent(activeFolderPath || '') + '&name=' + encodeURIComponent(cleanName),
+            activeFolderPath
+          ),
+          { method: 'POST' }
+        );
+        ensureFolderPathExpanded(activeFolderPath);
+        await loadFolderTreeState();
+        showStatus(t('已创建文件夹：') + cleanName, 'ok');
+      }
+
+      async function deleteCurrentFolder() {
+        if (!activeFolderPath) {
+          return;
+        }
+        if (isRecycleRootFolderPath(activeFolderPath)) {
+          return;
+        }
+        if (isRecycleFolderPath(activeFolderPath)) {
+          const confirmedPermanent = await askConfirmDialog({
+            title: t('彻底删除目录'),
+            description: t('确认彻底删除回收站中的目录「') + activeFolderPath + t('」及其全部内容？此操作不可恢复。'),
+            confirmText: t('彻底删除'),
+            danger: true
+          });
+          if (!confirmedPermanent) {
+            return;
+          }
+          await fetchJson(api.del + '?file=' + encodeURIComponent(activeFolderPath));
+          activeFolderPath = RECYCLE_FOLDER_NAME;
+          ensureFolderPathExpanded(activeFolderPath);
+          await loadFiles();
+          showStatus(t('回收站目录已彻底删除'), 'warn');
+          return;
+        }
+        if (!(await ensureFolderUnlocked(activeFolderPath))) {
+          return;
+        }
+        const confirmed = await askConfirmDialog({
+          title: t('删除目录'),
+          description: t('确认将目录「') + activeFolderPath + t('」及其全部内容移入回收站？'),
+          confirmText: t('移入回收站'),
+          danger: true
+        });
+        if (!confirmed) {
+          return;
+        }
+        await fetchJson(withFolderPassword(api.folderDelete + '?path=' + encodeURIComponent(activeFolderPath), activeFolderPath), { method: 'POST' });
+        activeFolderPath = '';
+        renderFolderTree();
+        renderFiles(activeSourceFiles);
+        showStatus(t('文件夹已移入回收站'), 'warn');
+      }
+
+      async function restoreCurrentRecycleFolder() {
+        if (!activeFolderPath || !isRecycleFolderPath(activeFolderPath) || isRecycleRootFolderPath(activeFolderPath)) {
+          return;
+        }
+        const selected = selectedFolderPaths.has(activeFolderPath)
+          ? normalizeFolderMoveSources(Array.from(selectedFolderPaths)).filter(function (path) {
+            return isRecycleFolderPath(path) && !isRecycleRootFolderPath(path);
+          })
+          : [activeFolderPath];
+        if (!selected.length) {
+          return;
+        }
+        const confirmed = await askConfirmDialog({
+          title: selected.length > 1 ? '批量恢复目录' : '恢复目录',
+          description: selected.length > 1
+            ? ('确认恢复回收站中选中的 ' + selected.length + ' 个目录？将恢复到原路径（如冲突会自动改名）。')
+            : ('确认恢复回收站中的目录「' + activeFolderPath + '」？将恢复到原路径（如冲突会自动改名）。'),
+          confirmText: '恢复',
+          danger: false
+        });
+        if (!confirmed) {
+          return;
+        }
+        let restoredCount = 0;
+        let lastTargetPath = '';
+        for (let i = 0; i < selected.length; i += 1) {
+          const result = await fetchJson(api.restore + '?file=' + encodeURIComponent(selected[i]));
+          lastTargetPath = String((result && result.path) || '');
+          restoredCount += 1;
+        }
+        clearSelectedFolders();
+        activeFolderPath = RECYCLE_FOLDER_NAME;
+        ensureFolderPathExpanded(activeFolderPath);
+        await loadFiles();
+        showStatus(restoredCount > 1
+          ? ('已恢复 ' + restoredCount + ' 个目录')
+          : ('已恢复目录' + (lastTargetPath ? ('：' + lastTargetPath) : '')),
+          'ok');
+      }
+
+      async function moveFilesToFolder(filePaths, folderPath) {
+        const list = Array.isArray(filePaths) ? filePaths.filter(Boolean) : [];
+        if (!list.length) {
+          return;
+        }
+        for (let i = 0; i < list.length; i += 1) {
+          await fetchJson(
+            withFolderPassword(
+              appendFilePassword(withFolderPassword(api.fileMove + '?file=' + encodeURIComponent(list[i]) + '&folder=' + encodeURIComponent(folderPath || ''), parentFolderPathFromFilePath(list[i])), list[i], false),
+              folderPath || '',
+              'target_folder_password'
+            ),
+            { method: 'POST' }
+          );
+          selectedFileNames.delete(list[i]);
+        }
+        await loadFiles();
+        showStatus(list.length > 1 ? ('已移动 ' + list.length + ' 个文件') : '文件已移动', 'ok');
+      }
+
+      function ensureLocalImportFolderPathExpanded(path) {
+        const text = String(path || '');
+        localImportExpandedFolderPaths.add('');
+        if (!text) {
+          return;
+        }
+        const parts = text.split('/');
+        let current = '';
+        for (let i = 0; i < parts.length; i += 1) {
+          current = current ? (current + '/' + parts[i]) : parts[i];
+          localImportExpandedFolderPaths.add(current);
+        }
+      }
+
+      function buildLocalImportFolderTreeHtml(nodes, level) {
+        const list = Array.isArray(nodes) ? nodes : [];
+        return list.filter(function (node) {
+          return node && !isRecycleFolderPath(node.path);
+        }).map(function (node) {
+          const path = String(node.path || '');
+          const expanded = localImportExpandedFolderPaths.has(path);
+          const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+          const isActive = localImportTargetFolderPath === path;
+          const padding = 10 + (Math.max(0, Number(level) || 0) * 18);
+          const childHtml = hasChildren && expanded
+            ? '<div class="folder-tree-children">' + buildLocalImportFolderTreeHtml(node.children, (level || 0) + 1) + '</div>'
+            : '';
+          const lockHtml = folderLockIconHtml(node);
+          return (
+            '<div class="folder-tree-node' + (isActive ? ' active' : '') + '" data-local-import-folder="' + escapeHtml(path) + '">' +
+              '<div class="folder-tree-line" style="padding-left:' + padding + 'px;">' +
+                (hasChildren
+                  ? '<button type="button" class="folder-tree-toggle" data-local-import-toggle="' + escapeHtml(path) + '">' + (expanded ? '▾' : '▸') + '</button>'
+                  : '<span class="folder-tree-toggle placeholder">•</span>') +
+                '<div class="folder-tree-entry" data-local-import-select="' + escapeHtml(path) + '">' +
+                  '<span class="folder-tree-name">' + escapeHtml(node.name || '') + '</span>' +
+                  lockHtml +
+                '</div>' +
+              '</div>' +
+              childHtml +
+            '</div>'
+          );
+        }).join('');
+      }
+
+      function renderLocalImportTree() {
+        if (!localImportTree || !localImportEmpty) {
+          return;
+        }
+        const rootActive = localImportTargetFolderPath === '';
+        const body = buildLocalImportFolderTreeHtml(getRootFolderTreeNodesForRender(), 0);
+        localImportTree.innerHTML =
+          '<div class="folder-tree-node' + (rootActive ? ' active' : '') + '" data-local-import-folder="">' +
+            '<div class="folder-tree-line" style="padding-left:10px;">' +
+              '<span class="folder-tree-toggle placeholder">•</span>' +
+              '<div class="folder-tree-entry" data-local-import-select="">' +
+                '<span class="folder-tree-name">根目录</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          body;
+        localImportEmpty.style.display = body ? 'none' : 'block';
+      }
+
+      async function openLocalImportDialog(pathsOverride) {
+        const paths = Array.isArray(pathsOverride)
+          ? pathsOverride.map(function (path) { return String(path || ''); }).filter(Boolean)
+          : getSelectedLocalDiskImportPaths();
+        if (!paths.length) {
+          showStatus(t('请先选择要上传的本地文件或文件夹'), 'err');
+          return;
+        }
+        localImportOverridePaths = Array.isArray(pathsOverride) ? paths : null;
+        try {
+          await loadFolderTreeState();
+        } catch (err) {
+          localImportOverridePaths = null;
+          showStatus(t('加载远程目录失败：') + err.message, 'err');
+          return;
+        }
+        localImportTargetFolderPath = activeFolderPath || '';
+        ensureLocalImportFolderPathExpanded(localImportTargetFolderPath);
+        renderLocalImportTree();
+        if (localImportDialog) {
+          localImportDialog.hidden = false;
+        }
+      }
+
+      function closeLocalImportDialog() {
+        if (localImportDialog) {
+          localImportDialog.hidden = true;
+        }
+        localImportOverridePaths = null;
+      }
+
+      function isCopyTaskWindowMode(mode) {
+        const value = String(mode || '');
+        return value === 'remote-copy' || value === 'local-copy';
+      }
+
+      function getCopyTaskProgressDescription() {
+        return localImportProgressWindowMode === 'local-copy'
+          ? t('正在将本地磁盘文件或目录粘贴到目标目录。')
+          : t('正在将虚拟磁盘文件或目录粘贴到目标目录。');
+      }
+
+      function applyLocalImportProgressWindowState() {
+        if (localImportProgressDialog) {
+          localImportProgressDialog.classList.toggle('is-minimized', !!localImportProgressMinimized);
+        }
+        const showWindowControls = isCopyTaskWindowMode(localImportProgressWindowMode);
+        if (localImportProgressMinimize) {
+          localImportProgressMinimize.hidden = !showWindowControls || !!localImportProgressMinimized;
+        }
+        if (localImportProgressRestore) {
+          localImportProgressRestore.hidden = !showWindowControls || !localImportProgressMinimized;
+        }
+      }
+
+      function updateLocalImportProgressSummary(text) {
+        const desc = document.getElementById('local-import-progress-desc');
+        if (!desc || !isCopyTaskWindowMode(localImportProgressWindowMode) || !localImportProgressMinimized) {
+          return;
+        }
+        desc.textContent = text || t('粘贴中');
+      }
+
+      function setLocalImportProgressWindowMode(mode) {
+        const nextMode = String(mode || '');
+        if (nextMode !== localImportProgressWindowMode) {
+          localImportProgressMinimized = false;
+        }
+        localImportProgressWindowMode = nextMode;
+        applyLocalImportProgressWindowState();
+      }
+
+      function minimizeLocalImportProgressWindow() {
+        if (!isCopyTaskWindowMode(localImportProgressWindowMode)) {
+          return;
+        }
+        localImportProgressMinimized = true;
+        updateLocalImportProgressSummary(localImportProgressText ? localImportProgressText.textContent : '');
+        applyLocalImportProgressWindowState();
+      }
+
+      function restoreLocalImportProgressWindow() {
+        localImportProgressMinimized = false;
+        const desc = document.getElementById('local-import-progress-desc');
+        if (desc && isCopyTaskWindowMode(localImportProgressWindowMode)) {
+          desc.textContent = getCopyTaskProgressDescription();
+        }
+        applyLocalImportProgressWindowState();
+      }
+
+      function setLocalImportProgress(percent, text) {
+        const p = Math.max(0, Math.min(100, Number(percent) || 0));
+        if (localImportProgressDialog) {
+          localImportProgressDialog.hidden = false;
+        }
+        if (localImportProgressFill) {
+          localImportProgressFill.style.width = p + '%';
+        }
+        if (localImportProgressText) {
+          localImportProgressText.textContent = text || (t('上传中 ') + Math.round(p) + '%');
+        }
+        updateLocalImportProgressSummary(localImportProgressText ? localImportProgressText.textContent : text);
+        if (localImportProgressClose) {
+          localImportProgressClose.hidden = true;
+        }
+      }
+
+      function localImportFileStateText(state) {
+        if (state === 'done') { return t('完成'); }
+        if (state === 'running') { return t('上传中'); }
+        if (state === 'failed') { return t('失败'); }
+        if (state === 'cancelled') { return t('已取消'); }
+        return t('等待');
+      }
+
+      function renderLocalImportProgressFiles(files) {
+        if (!localImportProgressFiles) {
+          return;
+        }
+        const list = Array.isArray(files) ? files : [];
+        if (!list.length) {
+          localImportProgressFiles.innerHTML = '';
+          return;
+        }
+        localImportProgressFiles.innerHTML = list.map(function (file) {
+          const name = String((file && file.name) || '');
+          const state = String((file && file.state) || 'pending');
+          const progress = Math.max(0, Math.min(100, Number((file && file.progress) || 0)));
+          const size = Number((file && file.size) || 0);
+          const copied = Number((file && file.copied) || 0);
+          return '<div class="local-import-progress-file state-' + escapeHtml(state) + '">' +
+            '<div class="local-import-progress-file-main">' +
+              '<span class="local-import-progress-file-name">' + escapeHtml(name) + '</span>' +
+              '<span class="local-import-progress-file-state">' + localImportFileStateText(state) + '</span>' +
+            '</div>' +
+            '<div class="local-import-progress-file-track"><div class="local-import-progress-file-fill" style="width:' + progress + '%"></div></div>' +
+            '<div class="local-import-progress-file-meta">' + formatNumber(copied) + ' / ' + formatNumber(size) + t(' 字节') + '</div>' +
+          '</div>';
+        }).join('');
+      }
+
+      function finishLocalImportProgress(text) {
+        setLocalImportProgress(100, text || t('上传完成 100%'));
+        if (localImportProgressClose) {
+          localImportProgressClose.hidden = false;
+        }
+        if (localImportProgressCancel) {
+          localImportProgressCancel.hidden = true;
+        }
+      }
+
+      function failLocalImportProgress(text) {
+        setLocalImportProgress(0, text || t('上传失败'));
+        if (localImportProgressClose) {
+          localImportProgressClose.hidden = false;
+        }
+        if (localImportProgressCancel) {
+          localImportProgressCancel.hidden = true;
+        }
+      }
+
+      function closeLocalImportProgressDialog() {
+        if (localImportProgressDialog) {
+          localImportProgressDialog.hidden = true;
+          localImportProgressDialog.classList.remove('non-modal-progress');
+        }
+        activeRemoteCopyCancelRequested = false;
+        localImportProgressWindowMode = '';
+        localImportProgressMinimized = false;
+        applyLocalImportProgressWindowState();
+        if (localImportProgressFill) {
+          localImportProgressFill.style.width = '0%';
+        }
+        if (localImportProgressText) {
+          localImportProgressText.textContent = t('准备上传...');
+        }
+        if (localImportProgressFiles) {
+          localImportProgressFiles.innerHTML = '';
+        }
+        if (localImportProgressCancel) {
+          localImportProgressCancel.hidden = true;
+          localImportProgressCancel.disabled = false;
+          localImportProgressCancel.textContent = t('取消');
+        }
+      }
+
+      function setCopyTaskProgress(mode, progress, text, item) {
+        const title = document.getElementById('local-import-progress-title');
+        const desc = document.getElementById('local-import-progress-desc');
+        setLocalImportProgressWindowMode(mode);
+        if (localImportProgressDialog) {
+          localImportProgressDialog.classList.add('non-modal-progress');
+        }
+        if (title) { title.textContent = t('粘贴中'); }
+        if (desc && !localImportProgressMinimized) { desc.textContent = getCopyTaskProgressDescription(); }
+        setLocalImportProgress(progress, text);
+        if (localImportProgressCancel) {
+          localImportProgressCancel.hidden = false;
+          localImportProgressCancel.disabled = !!activeRemoteCopyCancelRequested;
+          localImportProgressCancel.textContent = activeRemoteCopyCancelRequested ? t('取消中...') : t('取消');
+        }
+        renderLocalImportProgressFiles(item ? [item] : []);
+      }
+
+      function setRemoteCopyProgress(progress, text, item) {
+        setCopyTaskProgress('remote-copy', progress, text, item);
+      }
+
+      async function cancelRemoteCopyTask() {
+        const taskId = String(activeRemoteCopyTaskId || '');
+        if (!taskId) {
+          return;
+        }
+        activeRemoteCopyCancelRequested = true;
+        if (localImportProgressCancel) {
+          localImportProgressCancel.disabled = true;
+          localImportProgressCancel.textContent = t('取消中...');
+        }
+        await fetchJson(api.remoteCopyCancel + '?task_id=' + encodeURIComponent(taskId), { method: 'POST' });
+        showStatus(t('正在取消粘贴...'), 'warn');
+      }
+
+      function pollCopyTask(taskId, options) {
+        return new Promise(function (resolve, reject) {
+          if (!taskId) {
+            reject(new Error(t('缺少拷贝任务编号')));
+            return;
+          }
+          const opts = options || {};
+          const mode = String(opts.mode || 'remote-copy');
+          const copiedPath = String(opts.copiedPath || '');
+          const itemName = String(opts.itemName || copiedPath || '');
+          const onProgressTick = typeof opts.onProgressTick === 'function' ? opts.onProgressTick : null;
+          const onDone = typeof opts.onDone === 'function' ? opts.onDone : null;
+          activeRemoteCopyTaskId = String(taskId);
+          activeRemoteCopyCancelRequested = false;
+          let tick = 0;
+          const timer = setInterval(function () {
+            fetchJson(api.remoteCopyProgress + '?task_id=' + encodeURIComponent(taskId))
+              .then(async function (data) {
+                tick += 1;
+                const progress = Math.max(0, Math.min(100, Number(data.progress || 0)));
+                const state = String(data.state || '');
+                const displayName = String(itemName || data.path || remoteDiskClipboardPath || localDiskClipboardPath || '');
+                setCopyTaskProgress(mode, progress, (data.message || t('粘贴中')) + ' ' + Math.round(progress) + '%', {
+                  name: displayName,
+                  state: state === 'done' ? 'done' : (state === 'failed' ? 'failed' : (state === 'cancelled' ? 'cancelled' : 'running')),
+                  progress: progress,
+                  size: Number(data.total_bytes || 0),
+                  copied: Number(data.copied_bytes || 0)
+                });
+                if (tick % 5 === 0 && onProgressTick) {
+                  await onProgressTick(data);
+                }
+                if (state === 'done') {
+                  clearInterval(timer);
+                  activeRemoteCopyTaskId = '';
+                  activeRemoteCopyCancelRequested = false;
+                  finishLocalImportProgress(t('粘贴完成 100%'));
+                  if (onDone) {
+                    await onDone(data);
+                  }
+                  resolve(data);
+                } else if (state === 'failed' || state === 'cancelled') {
+                  clearInterval(timer);
+                  activeRemoteCopyTaskId = '';
+                  activeRemoteCopyCancelRequested = false;
+                  if (state === 'cancelled') {
+                    failLocalImportProgress(t('粘贴已取消'));
+                    resolve(data);
+                  } else {
+                    failLocalImportProgress(data.error || t('粘贴失败'));
+                    reject(new Error(data.error || t('粘贴失败')));
+                  }
+                }
+              })
+              .catch(function (err) {
+                clearInterval(timer);
+                activeRemoteCopyTaskId = '';
+                activeRemoteCopyCancelRequested = false;
+                reject(err);
+              });
+          }, 400);
+        });
+      }
+
+      function pollRemoteCopyTask(taskId, targetPath, copiedPath, copiedDirectory) {
+        return pollCopyTask(taskId, {
+          mode: 'remote-copy',
+          copiedPath: copiedPath,
+          onProgressTick: async function () {
+            if (!activeFilterTagId) {
+              ensureFolderPathExpanded(targetPath);
+              await loadFolderTreeState();
+            }
+          },
+          onDone: async function () {
+            remoteDiskClipboardPath = '';
+            remoteDiskClipboardDirectory = false;
+            remoteDiskClipboardPaths = [];
+            remoteDiskClipboardDirectoryFlags = [];
+            activeFolderPath = targetPath;
+            ensureFolderPathExpanded(targetPath);
+            if (copiedDirectory && copiedPath) { ensureFolderPathExpanded(copiedPath); }
+            await loadFiles();
+            if (copiedDirectory && copiedPath) {
+              ensureFolderPathExpanded(copiedPath);
+              renderFolderTree();
+            }
+          }
+        });
+      }
+
+      function pollLocalDiskCopyTask(taskId, targetPath, copiedPath) {
+        return pollCopyTask(taskId, {
+          mode: 'local-copy',
+          copiedPath: copiedPath,
+          onDone: async function () {
+            localDiskTreeCache.delete(targetPath);
+            await loadLocalDisk(targetPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, targetPath) });
+          }
+        });
+      }
+
+      function pollLocalImportProgress(taskId) {
+        return new Promise(function (resolve, reject) {
+          if (!taskId) {
+            reject(new Error(t('缺少上传任务编号')));
+            return;
+          }
+          const timer = setInterval(function () {
+            fetchJson(api.localDiskImportProgress + '?task_id=' + encodeURIComponent(taskId))
+              .then(function (data) {
+                const progress = Math.max(0, Math.min(100, Number(data.progress || 0)));
+                const state = String(data.state || '');
+                setLocalImportProgress(progress, (data.message || t('上传中')) + ' ' + Math.round(progress) + '%');
+                renderLocalImportProgressFiles(data.files);
+                if (state === 'done') {
+                  clearInterval(timer);
+                  finishLocalImportProgress(t('上传完成 100%'));
+                  resolve(data);
+                } else if (state === 'failed') {
+                  clearInterval(timer);
+                  reject(new Error(data.error || t('上传失败')));
+                }
+              })
+              .catch(function (err) {
+                clearInterval(timer);
+                reject(err);
+              });
+          }, 400);
+        });
+      }
+
+      async function confirmLocalImport() {
+        const paths = Array.isArray(localImportOverridePaths) ? localImportOverridePaths : getSelectedLocalDiskImportPaths();
+        if (!paths.length) {
+          closeLocalImportDialog();
+          return;
+        }
+        if (!(await ensureFolderUnlocked(localImportTargetFolderPath))) {
+          return;
+        }
+        const password = getFolderPasswordForPath(localImportTargetFolderPath);
+        let url = api.localDiskImport
+          + '?folder=' + encodeURIComponent(localImportTargetFolderPath || '')
+          + '&paths=' + encodeURIComponent(paths.join('\n'));
+        if (password) {
+          url += '&folder_password=' + encodeURIComponent(password);
+        }
+        if (localImportConfirmBtn) {
+          localImportConfirmBtn.disabled = true;

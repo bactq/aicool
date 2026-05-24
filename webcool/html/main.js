@@ -10,9 +10,6 @@
     '/webcool/html/js/07-admin-storage.js',
     '/webcool/html/js/08-events-bootstrap.js'
   ];
-  const moduleIds = modules.map(function (url) {
-    return url.slice(url.lastIndexOf('/') + 1);
-  });
 
   function showLoadError(err) {
     console.error('Failed to load WebCool modules:', err);
@@ -23,35 +20,17 @@
     }
   }
 
-  function loadModuleScript(url) {
-    return new Promise(function (resolve, reject) {
-      const script = document.createElement('script');
-      script.src = url;
-      script.async = false;
-      script.onload = resolve;
-      script.onerror = function () {
-        reject(new Error(url + ' load failed'));
-      };
-      document.head.appendChild(script);
+  function loadModuleSource(url) {
+    return fetch(url, { cache: 'no-cache' }).then(function (res) {
+      if (!res.ok) {
+        throw new Error(url + ' load failed: HTTP ' + res.status);
+      }
+      return res.text();
     });
   }
 
-  modules.reduce(function (chain, url) {
-    return chain.then(function () {
-      return loadModuleScript(url);
-    });
-  }, Promise.resolve())
-    .then(function () {
-      const registry = window.WebCoolModuleRegistry;
-      if (!registry || !registry.modules) {
-        throw new Error('module registry is empty');
-      }
-      const parts = moduleIds.map(function (id) {
-        if (!Object.prototype.hasOwnProperty.call(registry.modules, id)) {
-          throw new Error(id + ' not registered');
-        }
-        return registry.modules[id];
-      });
+  Promise.all(modules.map(loadModuleSource))
+    .then(function (parts) {
       const code = '(function () {\n' + parts.join('\n') + '\n})();';
       (0, eval)(code + '\n//# sourceURL=webcool-main-runtime.js');
     })
