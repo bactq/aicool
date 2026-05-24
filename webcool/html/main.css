@@ -2843,6 +2843,16 @@
       transform: none !important;
     }
 
+    .floating-preview.preview-kind-video.is-maximized {
+      left: 0 !important;
+      top: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      max-height: 100vh !important;
+      border: 0;
+      border-radius: 0;
+    }
+
     .floating-preview.is-minimized {
       min-height: 0;
       resize: none;
@@ -2868,6 +2878,19 @@
       overflow: hidden;
     }
 
+    .preview-body-image {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .floating-preview.is-maximized .preview-body-image {
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: flex-start;
+    }
+
     .preview-video-stack {
       width: 100%;
       display: flex;
@@ -2878,21 +2901,31 @@
 
     .floating-preview.is-maximized .preview-body.preview-body-video {
       justify-content: flex-start;
-      overflow: auto;
+      overflow: hidden;
+    }
+
+    .floating-preview.preview-kind-video.is-maximized .preview-body.preview-body-video {
+      padding: 0;
+      background: #000;
     }
 
     .floating-preview.is-maximized .preview-body.preview-body-video .preview-video-stack {
       flex: 1 1 auto;
       min-height: 0;
+      gap: 0;
     }
 
     .floating-preview.is-maximized .preview-body.preview-body-video .preview-video {
       flex: 1 1 auto;
       min-height: 0;
+      max-height: none;
+      border: 0;
+      border-radius: 0;
     }
 
     .preview-image-toolbar {
       display: flex;
+      flex: 0 0 auto;
       align-items: center;
       justify-content: center;
       gap: 8px;
@@ -2991,13 +3024,24 @@
 
     .preview-image-shell {
       position: relative;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: block;
       width: 100%;
       min-height: calc(90vh - 134px);
-      padding: 0 58px;
+      max-height: calc(90vh - 178px);
+      padding: 12px 58px;
       box-sizing: border-box;
+      overflow: auto;
+      text-align: center;
+      background: #f3f8fe;
+      border: 1px solid #e0ebf6;
+      border-radius: 10px;
+      overscroll-behavior: contain;
+    }
+
+    .floating-preview.is-maximized .preview-image-shell {
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: none;
     }
 
     .preview-image-shell.crop-mode {
@@ -3005,12 +3049,16 @@
     }
 
     .preview-image {
-      max-width: 100%;
-      max-height: calc(90vh - 110px);
+      max-width: none;
+      max-height: none;
+      width: auto;
+      height: auto;
       object-fit: contain;
       border-radius: 8px;
       border: 1px solid #deebf7;
       background: #fff;
+      display: inline-block;
+      vertical-align: middle;
     }
 
     .preview-crop-rect {
