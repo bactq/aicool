@@ -587,6 +587,18 @@ static bool should_skip_entry(const char* name, bool show_hidden) {
 	return false;
 }
 
+static bool is_protected_project_db_file(const std::string& relative_dir,
+	const char* name)
+{
+	if (!relative_dir.empty() || name == NULL) {
+		return false;
+	}
+	return strcmp(name, ".video_resume.db") == 0
+		|| strcmp(name, ".tag_catalog.db") == 0
+		|| strcmp(name, ".recycle_bin.db") == 0
+		|| strcmp(name, ".folder_catalog.db") == 0;
+}
+
 static bool is_image_file(const char* filename) {
 	const char* dot = filename ? strrchr(filename, '.') : NULL;
 	return dot != NULL && (
@@ -797,6 +809,9 @@ static bool collect_files_recursive(const std::string& upload_dir,
 	struct dirent* entry = NULL;
 	while ((entry = readdir(dir)) != NULL) {
 		if (should_skip_entry(entry->d_name, show_hidden)) {
+			continue;
+		}
+		if (is_protected_project_db_file(relative_dir, entry->d_name)) {
 			continue;
 		}
 		const std::string name(entry->d_name);

@@ -269,6 +269,8 @@
     "      let localDiskRenameClickTimer = null;",
     "      let localDiskClipboardPath = '';",
     "      let localDiskClipboardDirectory = false;",
+    "      let localDiskClipboardPaths = [];",
+    "      let localDiskClipboardDirectoryFlags = [];",
     "      let remoteDiskClipboardPath = '';",
     "      let remoteDiskClipboardDirectory = false;",
     "      let activeLocalDiskTreeRootPath = '';",
