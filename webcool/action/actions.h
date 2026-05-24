@@ -109,6 +109,11 @@ public:
 	static bool run(request_t& req, response_t& res);
 };
 
+class AdminStorageMigrateControlAction {
+public:
+	static bool run(request_t& req, response_t& res);
+};
+
 class AdminStorageMigrateCleanupAction {
 public:
 	static bool run(request_t& req, response_t& res);

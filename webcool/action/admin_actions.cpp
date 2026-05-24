@@ -41,6 +41,8 @@ struct storage_migrate_task_t {
 	std::string conflict_resolution;
 	std::string conflict_default;
 	bool cleanup_done;
+	bool pause_requested;
+	bool cancel_requested;
 	long long total_bytes;
 	long long moved_bytes;
 	int total_files;
@@ -73,13 +75,60 @@ static std::string make_task_id()
 static void update_task(const storage_migrate_task_t& task)
 {
 	std::lock_guard<std::mutex> guard(g_storage_migrate_mutex);
-	g_storage_migrate_task = task;
+	storage_migrate_task_t merged = task;
+	if (g_storage_migrate_task.id == task.id
+		&& task.state != "done"
+		&& task.state != "failed"
+		&& task.state != "cancelled")
+	{
+		merged.pause_requested = task.pause_requested
+			|| g_storage_migrate_task.pause_requested;
+		merged.cancel_requested = task.cancel_requested
+			|| g_storage_migrate_task.cancel_requested;
+		if (merged.conflict_resolution.empty()) {
+			merged.conflict_resolution = g_storage_migrate_task.conflict_resolution;
+		}
+		if (merged.conflict_default.empty()) {
+			merged.conflict_default = g_storage_migrate_task.conflict_default;
+		}
+	}
+	g_storage_migrate_task = merged;
 }
 
 static storage_migrate_task_t current_storage_task_snapshot()
 {
 	std::lock_guard<std::mutex> guard(g_storage_migrate_mutex);
 	return g_storage_migrate_task;
+}
+
+static bool storage_task_wait_if_paused_or_cancelled(storage_migrate_task_t& task)
+{
+	while (true) {
+		storage_migrate_task_t snapshot = current_storage_task_snapshot();
+		if (snapshot.id != task.id) {
+			return false;
+		}
+		task.pause_requested = snapshot.pause_requested;
+		task.cancel_requested = snapshot.cancel_requested;
+		if (task.cancel_requested) {
+			task.state = "cancelled";
+			task.message = "迁移已取消";
+			update_task(task);
+			return false;
+		}
+		if (!task.pause_requested) {
+			if (task.state == "paused") {
+				task.state = "running";
+				task.message = "继续迁移";
+				update_task(task);
+			}
+			return true;
+		}
+		task.state = "paused";
+		task.message = "迁移已暂停";
+		update_task(task);
+		usleep(200 * 1000);
+	}
 }
 
 static bool canonical_existing_path(const std::string& input,
@@ -337,6 +386,11 @@ static bool copy_file_with_progress(const storage_move_item_t& item,
 	char buf[1024 * 64];
 	bool ok = true;
 	while (true) {
+		if (!storage_task_wait_if_paused_or_cancelled(task)) {
+			err = "cancelled";
+			ok = false;
+			break;
+		}
 		const size_t n = fread(buf, 1, sizeof(buf), in);
 		if (n > 0 && fwrite(buf, 1, n, out) != n) {
 			err = strerror(errno);
@@ -402,6 +456,23 @@ static std::string wait_storage_conflict_resolution(storage_migrate_task_t& task
 		storage_migrate_task_t snapshot = current_storage_task_snapshot();
 		if (snapshot.id != task.id) {
 			return "cancel";
+		}
+		if (snapshot.cancel_requested) {
+			task.cancel_requested = true;
+			return "cancel";
+		}
+		if (snapshot.pause_requested) {
+			task.pause_requested = true;
+			task.state = "paused";
+			task.message = "迁移已暂停";
+			update_task(task);
+			continue;
+		}
+		if (task.state == "paused") {
+			task.pause_requested = false;
+			task.state = "conflict";
+			task.message = "发现同名文件";
+			update_task(task);
 		}
 		if (!snapshot.conflict_resolution.empty()) {
 			const std::string choice = snapshot.conflict_resolution;
@@ -495,6 +566,9 @@ static void run_storage_migration(storage_migrate_task_t task,
 
 	std::string err;
 	for (size_t i = 0; i < items.size(); ++i) {
+		if (!storage_task_wait_if_paused_or_cancelled(task)) {
+			return;
+		}
 		if (items[i].directory) {
 			if (!make_dir_recursive(items[i].target.c_str())) {
 				task.state = "failed";
@@ -665,6 +739,8 @@ bool AdminStorageMigrateAction::run(request_t& req, response_t& res,
 	task.source_dir = source_dir;
 	task.target_dir = target_dir;
 	task.cleanup_done = false;
+	task.pause_requested = false;
+	task.cancel_requested = false;
 	task.total_bytes = 0;
 	task.moved_bytes = 0;
 	task.total_files = 0;
@@ -715,6 +791,8 @@ bool AdminStorageMigrateProgressAction::run(request_t& req, response_t& res)
 	root.add_text("conflict_target", task.conflict_target.c_str());
 	root.add_text("conflict_name", task.conflict_name.c_str());
 	root.add_bool("cleanup_done", task.cleanup_done);
+	root.add_bool("pause_requested", task.pause_requested);
+	root.add_bool("cancel_requested", task.cancel_requested);
 	root.add_number("progress", progress);
 	root.add_number("total_bytes", task.total_bytes);
 	root.add_number("moved_bytes", task.moved_bytes);
@@ -755,6 +833,49 @@ bool AdminStorageMigrateResolveAction::run(request_t& req, response_t& res)
 	acl::json_node& root = json.create_node();
 	root.add_bool("ok", true);
 	root.add_text("choice", choice.c_str());
+	return sendJson(res, 200, root, req.isKeepAlive());
+}
+
+bool AdminStorageMigrateControlAction::run(request_t& req, response_t& res)
+{
+	const char* task_id = req.getParameter("task_id");
+	const char* action_text = req.getParameter("action");
+	std::string action = action_text ? action_text : "";
+	if (action != "pause" && action != "resume" && action != "cancel") {
+		json_error(res, 400, "invalid migration control action", req.isKeepAlive());
+		return true;
+	}
+	{
+		std::lock_guard<std::mutex> guard(g_storage_migrate_mutex);
+		if (task_id != NULL && *task_id != '\0' && g_storage_migrate_task.id != task_id) {
+			json_error(res, 404, "task not found", req.isKeepAlive());
+			return true;
+		}
+		if (g_storage_migrate_task.state != "queued"
+			&& g_storage_migrate_task.state != "running"
+			&& g_storage_migrate_task.state != "paused"
+			&& g_storage_migrate_task.state != "conflict")
+		{
+			json_error(res, 409, "migration task cannot be controlled", req.isKeepAlive());
+			return true;
+		}
+		if (action == "pause") {
+			g_storage_migrate_task.pause_requested = true;
+		} else if (action == "resume") {
+			g_storage_migrate_task.pause_requested = false;
+		} else if (action == "cancel") {
+			g_storage_migrate_task.cancel_requested = true;
+			g_storage_migrate_task.pause_requested = false;
+			if (g_storage_migrate_task.state == "conflict" || g_storage_migrate_task.state == "paused") {
+				g_storage_migrate_task.state = "cancelled";
+				g_storage_migrate_task.message = "迁移已取消";
+			}
+		}
+	}
+	acl::json json;
+	acl::json_node& root = json.create_node();
+	root.add_bool("ok", true);
+	root.add_text("action", action.c_str());
 	return sendJson(res, 200, root, req.isKeepAlive());
 }
 

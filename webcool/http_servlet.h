@@ -38,6 +38,7 @@ private:
 	bool routeAdminStorageMigrate(request_t& req, response_t& res);
 	bool routeAdminStorageMigrateProgress(request_t& req, response_t& res);
 	bool routeAdminStorageMigrateResolve(request_t& req, response_t& res);
+	bool routeAdminStorageMigrateControl(request_t& req, response_t& res);
 	bool routeAdminStorageMigrateCleanup(request_t& req, response_t& res);
 	bool routeDelete(request_t& req, response_t& res);
 	bool routeRestore(request_t& req, response_t& res);

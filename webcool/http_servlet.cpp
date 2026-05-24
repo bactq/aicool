@@ -42,6 +42,7 @@ bool http_servlet::doGet(request_t& req, response_t& res) {
 		{ "/api/v1/admin/storage/migrate", &http_servlet::routeAdminStorageMigrate },
 		{ "/api/v1/admin/storage/migrate/progress", &http_servlet::routeAdminStorageMigrateProgress },
 		{ "/api/v1/admin/storage/migrate/resolve", &http_servlet::routeAdminStorageMigrateResolve },
+		{ "/api/v1/admin/storage/migrate/control", &http_servlet::routeAdminStorageMigrateControl },
 		{ "/api/v1/admin/storage/migrate/cleanup", &http_servlet::routeAdminStorageMigrateCleanup },
 		{ "/api/v1/delete", &http_servlet::routeDelete },
 		{ "/api/v1/restore", &http_servlet::routeRestore },
@@ -120,6 +121,10 @@ bool http_servlet::routeAdminStorageMigrateProgress(request_t& req, response_t& 
 
 bool http_servlet::routeAdminStorageMigrateResolve(request_t& req, response_t& res) {
 	return action::AdminStorageMigrateResolveAction::run(req, res);
+}
+
+bool http_servlet::routeAdminStorageMigrateControl(request_t& req, response_t& res) {
+	return action::AdminStorageMigrateControlAction::run(req, res);
 }
 
 bool http_servlet::routeAdminStorageMigrateCleanup(request_t& req, response_t& res) {
@@ -355,6 +360,7 @@ bool http_servlet::doPost(request_t& req, response_t& res) {
 		{ "/api/v1/upload", &http_servlet::routeUpload },
 		{ "/api/v1/admin/storage/migrate", &http_servlet::routeAdminStorageMigrate },
 		{ "/api/v1/admin/storage/migrate/resolve", &http_servlet::routeAdminStorageMigrateResolve },
+		{ "/api/v1/admin/storage/migrate/control", &http_servlet::routeAdminStorageMigrateControl },
 		{ "/api/v1/admin/storage/migrate/cleanup", &http_servlet::routeAdminStorageMigrateCleanup },
 		{ "/api/v1/image/save", &http_servlet::routeImageSave },
 		{ "/api/v1/restore", &http_servlet::routeRestore },
