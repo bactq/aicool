@@ -839,13 +839,18 @@ function deleteUnlockedFolderPassword(path) {
         if (titleEl) {
           titleEl.textContent = '图片预览：' + String(item.name || item.file || '');
         }
-        resetImageEditState(win);
+        resetImageEditState(win, { preserveImageDisplay: true });
         if (imageEl) {
+          imageEl.classList.add('is-loading');
           imageEl.onload = function () {
             if (!win.__imageBaseCanvas) {
               capturePreviewBaseCanvas(win);
             }
-            fitPreviewImageToWindow(win);
+            fitPreviewImageToWindow(win, true);
+            imageEl.classList.remove('is-loading');
+          };
+          imageEl.onerror = function () {
+            imageEl.classList.remove('is-loading');
           };
           imageEl.alt = String(item.name || '图片预览');
           imageEl.src = imagePreviewUrlForItem(item);

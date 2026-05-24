@@ -390,23 +390,26 @@ function getLocalDirPassword(path) {
         });
       }
 
-      function resetImageEditState(win) {
+      function resetImageEditState(win, options) {
         if (!win) {
           return;
         }
+        const opts = options || {};
         win.__imageDirty = false;
         win.__imageCropMode = false;
         win.__imageCropRect = null;
         win.__imageBaseCanvas = null;
         win.__imageScale = 1;
-        win.__imageDisplayScale = 1;
-        win.__imageUserZoom = false;
+        if (!opts.preserveImageDisplay) {
+          win.__imageDisplayScale = 1;
+          win.__imageUserZoom = false;
+        }
         win.__imageCurrentWidth = 0;
         win.__imageCurrentHeight = 0;
         const img = win.querySelector('.preview-image');
         const shell = win.querySelector('.preview-image-shell');
         const cropRect = win.querySelector('.preview-crop-rect');
-        if (img) {
+        if (img && !opts.preserveImageDisplay) {
           img.style.width = '';
           img.style.height = '';
         }
