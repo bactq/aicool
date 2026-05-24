@@ -566,6 +566,22 @@
       font-weight: 700;
     }
 
+    .file-view-toolbar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: -4px 0 14px;
+    }
+
+    .file-view-toolbar .file-view-context {
+      margin: 0;
+    }
+
+    .remote-hidden-toggle {
+      min-height: 28px;
+    }
+
     .explorer-shell {
       display: grid;
       grid-template-columns: minmax(240px, 290px) minmax(0, 1fr);

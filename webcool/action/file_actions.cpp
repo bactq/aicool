@@ -57,7 +57,7 @@ struct recycle_record_t {
 };
 
 static void format_upload_time(time_t ts, char* buf, size_t size);
-static bool should_skip_entry(const char* name);
+static bool should_skip_entry(const char* name, bool show_hidden);
 
 static std::string remote_file_lock_key(const std::string& path) {
 	return std::string("remote:") + path;
@@ -363,7 +363,7 @@ static bool collect_recycle_directory_entries(const std::string& upload_dir,
 
 	struct dirent* entry = NULL;
 	while ((entry = readdir(dir)) != NULL) {
-		if (should_skip_entry(entry->d_name)) {
+		if (should_skip_entry(entry->d_name, false)) {
 			continue;
 		}
 		const std::string recycle_name(entry->d_name);
@@ -565,14 +565,23 @@ static void format_upload_time(time_t ts, char* buf, size_t size) {
 	}
 }
 
-static bool should_skip_entry(const char* name) {
+static bool request_bool_param(request_t& req, const char* name) {
+	const char* value = req.getParameter(name);
+	return value != NULL && (
+		strcmp(value, "1") == 0
+		|| strcasecmp(value, "true") == 0
+		|| strcasecmp(value, "yes") == 0
+		|| strcasecmp(value, "on") == 0);
+}
+
+static bool should_skip_entry(const char* name, bool show_hidden) {
 	if (name == NULL || *name == '\0') {
 		return true;
 	}
 	if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
 		return true;
 	}
-	if (name[0] == '.') {
+	if (!show_hidden && name[0] == '.') {
 		return true;
 	}
 	return false;
@@ -775,7 +784,7 @@ static bool parse_range_header(const char* range, long long size,
 
 static bool collect_files_recursive(const std::string& upload_dir,
 	const std::string& relative_dir, const std::string& folder_password,
-	std::vector<file_entry_t>& out, std::string& err)
+	std::vector<file_entry_t>& out, std::string& err, bool show_hidden)
 {
 	err.clear();
 	const std::string full_dir = join_upload_path(upload_dir, relative_dir);
@@ -787,7 +796,7 @@ static bool collect_files_recursive(const std::string& upload_dir,
 
 	struct dirent* entry = NULL;
 	while ((entry = readdir(dir)) != NULL) {
-		if (should_skip_entry(entry->d_name)) {
+		if (should_skip_entry(entry->d_name, show_hidden)) {
 			continue;
 		}
 		const std::string name(entry->d_name);
@@ -809,7 +818,7 @@ static bool collect_files_recursive(const std::string& upload_dir,
 			if (!lock_allowed) {
 				continue;
 			}
-			if (!collect_files_recursive(upload_dir, rel_path, folder_password, out, err)) {
+			if (!collect_files_recursive(upload_dir, rel_path, folder_password, out, err, show_hidden)) {
 				closedir(dir);
 				return false;
 			}
@@ -867,6 +876,7 @@ bool FilesAction::run(request_t& req, response_t& res,
 	const std::string folder_password = req.getParameter("folder_password")
 		? req.getParameter("folder_password")
 		: "";
+	const bool show_hidden = request_bool_param(req, "show_hidden");
 	bool lock_allowed = false;
 	std::string locked_path;
 	if (!folder_lock_path_allows(upload_dir, filter_folder, folder_password,
@@ -881,7 +891,7 @@ bool FilesAction::run(request_t& req, response_t& res,
 	}
 
 	std::vector<file_entry_t> entries;
-	if (!collect_files_recursive(upload_dir, filter_folder, folder_password, entries, err)) {
+	if (!collect_files_recursive(upload_dir, filter_folder, folder_password, entries, err, show_hidden)) {
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
 	}

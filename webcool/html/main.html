@@ -62,7 +62,13 @@
       <section class="panel section active" id="panel-files">
         <h1>虚拟磁盘</h1>
         <p class="sub">像资源管理器一样浏览多级文件夹，支持建删目录、预览、下载、删除和拖拽移动文件。</p>
-        <div id="file-view-context" class="file-view-context">当前视图：全部文件</div>
+        <div class="file-view-toolbar">
+          <div id="file-view-context" class="file-view-context">当前视图：全部文件</div>
+          <label class="local-hidden-toggle remote-hidden-toggle">
+            <input id="remote-disk-show-hidden" type="checkbox">
+            <span>显示隐藏项</span>
+          </label>
+        </div>
         <div class="explorer-shell">
           <aside class="folder-browser">
             <div class="folder-browser-head">

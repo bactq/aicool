@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -43,14 +44,23 @@ static void json_error(response_t& res, int status, const char* msg,
 	sendJson(res, status, root, keep_alive);
 }
 
-static bool should_skip_entry(const char* name) {
+static bool request_bool_param(request_t& req, const char* name) {
+	const char* value = req.getParameter(name);
+	return value != NULL && (
+		strcmp(value, "1") == 0
+		|| strcasecmp(value, "true") == 0
+		|| strcasecmp(value, "yes") == 0
+		|| strcasecmp(value, "on") == 0);
+}
+
+static bool should_skip_entry(const char* name, bool show_hidden) {
 	if (name == NULL || *name == '\0') {
 		return true;
 	}
 	if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
 		return true;
 	}
-	if (name[0] == '.') {
+	if (!show_hidden && name[0] == '.') {
 		return true;
 	}
 	return false;
@@ -214,7 +224,7 @@ static bool validate_folder_segment(const std::string& name, std::string& err) {
 
 static bool list_folder_tree(const std::string& upload_dir,
 	const std::string& relative_path, folder_node_t& node, std::string& err,
-	long long& folder_count)
+	long long& folder_count, bool show_hidden)
 {
 	err.clear();
 	node.direct_file_count = 0;
@@ -230,7 +240,7 @@ static bool list_folder_tree(const std::string& upload_dir,
 	std::vector<folder_node_t> children;
 	struct dirent* entry = NULL;
 	while ((entry = readdir(dir)) != NULL) {
-		if (should_skip_entry(entry->d_name)) {
+		if (should_skip_entry(entry->d_name, show_hidden)) {
 			continue;
 		}
 
@@ -249,7 +259,7 @@ static bool list_folder_tree(const std::string& upload_dir,
 			child.name = child_name;
 			child.path = child_rel;
 			folder_count++;
-			if (!list_folder_tree(upload_dir, child_rel, child, err, folder_count)) {
+			if (!list_folder_tree(upload_dir, child_rel, child, err, folder_count, show_hidden)) {
 				closedir(dir);
 				return false;
 			}
@@ -582,11 +592,12 @@ bool FolderListAction::run(request_t& req, response_t& res,
 	}
 
 	std::string err;
+	const bool show_hidden = request_bool_param(req, "show_hidden");
 	folder_node_t root_node;
 	root_node.name = "根目录";
 	root_node.path.clear();
 	long long folder_count = 0;
-	if (!list_folder_tree(upload_dir, std::string(), root_node, err, folder_count)) {
+	if (!list_folder_tree(upload_dir, std::string(), root_node, err, folder_count, show_hidden)) {
 		json_error(res, 500, err.c_str(), req.isKeepAlive());
 		return true;
 	}
