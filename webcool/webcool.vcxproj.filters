@@ -1,0 +1,93 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="源文件">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="头文件">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="资源文件">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="源文件\action">
+      <UniqueIdentifier>{2bbca7f2-fcd7-44f6-b667-9e1762c58cd9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="源文件\template">
+      <UniqueIdentifier>{da9a4bf6-59b4-44f4-a9e7-0caec0c50f8d}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="action\action_util.cpp">
+      <Filter>源文件\action</Filter>
+    </ClCompile>
+    <ClCompile Include="action\admin_actions.cpp">
+      <Filter>源文件\action</Filter>
+    </ClCompile>
+    <ClCompile Include="action\file_actions.cpp">
+      <Filter>源文件\action</Filter>
+    </ClCompile>
+    <ClCompile Include="action\file_lock_actions.cpp">
+      <Filter>源文件\action</Filter>
+    </ClCompile>
+    <ClCompile Include="action\folder_actions.cpp">
+      <Filter>源文件\action</Filter>
+    </ClCompile>
+    <ClCompile Include="action\image_actions.cpp">
+      <Filter>源文件\action</Filter>
+    </ClCompile>
+    <ClCompile Include="action\local_disk_actions.cpp">
+      <Filter>源文件\action</Filter>
+    </ClCompile>
+    <ClCompile Include="action\page_actions.cpp">
+      <Filter>源文件\action</Filter>
+    </ClCompile>
+    <ClCompile Include="action\tag_actions.cpp">
+      <Filter>源文件\action</Filter>
+    </ClCompile>
+    <ClCompile Include="action\upload_action.cpp">
+      <Filter>源文件\action</Filter>
+    </ClCompile>
+    <ClCompile Include="action\video_convert_action.cpp">
+      <Filter>源文件\action</Filter>
+    </ClCompile>
+    <ClCompile Include="action\video_probe_action.cpp">
+      <Filter>源文件\action</Filter>
+    </ClCompile>
+    <ClCompile Include="action\video_resume_action.cpp">
+      <Filter>源文件\action</Filter>
+    </ClCompile>
+    <ClCompile Include="http_servlet.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="template\html_renderer.cpp">
+      <Filter>源文件\template</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="http_servlet.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="stdafx.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="action\action_util.h">
+      <Filter>源文件\action</Filter>
+    </ClInclude>
+    <ClInclude Include="action\actions.h">
+      <Filter>源文件\action</Filter>
+    </ClInclude>
+    <ClInclude Include="platform_compat.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="template\html_renderer.h">
+      <Filter>源文件\template</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
