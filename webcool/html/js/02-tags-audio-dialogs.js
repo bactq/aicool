@@ -1,779 +1,40 @@
-        let html =
-          '<button type="button" class="tag-context-item" data-audio-tag-action="random" data-tag-id="' + escapeHtml(tagId) + '">' + AUDIO_PLAY_MODE_LABELS.random + '</button>' +
-          '<button type="button" class="tag-context-item" data-audio-tag-action="sequential" data-tag-id="' + escapeHtml(tagId) + '">' + AUDIO_PLAY_MODE_LABELS.sequential + '</button>' +
-          '<button type="button" class="tag-context-item" data-audio-tag-action="loop" data-tag-id="' + escapeHtml(tagId) + '">' + AUDIO_PLAY_MODE_LABELS.loop + '</button>';
-        if (lockInfo) {
-          html += '<hr class="tag-context-sep">';
-          if (lockInfo.locked) {
-            const unlocked = !!getTagPassword(tagId);
-            html += '<button type="button" class="folder-context-item" data-tag-lock-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + t(unlocked ? '加锁' : '解锁') + '</button>';
-            html += '<button type="button" class="folder-context-item" data-tag-lock-action="remove-lock">' + t('去锁') + '</button>';
-          } else {
-            html += '<button type="button" class="folder-context-item" data-tag-lock-action="lock">' + t('加锁') + '</button>';
-          }
-          menu.setAttribute('data-tag-lock-id', tagId);
-          activeFileContextMenu = menu;
-        }
-        menu.innerHTML = html;
-        menu.setAttribute('data-tag-id', tagId);
-        menu.setAttribute('data-tag-name', tagName || '');
-        menu.style.left = Math.round(clientX) + 'px';
-        menu.style.top = Math.round(clientY) + 'px';
-        document.body.appendChild(menu);
-        clampFloatingMenuPosition(menu, clientX, clientY);
-        activeAudioTagContextMenu = menu;
+function getLocalDirPassword(path) {
+        return unlockedFilePasswords.get(localDirLockKey(path)) || '';
       }
 
-      function openTagLockContextMenu(tagId, locked, clientX, clientY) {
-        closeFileContextMenu();
-        closeFolderContextMenu();
-        closeAudioTagContextMenu();
-
-        const id = String(tagId || '');
-        if (!id) {
-          return;
-        }
-
-        const menu = document.createElement('div');
-        menu.className = 'folder-context-menu file-context-menu';
-        menu.setAttribute('data-tag-lock-id', id);
-        let html = '';
-        if (locked) {
-          const unlocked = !!getTagPassword(id);
-          html += '<button type="button" class="folder-context-item" data-tag-lock-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + t(unlocked ? '加锁' : '解锁') + '</button>';
-          html += '<button type="button" class="folder-context-item" data-tag-lock-action="remove-lock">' + t('去锁') + '</button>';
-        } else {
-          html += '<button type="button" class="folder-context-item" data-tag-lock-action="lock">' + t('加锁') + '</button>';
-        }
-        menu.innerHTML = html;
-        document.body.appendChild(menu);
-        menu.style.left = Math.round(clientX) + 'px';
-        menu.style.top = Math.round(clientY) + 'px';
-        clampFloatingMenuPosition(menu, clientX, clientY);
-        activeFileContextMenu = menu;
-      }
-
-      function renderAudioPlaylistItems(container, files, activeFileName) {
-        if (!container) {
-          return;
-        }
-        container.innerHTML = files.map(function (file, index) {
-          const name = String((file && file.name) || getFilePath(file) || '');
-          const itemClass = getFilePath(file) === activeFileName ? 'audio-playlist-item active' : 'audio-playlist-item';
-          return '<button type="button" class="' + itemClass + '" data-playlist-index="' + index + '">' +
-            '<span class="audio-playlist-item-index">' + String(index + 1) + '</span>' +
-            '<span class="audio-playlist-item-name">' + escapeHtml(name) + '</span>' +
-          '</button>';
-        }).join('');
-      }
-
-      function renderAudioPlayModeButtons(activeMode) {
-        return ['random', 'sequential', 'loop'].map(function (modeKey) {
-          const activeClass = modeKey === activeMode ? 'audio-mode-btn active' : 'audio-mode-btn';
-          const label = AUDIO_PLAY_MODE_LABELS[modeKey] || t('播放方式');
-          const icon = AUDIO_PLAY_MODE_ICONS[modeKey] || '?';
-          return '<button type="button" class="' + activeClass + '" data-audio-mode="' + modeKey + '" title="' + escapeHtml(label) + '" aria-label="' + escapeHtml(label) + '">' +
-            '<span class="audio-mode-btn-icon">' + icon + '</span>' +
-          '</button>';
-        }).join('');
-      }
-
-      function openAudioPlaylistWindow(tagId, tagName, mode, files) {
-        const playlistKey = 'audio-playlist:' + String(tagId || '');
-        const existed = openedPreviewWindows.get(playlistKey);
-        if (existed && existed.isConnected) {
-          closePreviewWindow(existed, playlistKey);
-        }
-
-        const displayFiles = sortAudioFilesForPlaylist(files);
-        if (!displayFiles.length) {
-          throw new Error(t('该标签下没有可播放的音频文件'));
-        }
-
-        const win = document.createElement('div');
-        win.className = 'floating-preview audio-playlist-preview';
-        previewZ += 1;
-        win.style.zIndex = String(previewZ);
-
-        win.innerHTML =
-          '<div class="preview-head">' +
-            '<div class="preview-title">' + escapeHtml((AUDIO_PLAY_MODE_LABELS[mode] || t('音频播放')) + t('：') + (tagName || t('音频标签'))) + '</div>' +
-            '<div class="preview-head-actions">' +
-              '<button class="preview-window-btn" type="button" data-window-action="minimize" title="' + escapeHtml(t('最小化')) + '" aria-label="' + escapeHtml(t('最小化')) + '">−</button>' +
-              '<button class="preview-window-btn" type="button" data-window-action="maximize" title="' + escapeHtml(t('最大化')) + '" aria-label="' + escapeHtml(t('最大化')) + '">□</button>' +
-              '<button class="preview-close" type="button" title="关闭" aria-label="关闭">×</button>' +
-            '</div>' +
-          '</div>' +
-          '<div class="preview-body audio-playlist-body">' +
-            '<div class="audio-playlist-meta">' +
-              '<div class="audio-playlist-mode-group">' + renderAudioPlayModeButtons(mode) + '</div>' +
-              '<div class="audio-playlist-current-name"></div>' +
-            '</div>' +
-            '<audio class="preview-audio audio-playlist-player" controls preload="metadata"></audio>' +
-            '<div class="audio-playlist-panel">' +
-              '<div class="audio-playlist-panel-head">' +
-                '<div class="audio-playlist-summary">' + t('共 ') + '<span class="audio-playlist-count"></span>' + t(' 个音频文件') + '</div>' +
-                '<button type="button" class="audio-playlist-toggle-btn" title="' + escapeHtml(t('收起虚拟磁盘')) + '" aria-label="' + escapeHtml(t('收起虚拟磁盘')) + '">▾</button>' +
-              '</div>' +
-              '<div class="audio-playlist-items"></div>' +
-            '</div>' +
-          '</div>';
-
-        previewLayer.appendChild(win);
-        centerPreviewWindow(win);
-        openedPreviewWindows.set(playlistKey, win);
-
-        const audioEl = win.querySelector('.audio-playlist-player');
-        const currentNameEl = win.querySelector('.audio-playlist-current-name');
-        const countEl = win.querySelector('.audio-playlist-count');
-        const itemsEl = win.querySelector('.audio-playlist-items');
-        const closeBtn = win.querySelector('.preview-close');
-        const head = win.querySelector('.preview-head');
-        const minimizeBtn = win.querySelector('[data-window-action="minimize"]');
-        const maximizeBtn = win.querySelector('[data-window-action="maximize"]');
-        const modeGroupEl = win.querySelector('.audio-playlist-mode-group');
-        const playlistPanelEl = win.querySelector('.audio-playlist-panel');
-        const playlistToggleBtn = win.querySelector('.audio-playlist-toggle-btn');
-        let currentIndex = -1;
-        let currentFileName = '';
-        let currentMode = mode;
-        let randomQueue = [];
-        let isPlaylistCollapsed = false;
-
-        if (countEl) {
-          countEl.textContent = String(displayFiles.length);
-        }
-
-        function refillRandomQueue(excludeName) {
-          const excluded = String(excludeName || '');
-          randomQueue = shuffleList(displayFiles.filter(function (file) {
-            return getFilePath(file) !== excluded;
-          }));
-          if (!randomQueue.length && displayFiles.length === 1) {
-            randomQueue = displayFiles.slice();
-          }
-        }
-
-        function snapshotWindowRect() {
-          if (win.classList.contains('is-maximized')) {
-            return;
-          }
-          const rect = win.getBoundingClientRect();
-          win.dataset.restoreLeft = Math.round(rect.left) + 'px';
-          win.dataset.restoreTop = Math.round(rect.top) + 'px';
-          win.dataset.restoreWidth = Math.round(rect.width) + 'px';
-          win.dataset.restoreHeight = Math.round(rect.height) + 'px';
-        }
-
-        function restoreAudioWindowGeometry() {
-          win.classList.remove('is-minimized', 'is-maximized');
-          win.style.transform = 'none';
-          win.style.resize = 'both';
-          win.style.maxHeight = '90vh';
-          win.style.width = win.dataset.restoreWidth || '';
-          win.style.height = win.dataset.restoreHeight || '';
-          win.style.left = win.dataset.restoreLeft || '';
-          win.style.top = win.dataset.restoreTop || '';
-          if (!win.dataset.restoreLeft || !win.dataset.restoreTop) {
-            centerPreviewWindow(win);
-          } else {
-            clampWindowPosition(win);
-          }
-        }
-
-        function syncAudioWindowButtons() {
-          if (maximizeBtn) {
-            const restoreMode = win.classList.contains('is-minimized') || win.classList.contains('is-maximized');
-            maximizeBtn.textContent = restoreMode ? '❐' : '□';
-            maximizeBtn.title = restoreMode ? t('复原') : t('最大化');
-            maximizeBtn.setAttribute('aria-label', restoreMode ? t('复原') : t('最大化'));
-          }
-        }
-
-        function syncAudioModeUI() {
-          if (modeGroupEl) {
-            modeGroupEl.innerHTML = renderAudioPlayModeButtons(currentMode);
-          }
-        }
-
-        function syncAudioWindowTitle() {
-          const titleEl = win.querySelector('.preview-title');
-          if (titleEl) {
-            titleEl.textContent = (AUDIO_PLAY_MODE_LABELS[currentMode] || t('音频播放')) + t('：') + (tagName || t('音频标签'));
-          }
-        }
-
-        function syncPlaylistPanelUI() {
-          if (playlistPanelEl) {
-            playlistPanelEl.classList.toggle('is-collapsed', isPlaylistCollapsed);
-          }
-          if (playlistToggleBtn) {
-            playlistToggleBtn.textContent = isPlaylistCollapsed ? '▸' : '▾';
-            playlistToggleBtn.title = isPlaylistCollapsed ? t('展开虚拟磁盘') : t('收起虚拟磁盘');
-            playlistToggleBtn.setAttribute('aria-label', isPlaylistCollapsed ? t('展开虚拟磁盘') : t('收起虚拟磁盘'));
-          }
-        }
-
-        function togglePlaylistPanel() {
-          isPlaylistCollapsed = !isPlaylistCollapsed;
-          syncPlaylistPanelUI();
-        }
-
-        function setAudioPlayMode(nextMode) {
-          if (!AUDIO_PLAY_MODE_LABELS[nextMode] || currentMode === nextMode) {
-            return;
-          }
-          currentMode = nextMode;
-          if (currentMode === 'random') {
-            refillRandomQueue(currentFileName);
-          }
-          syncAudioModeUI();
-          syncAudioWindowTitle();
-        }
-
-        function minimizeAudioWindow() {
-          if (win.classList.contains('is-minimized')) {
-            return;
-          }
-          snapshotWindowRect();
-          win.classList.remove('is-maximized');
-          win.classList.add('is-minimized');
-          win.style.transform = 'none';
-          win.style.resize = 'none';
-          win.style.height = '';
-          win.style.maxHeight = '';
-          clampWindowPosition(win);
-          syncAudioWindowButtons();
-        }
-
-        function maximizeAudioWindow() {
-          if (win.classList.contains('is-minimized') || win.classList.contains('is-maximized')) {
-            restoreAudioWindowGeometry();
-            syncAudioWindowButtons();
-            return;
-          }
-          snapshotWindowRect();
-          win.classList.add('is-maximized');
-          win.classList.remove('is-minimized');
-          win.style.transform = 'none';
-          win.style.resize = 'none';
-          win.style.left = '22px';
-          win.style.top = '22px';
-          win.style.width = 'calc(100vw - 44px)';
-          win.style.height = 'calc(100vh - 44px)';
-          win.style.maxHeight = 'calc(100vh - 44px)';
-          syncAudioWindowButtons();
-        }
-
-        function updateCurrentTrack(index, fileName) {
-          currentIndex = index;
-          currentFileName = String(fileName || '');
-          if (currentNameEl) {
-            currentNameEl.textContent = currentFileName;
-          }
-          renderAudioPlaylistItems(itemsEl, displayFiles, currentFileName);
-          const activeBtn = itemsEl ? itemsEl.querySelector('.audio-playlist-item.active') : null;
-          if (activeBtn) {
-            activeBtn.scrollIntoView({ block: 'nearest' });
-          }
-        }
-
-        function playIndex(index, autoplay) {
-          const current = displayFiles[index];
-          if (!current || !audioEl) {
-            return;
-          }
-          const fileName = getFilePath(current);
-          updateCurrentTrack(index, fileName);
-          const isLocal = !!current.local;
-          audioEl.src = (isLocal ? localDiskDownloadUrl(fileName) : downloadUrlForFile(fileName, true)) + '&v=' + Date.now();
-          audioEl.load();
-          if (autoplay !== false) {
-            audioEl.play().catch(function () {});
-          }
-        }
-
-        function playFileByName(fileName, autoplay) {
-          const targetName = String(fileName || '');
-          const nextIndex = displayFiles.findIndex(function (file) {
-            return getFilePath(file) === targetName;
-          });
-          if (nextIndex >= 0) {
-            playIndex(nextIndex, autoplay);
-          }
-        }
-
-        function playNextRandomTrack() {
-          if (!displayFiles.length) {
-            return;
-          }
-          if (!randomQueue.length) {
-            refillRandomQueue(currentFileName);
-          }
-          const nextFile = randomQueue.shift();
-          if (!nextFile) {
-            return;
-          }
-          playFileByName(getFilePath(nextFile), true);
-        }
-
-        function moveNextTrack() {
-          if (!displayFiles.length) {
-            return;
-          }
-          if (currentMode === 'loop') {
-            playIndex((currentIndex + 1) % displayFiles.length, true);
-            return;
-          }
-          if (currentMode === 'random') {
-            if (displayFiles.length === 1) {
-              playIndex(0, true);
-              return;
-            }
-            playNextRandomTrack();
-            return;
-          }
-          if (currentIndex + 1 < displayFiles.length) {
-            playIndex(currentIndex + 1, true);
-          }
-        }
-
-        if (itemsEl) {
-          itemsEl.addEventListener('click', function (e) {
-            const itemBtn = e.target.closest('.audio-playlist-item[data-playlist-index]');
-            if (!itemBtn) {
-              return;
-            }
-            const nextIndex = Number(itemBtn.getAttribute('data-playlist-index') || '-1');
-            if (nextIndex >= 0) {
-              playIndex(nextIndex, true);
-              if (currentMode === 'random') {
-                refillRandomQueue(getFilePath(displayFiles[nextIndex] || {}));
-              }
-            }
-          });
-        }
-
-        if (modeGroupEl) {
-          modeGroupEl.addEventListener('click', function (e) {
-            const modeBtn = e.target.closest('.audio-mode-btn[data-audio-mode]');
-            if (!modeBtn) {
-              return;
-            }
-            const nextMode = modeBtn.getAttribute('data-audio-mode') || '';
-            setAudioPlayMode(nextMode);
-          });
-        }
-
-        if (playlistToggleBtn) {
-          playlistToggleBtn.addEventListener('click', function () {
-            togglePlaylistPanel();
-          });
-        }
-
-        if (audioEl) {
-          audioEl.addEventListener('ended', function () {
-            moveNextTrack();
-          });
-        }
-
-        if (minimizeBtn) {
-          minimizeBtn.addEventListener('click', function () {
-            minimizeAudioWindow();
-          });
-        }
-
-        if (maximizeBtn) {
-          maximizeBtn.addEventListener('click', function () {
-            maximizeAudioWindow();
-          });
-        }
-
-        closeBtn.addEventListener('click', function () {
-          closePreviewWindow(win, playlistKey);
+      async function moveFoldersToRecycle(folderPaths) {
+        const selected = normalizeFolderMoveSources(folderPaths).filter(function (path) {
+          return path && !isRecycleFolderPath(path);
         });
+        if (!selected.length) {
+          return { movedCount: 0, ignoredCount: Array.isArray(folderPaths) ? folderPaths.length : 0 };
+        }
 
-        win.addEventListener('mousedown', function () {
-          bringToFront(win);
+        const rawSelectedCount = Array.isArray(folderPaths) ? folderPaths.length : 0;
+        const ignoredCount = rawSelectedCount > selected.length ? (rawSelectedCount - selected.length) : 0;
+        const confirmed = await askConfirmDialog({
+          title: t('移入回收站'),
+          description: t('确认将选中的 ') + selected.length + t(' 个文件夹及其全部内容移入回收站？'),
+          confirmText: t('移入回收站'),
+          danger: true
         });
+        if (!confirmed) {
+          return { movedCount: 0, ignoredCount: ignoredCount, cancelled: true };
+        }
 
-        head.addEventListener('mousedown', function (e) {
-          if (e.target.closest('.preview-close') || e.target.closest('.preview-window-btn') || win.classList.contains('is-maximized')) {
-            return;
+        let movedCount = 0;
+        for (let i = 0; i < selected.length; i += 1) {
+          const sourcePath = selected[i];
+          await fetchJson(withFolderPassword(api.folderDelete + '?path=' + encodeURIComponent(sourcePath), sourcePath), { method: 'POST' });
+          if (isSameOrChildFolderPath(sourcePath, activeFolderPath)) {
+            activeFolderPath = RECYCLE_FOLDER_NAME;
           }
-          snapshotWindowRect();
-          const rect = win.getBoundingClientRect();
-          bringToFront(win);
-          activeDrag = {
-            win: win,
-            startX: e.clientX,
-            startY: e.clientY,
-            left: rect.left,
-            top: rect.top
-          };
-          win.style.transform = 'none';
-          e.preventDefault();
-        });
-
-        head.addEventListener('dblclick', function (e) {
-          if (e.target.closest('.preview-close') || e.target.closest('.preview-window-btn')) {
-            return;
-          }
-          e.preventDefault();
-          bringToFront(win);
-          maximizeAudioWindow();
-        });
-
-        syncAudioWindowButtons();
-
-        syncAudioModeUI();
-        syncAudioWindowTitle();
-        syncPlaylistPanelUI();
-
-        if (currentMode === 'random') {
-          refillRandomQueue('');
-          playNextRandomTrack();
-        } else {
-          playIndex(0, true);
-        }
-      }
-
-      async function startAudioPlaylistFromTag(tagId, tagName, mode) {
-        const files = await loadAudioFilesForTag(tagId);
-        if (!files.length) {
-          throw new Error(t('该标签下没有音频文件'));
-        }
-        openAudioPlaylistWindow(tagId, tagName, mode, files);
-      }
-
-      function showStatus(msg, type) {
-        statusBox.className = 'status show ' + (type || 'ok');
-        statusBox.textContent = msg;
-      }
-
-      function closeTagDialog(value) {
-        if (!tagDialog) {
-          return;
-        }
-        tagDialog.hidden = true;
-        document.body.style.overflow = '';
-        const resolver = activeTagDialogResolver;
-        activeTagDialogResolver = null;
-        if (resolver) {
-          resolver(value);
-        }
-      }
-
-      function askTagName(options) {
-        if (!tagDialog || !tagDialogTitle || !tagDialogDesc || !tagDialogInput) {
-          return Promise.resolve(null);
+          movedCount += 1;
         }
 
-        if (activeTagDialogResolver) {
-          closeTagDialog(null);
-        }
-
-        const opts = options || {};
-        tagDialogTitle.textContent = String(opts.title || t('新建标签'));
-        tagDialogDesc.textContent = String(opts.description || t('请输入标签名称。'));
-        if (tagDialogLabel) {
-          tagDialogLabel.textContent = String(opts.label || t('标签名称'));
-        }
-        tagDialogInput.value = String(opts.initialValue || '');
-        tagDialogInput.placeholder = String(opts.placeholder || t('请输入标签名称'));
-        tagDialog.hidden = false;
-        document.body.style.overflow = 'hidden';
-
-        requestAnimationFrame(function () {
-          tagDialogInput.focus();
-          tagDialogInput.select();
-        });
-
-        return new Promise(function (resolve) {
-          activeTagDialogResolver = resolve;
-        });
-      }
-
-      function setLockDialogError(message) {
-        if (!lockDialogError) {
-          return;
-        }
-        const text = String(message || '');
-        lockDialogError.textContent = text;
-        lockDialogError.hidden = !text;
-      }
-
-      function closeLockDialog(value) {
-        if (!lockDialog) {
-          return;
-        }
-        lockDialog.hidden = true;
-        document.body.style.overflow = '';
-        setLockDialogError('');
-        const state = activeLockDialogState;
-        activeLockDialogState = null;
-        if (state && state.resolve) {
-          state.resolve(value);
-        }
-      }
-
-      function askLockPassword(options) {
-        if (!lockDialog || !lockDialogTitle || !lockDialogDesc || !lockDialogInput) {
-          return Promise.resolve(null);
-        }
-        if (activeLockDialogState) {
-          closeLockDialog(null);
-        }
-
-        const opts = options || {};
-        lockDialogTitle.textContent = String(opts.title || t('解锁目录'));
-        lockDialogDesc.textContent = String(opts.description || t('请输入目录锁密码。'));
-        lockDialogInput.value = '';
-        lockDialogInput.placeholder = String(opts.placeholder || t('请输入锁密码'));
-        setLockDialogError('');
-        lockDialog.hidden = false;
-        document.body.style.overflow = 'hidden';
-
-        requestAnimationFrame(function () {
-          lockDialogInput.focus();
-          lockDialogInput.select();
-        });
-
-        return new Promise(function (resolve) {
-          activeLockDialogState = {
-            resolve: resolve,
-            onSubmit: typeof opts.onSubmit === 'function' ? opts.onSubmit : null,
-            errorMessage: String(opts.errorMessage || t('密码错误或验证失败，请重新输入。')),
-            statusErrorMessage: String(opts.statusErrorMessage || t('解锁失败：密码错误或验证失败'))
-          };
-        });
-      }
-
-      function closeConfirmDialog(value) {
-        if (!confirmDialog) {
-          return;
-        }
-        confirmDialog.hidden = true;
-        document.body.style.overflow = '';
-        const resolver = activeConfirmDialogResolver;
-        activeConfirmDialogResolver = null;
-        if (resolver) {
-          resolver(value);
-        }
-      }
-
-      function askConfirmDialog(options) {
-        if (!confirmDialog || !confirmDialogTitle || !confirmDialogDesc) {
-          return Promise.resolve(false);
-        }
-        if (activeConfirmDialogResolver) {
-          closeConfirmDialog(false);
-        }
-        const opts = options || {};
-        confirmDialog.classList.toggle('wide-confirm-dialog', !!opts.wide);
-        confirmDialogTitle.textContent = String(opts.title || t('确认操作'));
-        confirmDialogDesc.textContent = String(opts.description || t('请确认是否继续。'));
-        if (confirmDialogCancelBtn) {
-          confirmDialogCancelBtn.textContent = String(opts.cancelText || t('取消'));
-        }
-        if (confirmDialogExtraBtn) {
-          const hasExtra = opts.extraText != null && String(opts.extraText) !== '';
-          confirmDialogExtraBtn.hidden = !hasExtra;
-          confirmDialogExtraBtn.textContent = hasExtra ? String(opts.extraText) : '';
-          confirmDialogExtraBtn.setAttribute('data-confirm-extra-value', String(opts.extraValue == null ? 'extra' : opts.extraValue));
-        }
-        const extraButtons = Array.isArray(opts.extraButtons) ? opts.extraButtons : [];
-        [confirmDialogExtra2Btn, confirmDialogExtra3Btn].forEach(function (btn, idx) {
-          if (!btn) { return; }
-          const item = extraButtons[idx];
-          const visible = item && item.text != null && String(item.text) !== '';
-          btn.hidden = !visible;
-          btn.textContent = visible ? String(item.text) : '';
-          btn.setAttribute('data-confirm-extra-value', visible ? String(item.value == null ? ('extra' + (idx + 2)) : item.value) : '');
-        });
-        if (confirmDialogConfirmBtn) {
-          confirmDialogConfirmBtn.textContent = String(opts.confirmText || t('确认'));
-          confirmDialogConfirmBtn.classList.toggle('danger', opts.danger !== false);
-        }
-        confirmDialog.hidden = false;
-        document.body.style.overflow = 'hidden';
-        requestAnimationFrame(function () {
-          if (confirmDialogConfirmBtn) {
-            confirmDialogConfirmBtn.focus();
-          }
-        });
-        return new Promise(function (resolve) {
-          activeConfirmDialogResolver = resolve;
-        });
-      }
-
-      function makeTagId() {
-        return 'tag_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
-      }
-
-      function loadLegacyTagTreeState() {
-        try {
-          const raw = localStorage.getItem(TAG_TREE_STORAGE_KEY);
-          if (!raw) {
-            return [];
-          }
-
-          const parsed = JSON.parse(raw);
-          if (!Array.isArray(parsed)) {
-            return [];
-          }
-
-          const normalized = [];
-          for (let i = 0; i < parsed.length; i += 1) {
-            const node = normalizeTagNode(parsed[i], 1);
-            if (node) {
-              normalized.push(node);
-            }
-          }
-          return normalized;
-        } catch (_) {
-          return [];
-        }
-      }
-
-      function normalizeTagNode(node, level) {
-        if (!node || level > TAG_MAX_LEVEL) {
-          return null;
-        }
-
-        const name = String(node.name || '').trim();
-        if (!name) {
-          return null;
-        }
-
-        const files = Array.isArray(node.files)
-          ? node.files.map(function (it) { return String(it || ''); }).filter(Boolean)
-          : [];
-
-        const childrenInput = Array.isArray(node.children) ? node.children : [];
-        const children = [];
-        for (let i = 0; i < childrenInput.length; i += 1) {
-          const normalized = normalizeTagNode(childrenInput[i], level + 1);
-          if (normalized) {
-            children.push(normalized);
-          }
-        }
-
-        return {
-          id: String(node.id || makeTagId()),
-          name: name.slice(0, 60),
-          files: Array.from(new Set(files)),
-          locked: !!node.locked,
-          children: children
-        };
-      }
-
-      async function loadTagTreeState() {
-        try {
-          const data = await fetchJson(api.tags);
-          const parsed = Array.isArray(data.tags) ? data.tags : [];
-          let source = parsed;
-
-          if (!source.length) {
-            const legacyNodes = loadLegacyTagTreeState();
-            if (legacyNodes.length) {
-              await migrateLegacyTagTree(legacyNodes);
-              const refreshed = await fetchJson(api.tags);
-              source = Array.isArray(refreshed.tags) ? refreshed.tags : [];
-            }
-          }
-
-          const normalized = [];
-          for (let i = 0; i < source.length; i += 1) {
-            const node = normalizeTagNode(source[i], 1);
-            if (node) {
-              normalized.push(node);
-            }
-          }
-          tagTree = normalized;
-        } catch (_) {
-          tagTree = [];
-        }
-      }
-
-      function saveTagTreeState() {
-      }
-
-      function hasTagChildren(node) {
-        return !!(node && Array.isArray(node.children) && node.children.length > 0);
-      }
-
-      function getTagNodeToggleSymbol(node, level) {
-        if (level >= TAG_MAX_LEVEL) {
-          return '';
-        }
-        if (!hasTagChildren(node)) {
-          return '+';
-        }
-        return expandedTagNodeIds.has(node.id) ? 'v' : '>';
-      }
-
-      function buildTagNodeHtml(node, level) {
-        const safeLevel = Math.max(1, Math.min(TAG_MAX_LEVEL, level || 1));
-        const indent = (safeLevel - 1) * 5;
-        const canExpand = safeLevel < TAG_MAX_LEVEL;
-        const hasChildren = hasTagChildren(node);
-        const expanded = expandedTagNodeIds.has(node.id);
-        const toggleSymbol = getTagNodeToggleSymbol(node, safeLevel);
-        const restrictedRootType = getRestrictedRootTagType(node, safeLevel);
-        const restrictedBadgeHtml = restrictedRootType
-          ? '<span class="tag-limit-badge ' + restrictedRootType + '">' + (restrictedRootType === 'video' ? t('仅视频') : (restrictedRootType === 'audio' ? t('仅音频') : t('仅图片'))) + '</span>'
-          : '';
-
-        let childHtml = '';
-        if (canExpand && hasChildren && expanded) {
-          childHtml = (Array.isArray(node.children) ? node.children : []).map(function (child) {
-            return buildTagNodeHtml(child, safeLevel + 1);
-          }).join('');
-        }
-
-        const nameInlineStyle = 'cursor:pointer;';
-        const toggleBtn = hasChildren
-          ? '<button type="button" class="tag-node-toggle" data-tag-id="' + node.id + '">' + toggleSymbol + '</button>'
-          : '<span class="tag-node-toggle placeholder"></span>';
-
-        const nodeClass = activeFilterTagId === node.id ? 'tag-node active' : 'tag-node';
-        const canDeleteTag = !isProtectedRestrictedRootTag(node, safeLevel);
-        const canLockTag = canDeleteTag;
-        const isRenaming = activeTagRenameId === node.id && canRenameTagNode(node, safeLevel);
-        const tagNameHtml = isRenaming
-          ? '<input class="tag-rename-input" data-tag-rename-input="' + escapeHtml(node.id) + '" value="' + escapeHtml(node.name) + '" maxlength="60">'
-          : '<span class="tag-node-name" data-tag-id="' + node.id + '">' + escapeHtml(node.name) + '</span>';
-        const tagUnlocked = !!getTagPassword(node.id);
-        const tagLockHtml = (canLockTag && node.locked)
-          ? '<span class="folder-lock-icon file-lock-inline tag-lock-inline' + (tagUnlocked ? ' unlocked' : '') + '" data-tag-lock-toggle="' + escapeHtml(node.id) + '" title="' + escapeHtml(t(tagUnlocked ? '点击重新加锁' : '点击解锁')) + '" aria-label="' + escapeHtml(t(tagUnlocked ? '点击重新加锁' : '点击解锁')) + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
-          : '';
-        const actionHtml =
-          '<div class="tag-actions">' +
-            (canExpand
-              ? '<button type="button" class="tag-inline-btn" data-tag-create="' + node.id + '" data-tag-level="' + safeLevel + '" title="' + escapeHtml(t('新增子标签')) + '">+</button>'
-              : '') +
-            (canDeleteTag
-              ? '<button type="button" class="tag-inline-btn danger" data-tag-delete="' + node.id + '" title="' + escapeHtml(t('删除标签')) + '">-</button>'
-              : '') +
-          '</div>';
-
-        return (
-          '<div class="' + nodeClass + '" data-tag-id="' + node.id + '" data-tag-locked="' + (node.locked ? '1' : '0') + '" data-tag-lockable="' + (canLockTag ? '1' : '0') + '">' +
-            '<div class="tag-line">' +
-              '<div class="tag-line-main" style="padding-left:' + indent + 'px;">' +
-                toggleBtn +
-                '<span class="tag-node-name-wrap" style="' + nameInlineStyle + '">' +
-                  tagNameHtml +
-                  restrictedBadgeHtml +
-                  tagLockHtml +
-                '</span>' +
-              '</div>' +
-              actionHtml +
-            '</div>' +
-            childHtml +
-          '</div>'
-        );
+        ensureFolderPathExpanded(RECYCLE_FOLDER_NAME);
+        await loadFiles();
+        return { movedCount: movedCount, ignoredCount: ignoredCount };
       }
 
       function updateFilesTagToggleButton() {
@@ -784,118 +45,129 @@
         filesTagToggleBtn.setAttribute('title', t('新增一级标签'));
       }
 
-      function renderTagTree() {
-        if (!tagManager) {
+      function setTranscodeReason(encodedName, text) {
+        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
+        if (!item) {
           return;
         }
-
-        updateFilesTagToggleButton();
-        if (!tagTree.length) {
-          tagManager.classList.remove('open');
-          tagManager.innerHTML = '';
-          return;
+        const reason = item.querySelector('.transcode-item-reason');
+        if (reason) {
+          reason.textContent = text || '';
         }
-
-        const treeHtml = '<div class="tag-tree">' + tagTree.map(function (node) {
-          return buildTagNodeHtml(node, 1);
-        }).join('') + '</div>';
-
-        tagManager.classList.add('open');
-        tagManager.innerHTML = treeHtml;
-        focusActiveTagRenameInput();
       }
 
-      function canBindFilesToTagOnClient(tagId, fileNames) {
-        const names = Array.isArray(fileNames) ? fileNames : [];
-        for (let i = 0; i < names.length; i += 1) {
-          const check = canBindFileToTagOnClient(tagId, names[i]);
-          if (!check.ok) {
-            return check;
+      function finishLocalImportProgress(text) {
+        setLocalImportProgress(100, text || t('上传完成 100%'));
+        if (localImportProgressClose) {
+          localImportProgressClose.hidden = false;
+        }
+        if (localImportProgressCancel) {
+          localImportProgressCancel.hidden = true;
+        }
+      }
+
+      function bindSplitVideoAudio(videoEl, audioEl) {
+        if (!videoEl || !audioEl) {
+          return;
+        }
+
+        function syncVolumeAndRate() {
+          audioEl.muted = !!videoEl.muted;
+          audioEl.volume = Math.max(0, Math.min(1, Number(videoEl.volume || 0)));
+          audioEl.playbackRate = Number(videoEl.playbackRate || 1) || 1;
+        }
+
+        function syncCurrentTime(force) {
+          const videoTime = Math.max(0, Number(videoEl.currentTime || 0));
+          const audioTime = Math.max(0, Number(audioEl.currentTime || 0));
+          if (force || Math.abs(videoTime - audioTime) > 0.35) {
+            try {
+              audioEl.currentTime = videoTime;
+            } catch (_) {}
           }
         }
-        return { ok: true, message: '' };
-      }
 
-      function buildQuickTagTreeHtml(nodes, fileNames, level) {
-        const list = Array.isArray(nodes) ? nodes : [];
-        const names = Array.isArray(fileNames) ? fileNames : [];
-        const safeLevel = Math.max(1, Math.min(TAG_MAX_LEVEL, level || 1));
-        return list.map(function (node) {
-          const tagId = String((node && node.id) || '');
-          const name = String((node && node.name) || '');
-          const check = canBindFilesToTagOnClient(tagId, names);
-          const children = Array.isArray(node && node.children) ? node.children : [];
-          const childHtml = children.length
-            ? '<div class="quick-tag-children">' + buildQuickTagTreeHtml(children, names, safeLevel + 1) + '</div>'
-            : '';
-          return (
-            '<div class="quick-tag-node">' +
-              '<button type="button" class="quick-tag-item' + (check.ok ? '' : ' disabled') + '" data-quick-tag-id="' + escapeHtml(tagId) + '"' + (check.ok ? '' : ' disabled title="' + escapeHtml(check.message) + '"') + ' style="padding-left:' + (8 + ((safeLevel - 1) * 14)) + 'px;">' +
-                '<span class="quick-tag-mark">#</span>' +
-                '<span class="quick-tag-name">' + escapeHtml(name) + '</span>' +
-              '</button>' +
-              childHtml +
-            '</div>'
-          );
-        }).join('');
-      }
-
-      async function openFileTagMenu(button, fileName) {
-        return openFilesTagMenu(button, [fileName], {});
-      }
-
-      async function openFilesTagMenu(button, fileNames, options) {
-        closeFileTagMenu();
-        const opts = options || {};
-        const targetFiles = (Array.isArray(fileNames) ? fileNames : [])
-          .map(function (name) { return String(name || ''); })
-          .filter(Boolean);
-        if (!button || !targetFiles.length) {
-          return;
-        }
-        if (!tagTree.length) {
-          await loadTagTreeState();
-        }
-        const menu = document.createElement('div');
-        menu.className = 'quick-tag-menu';
-        menu.setAttribute('data-quick-tag-files', targetFiles.join('\n'));
-        menu.setAttribute('data-quick-tag-local', opts.local ? '1' : '0');
-        menu.innerHTML = tagTree.length
-          ? '<div class="quick-tag-title">' + (targetFiles.length > 1 ? (t('给 ') + targetFiles.length + t(' 个文件加入标签')) : t('加入标签')) + '</div>' + buildQuickTagTreeHtml(tagTree, targetFiles, 1)
-          : '<div class="quick-tag-empty">' + t('当前没有标签') + '</div>';
-        document.body.appendChild(menu);
-        const rect = button.getBoundingClientRect();
-        menu.style.left = Math.round(rect.left) + 'px';
-        menu.style.top = Math.round(rect.bottom + 6) + 'px';
-        clampFloatingMenuPosition(menu, rect.left, rect.bottom + 6);
-        activeFileTagMenu = menu;
-      }
-
-      function focusActiveTagRenameInput() {
-        if (!tagManager || !activeTagRenameId) {
-          return;
-        }
-        setTimeout(function () {
-          if (!tagManager || !activeTagRenameId) {
-            return;
+        syncVolumeAndRate();
+        videoEl.addEventListener('volumechange', syncVolumeAndRate);
+        videoEl.addEventListener('ratechange', syncVolumeAndRate);
+        videoEl.addEventListener('loadedmetadata', function () {
+          syncCurrentTime(true);
+        });
+        videoEl.addEventListener('play', function () {
+          syncVolumeAndRate();
+          syncCurrentTime(true);
+          audioEl.play().catch(function () {});
+        });
+        videoEl.addEventListener('pause', function () {
+          audioEl.pause();
+        });
+        videoEl.addEventListener('seeking', function () {
+          syncCurrentTime(true);
+        });
+        videoEl.addEventListener('timeupdate', function () {
+          if (!audioEl.paused) {
+            syncCurrentTime(false);
           }
-          const input = tagManager.querySelector('.tag-rename-input[data-tag-rename-input]');
-          if (!input) {
-            return;
-          }
-          input.focus();
-          input.select();
-        }, 0);
+        });
+        videoEl.addEventListener('ended', function () {
+          audioEl.pause();
+          syncCurrentTime(true);
+        });
       }
 
-      function startTagRename(tagId) {
-        const id = String(tagId || '');
-        const meta = findTagMetaById(id);
-        if (!meta || !canRenameTagNode(meta.node, meta.level)) {
+      function removeSelectedLocalDiskFiles() {
+        const paths = getSelectedLocalDiskFilePaths();
+        if (!paths.length) {
           return;
         }
-        activeTagRenameId = id;
-        renderTagTree();
+        if (!confirm('确认将选中的 ' + paths.length + ' 个本地文件移至回收站？')) {
+          return;
+        }
+        [localDiskBulkRemoveBtn, localDiskTableBulkRemoveBtn].forEach(function (btn) {
+          if (btn) {
+            btn.disabled = true;
+          }
+        });
+        return Promise.all(paths.map(function (path) {
+          return fetchJson(appendLocalDirPassword(appendFilePassword(api.localDiskDelete + '?path=' + encodeURIComponent(path), path, true), localDiskParentPath(path)), { method: 'POST' });
+        })).then(function () {
+          showStatus('已移除 ' + paths.length + ' 个本地文件到回收站', 'warn');
+          clearLocalDiskSelection();
+          loadLocalDisk(activeLocalDiskPath || '');
+        }).catch(function (err) {
+          showStatus('批量移除失败：' + err.message, 'err');
+          loadLocalDisk(activeLocalDiskPath || '');
+        });
+      }
+
+      function renderAdminStoragePicker() {
+        if (!adminStoragePickerTree || !adminStoragePickerEmpty) {
+          return;
+        }
+        if (!adminStoragePickerRootPath) {
+          adminStoragePickerTree.innerHTML = '';
+          adminStoragePickerEmpty.style.display = 'block';
+          return;
+        }
+        adminStoragePickerTree.innerHTML = renderAdminStoragePickerNode(adminStoragePickerRootPath, 0, null);
+        adminStoragePickerEmpty.style.display = 'none';
+        if (adminStoragePickerPath) {
+          adminStoragePickerPath.innerHTML = '当前选择：<span class="admin-storage-picker-current">'
+            + escapeHtml(adminStoragePickerSelectedPath || adminStoragePickerRootPath)
+            + '</span>';
+        }
+      }
+
+      function appendTagPassword(url, tagId) {
+        const password = getTagPassword(tagId);
+        if (!password) {
+          return url;
+        }
+        return url + '&tag_password=' + encodeURIComponent(password);
+      }
+
+      function isLocalDiskConvertibleVideoName(name) {
+        return /\.(rm|rmvb|avi)$/i.test(String(name || ''));
       }
 
       function cancelTagRename() {
@@ -904,6 +176,70 @@
         }
         activeTagRenameId = '';
         renderTagTree();
+      }
+
+      function hideUploadProgress() {
+        uploadProgress.style.display = 'none';
+        uploadProgressFill.style.width = '0%';
+        uploadProgressText.textContent = t('准备上传...');
+      }
+
+      function pollLocalDiskCopyTask(taskId, targetPath, copiedPath) {
+        return pollCopyTask(taskId, {
+          mode: 'local-copy',
+          copiedPath: copiedPath,
+          onDone: async function () {
+            localDiskTreeCache.delete(targetPath);
+            await loadLocalDisk(targetPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, targetPath) });
+          }
+        });
+      }
+
+      function updatePreviewImageSizeLabel(win, width, height) {
+        if (!win) {
+          return;
+        }
+        const widthInput = win ? win.querySelector('.preview-size-input[data-image-size="width"]') : null;
+        const heightInput = win ? win.querySelector('.preview-size-input[data-image-size="height"]') : null;
+        const img = win.querySelector('.preview-image');
+        const w = Math.max(0, Math.round(Number(width || (img && img.naturalWidth) || 0)));
+        const h = Math.max(0, Math.round(Number(height || (img && img.naturalHeight) || 0)));
+        if (widthInput) {
+          widthInput.value = w ? String(w) : '';
+        }
+        if (heightInput) {
+          heightInput.value = h ? String(h) : '';
+        }
+      }
+
+      function localDiskPathContains(base, path) {
+        const left = String(base || '/');
+        const right = String(path || '/');
+        return left === '/'
+          ? right.charAt(0) === '/'
+          : (right === left || right.indexOf(left + '/') === 0);
+      }
+
+      async function saveVideoResumePosition(fileName, positionMs) {
+        const safeMs = Math.max(0, Math.round(Number(positionMs) || 0));
+        await fetchJson(
+          api.videoResumeSave
+            + '?file=' + encodeURIComponent(fileName || '')
+            + '&position_ms=' + encodeURIComponent(String(safeMs)),
+          { method: 'POST' }
+        );
+      }
+
+      function appendLocalDirPassword(url, path, paramName) {
+        const password = getLocalDirPasswordForPath(path);
+        if (!password) {
+          return url;
+        }
+        return url + '&' + encodeURIComponent(paramName || 'local_dir_password') + '=' + encodeURIComponent(password);
+      }
+
+      function isAudioName(name) {
+        return /\.(mp3|m4a|aac|wav|ogg|flac)$/i.test(String(name || ''));
       }
 
       async function submitTagRename(input) {
@@ -961,95 +297,111 @@
         }
       }
 
-      function setDropHighlight(nodeEl) {
-        if (activeDropTagNode && activeDropTagNode !== nodeEl) {
-          activeDropTagNode.classList.remove('drop-target');
-        }
-        activeDropTagNode = nodeEl || null;
-        if (activeDropTagNode) {
-          activeDropTagNode.classList.add('drop-target');
-        }
+      function safeTime(file) {
+        const n = Number(file.uploaded_at || 0);
+        return Number.isFinite(n) ? n : 0;
       }
 
-      function clearDropHighlight() {
-        if (!activeDropTagNode) {
+      function pollLocalImportProgress(taskId) {
+        return new Promise(function (resolve, reject) {
+          if (!taskId) {
+            reject(new Error(t('缺少上传任务编号')));
+            return;
+          }
+          const timer = setInterval(function () {
+            fetchJson(api.localDiskImportProgress + '?task_id=' + encodeURIComponent(taskId))
+              .then(function (data) {
+                const progress = Math.max(0, Math.min(100, Number(data.progress || 0)));
+                const state = String(data.state || '');
+                setLocalImportProgress(progress, (data.message || t('上传中')) + ' ' + Math.round(progress) + '%');
+                renderLocalImportProgressFiles(data.files);
+                if (state === 'done') {
+                  clearInterval(timer);
+                  finishLocalImportProgress(t('上传完成 100%'));
+                  resolve(data);
+                } else if (state === 'failed') {
+                  clearInterval(timer);
+                  reject(new Error(data.error || t('上传失败')));
+                }
+              })
+              .catch(function (err) {
+                clearInterval(timer);
+                reject(err);
+              });
+          }, 400);
+        });
+      }
+
+      function resetImageEditState(win) {
+        if (!win) {
           return;
         }
-        activeDropTagNode.classList.remove('drop-target');
-        activeDropTagNode = null;
+        win.__imageDirty = false;
+        win.__imageCropMode = false;
+        win.__imageCropRect = null;
+        win.__imageBaseCanvas = null;
+        win.__imageScale = 1;
+        win.__imageCurrentWidth = 0;
+        win.__imageCurrentHeight = 0;
+        const shell = win.querySelector('.preview-image-shell');
+        const cropRect = win.querySelector('.preview-crop-rect');
+        if (shell) {
+          shell.classList.remove('crop-mode');
+        }
+        if (cropRect) {
+          cropRect.hidden = true;
+          cropRect.removeAttribute('style');
+        }
+        setImageEditHint(win, '');
+        updatePreviewImageSizeLabel(win);
       }
 
-      function walkTagNodes(list, visitor, level, parent, parentList) {
-        const nodes = Array.isArray(list) ? list : [];
-        for (let i = 0; i < nodes.length; i += 1) {
-          const node = nodes[i];
-          const stop = visitor(node, level, parent, parentList, i);
-          if (stop) {
-            return true;
-          }
-          if (walkTagNodes(node.children, visitor, level + 1, node, node.children)) {
-            return true;
-          }
+      function localDiskParentPath(path) {
+        const text = String(path || '/').replace(/\/+$/, '') || '/';
+        if (text === '/') {
+          return '/';
         }
-        return false;
+        const pos = text.lastIndexOf('/');
+        return pos <= 0 ? '/' : text.slice(0, pos);
       }
 
-      function findTagMetaById(tagId) {
-        let found = null;
-        walkTagNodes(tagTree, function (node, level, parent, parentList, index) {
-          if (node.id === tagId) {
-            found = {
-              node: node,
-              level: level,
-              parent: parent,
-              parentList: parentList,
-              index: index
-            };
-            return true;
-          }
-          return false;
-        }, 1, null, tagTree);
-        return found;
+      function scheduleSaveVideoResumePosition(fileName, positionMs) {
+        const key = String(fileName || '');
+        if (!key) {
+          return;
+        }
+
+        const existed = videoResumeSaveTimers.get(key);
+        if (existed) {
+          existed.positionMs = positionMs;
+          return;
+        }
+
+        const state = {
+          positionMs: positionMs,
+          timer: setTimeout(function () {
+            const latest = videoResumeSaveTimers.get(key);
+            if (!latest) {
+              return;
+            }
+            clearTimeout(latest.timer);
+            videoResumeSaveTimers.delete(key);
+            saveVideoResumePosition(key, latest.positionMs).catch(function () {});
+          }, 800)
+        };
+        videoResumeSaveTimers.set(key, state);
       }
 
-      function getTagRootMeta(tagId) {
-        let meta = findTagMetaById(tagId);
-        if (!meta) {
-          return null;
+      function folderPathExists(path) {
+        const text = String(path || '');
+        if (!text) {
+          return true;
         }
-        while (meta.parent) {
-          meta = findTagMetaById(meta.parent.id);
-          if (!meta) {
-            return null;
-          }
-        }
-        return meta;
+        return collectFolderPaths(folderTreeData, []).includes(text);
       }
 
-      function getTagFileTypeConstraint(tagId) {
-        const rootMeta = getTagRootMeta(tagId);
-        if (!rootMeta || !rootMeta.node) {
-          return '';
-        }
-        const rootName = String(rootMeta.node.name || '').trim();
-        if (rootName === '视频') {
-          return 'video';
-        }
-        if (rootName === '音频') {
-          return 'audio';
-        }
-        if (rootName === '图片') {
-          return 'image';
-        }
-        return '';
-      }
-
-      function getTagRootName(tagId) {
-        const rootMeta = getTagRootMeta(tagId);
-        if (!rootMeta || !rootMeta.node) {
-          return '';
-        }
-        return String(rootMeta.node.name || '').trim();
+      function escapeRegExp(text) {
+        return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       }
 
       function getRestrictedRootTagType(node, level) {
@@ -1059,60 +411,100 @@
         return getTagFileTypeConstraint(node.id);
       }
 
-      function isActiveTagImageType() {
-        return !!(activeFilterTagId && getTagFileTypeConstraint(activeFilterTagId) === 'image');
+      function scrollFolderPathIntoView(path) {
+        const node = findFolderTreeNodeElement(path);
+        if (!node || typeof node.scrollIntoView !== 'function') {
+          return;
+        }
+        node.scrollIntoView({ block: 'nearest' });
       }
 
-      function isTagPreviewEnabled(tagId) {
-        const id = String(tagId || '');
-        if (!id) {
-          return false;
-        }
-        const meta = findTagMetaById(id);
-        if (!meta || !meta.node) {
-          return false;
-        }
-        const rootName = getTagRootName(id);
-        // 规则：图片标签(含子标签)可预览；标牌仅其子标签可预览（不含标牌根）。
-        if (rootName === '图片') {
-          return true;
-        }
-        if (rootName === '标牌' && Number(meta.level || 1) > 1) {
-          return true;
-        }
-        return false;
+      function getSelectedVisibleFileNames() {
+        const names = [];
+        (Array.isArray(currentFiles) ? currentFiles : []).forEach(function (file) {
+          const name = getFilePath(file);
+          if (name && selectedFileNames.has(name)) {
+            names.push(name);
+          }
+        });
+        return names;
       }
 
-      function isActiveTagPreviewEnabled() {
-        return isTagPreviewEnabled(activeFilterTagId);
-      }
-
-      function isProtectedRestrictedRootTag(node, level) {
-        return !!getRestrictedRootTagType(node, level);
-      }
-
-      function canRenameTagNode(node, level) {
-        return !!(node && node.id) && !isProtectedRestrictedRootTag(node, level);
-      }
-
-      function canLockTagNode(node, level) {
-        return !!(node && node.id) && !isProtectedRestrictedRootTag(node, level);
-      }
-
-      async function ensureTagUnlocked(tagId) {
-        const id = String(tagId || '');
-        if (!id) {
-          return false;
+      function renderPreviewImageFromBase(win, width, height, message) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) {
+          setImageEditHint(win, '图片还没有加载完成，请稍后再试。', true);
+          return;
         }
-        const meta = findTagMetaById(id);
-        if (!meta || !meta.node) {
-          showStatus(t('标签不存在，可能已被删除'), 'err');
-          return false;
+        const base = previewBaseCanvas(win);
+        if (!base) {
+          setImageEditHint(win, '图片还没有加载完成，请稍后再试。', true);
+          return;
         }
-        if (!meta.node.locked || getTagPassword(id)) {
-          return true;
+        const nextWidth = Math.max(1, Math.round(Number(width || 0)));
+        const nextHeight = Math.max(1, Math.round(Number(height || 0)));
+        if (nextWidth > 12000 || nextHeight > 12000) {
+          setImageEditHint(win, '图片尺寸过大，无法调整。', true);
+          return;
         }
-        return await handleTagLockAction('session-unlock', id, { silentSuccess: true });
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = nextWidth;
+          canvas.height = nextHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(base, 0, 0, nextWidth, nextHeight);
+          replacePreviewImageWithCanvas(win, canvas, { updateBase: false });
+          setImageEditHint(win, message || ('已调整至 ' + nextWidth + ' x ' + nextHeight + '。'));
+        } catch (err) {
+          setImageEditHint(win, '调整尺寸失败：' + err.message, true);
+        }
+      }
+
+      function compareLocalDiskItems(a, b) {
+        const left = a || {};
+        const right = b || {};
+        const nameRes = String(left.name || '').localeCompare(String(right.name || ''), 'zh-CN');
+        let res = 0;
+        if (localDiskSortKey === 'type') {
+          const typeRes = (left.directory === right.directory) ? 0 : (left.directory ? -1 : 1);
+          if (typeRes === 0) {
+            return nameRes;
+          }
+          res = typeRes;
+        } else if (localDiskSortKey === 'size') {
+          res = Number(left.size || 0) - Number(right.size || 0);
+        } else if (localDiskSortKey === 'modified_at') {
+          res = Number(left.modified_at || 0) - Number(right.modified_at || 0);
+        } else {
+          res = nameRes;
+        }
+        return localDiskSortOrder === 'desc' ? -res : res;
+      }
+
+      function openSelectedLocalDiskTagMenu(anchor) {
+        const paths = getSelectedLocalDiskFilePaths();
+        if (!paths.length) {
+          showStatus(t('请先选择要加标签的本地文件'), 'err');
+          return;
+        }
+        openFilesTagMenu(anchor, paths, { local: true }).catch(function (err) {
+          showStatus(t('打开标签选择失败：') + err.message, 'err');
+        });
+      }
+
+      function isFolderUnlockedInSession(path) {
+        const lockedPath = getFolderLockAncestorPath(path);
+        return !lockedPath || unlockedFolderPasswords.has(lockedPath);
+      }
+
+      function getAudioPlaylistFilesByMode(files, mode) {
+        const sorted = sortAudioFilesForPlaylist(files);
+        if (mode === 'random') {
+          return shuffleList(sorted);
+        }
+        return sorted;
       }
 
       async function handleTagLockAction(action, tagId, options) {
@@ -1215,103 +607,175 @@
         return false;
       }
 
-      function canBindFileToTagOnClient(tagId, fileName) {
-        const constraint = getTagFileTypeConstraint(tagId);
-        if (!constraint) {
-          return { ok: true, message: '' };
-        }
-        if (constraint === 'video' && !isVideoName(fileName)) {
-          return { ok: false, message: t('视频标签及其子标签只能引用视频文件（mp4/avi/mkv/rmvb）') };
-        }
-        if (constraint === 'audio' && !isAudioName(fileName)) {
-          return { ok: false, message: t('音频标签及其子标签只能引用音频文件（mp3/m4a/aac/wav/ogg/flac）') };
-        }
-        if (constraint === 'image' && !isImageName(fileName)) {
-          return { ok: false, message: t('图片标签及其子标签只能引用图片文件（png/jpg/jpeg/gif）') };
-        }
-        return { ok: true, message: '' };
-      }
-
-      async function addTagNode(parentTagId, name) {
-        const cleanName = String(name || '').trim();
-        if (!cleanName) {
-          return { ok: false, message: t('标签名称不能为空') };
-        }
-
-        try {
-          const created = await fetchJson(
-            api.tagCreate + '?name=' + encodeURIComponent(cleanName)
-              + (parentTagId ? '&parent_id=' + encodeURIComponent(parentTagId) : ''),
-            { method: 'POST' }
-          );
-          return { ok: true, id: created.id || '' };
-        } catch (err) {
-          return { ok: false, message: err.message };
-        }
-      }
-
-      async function migrateLegacyTagNode(node, parentTagId) {
-        const createResult = await addTagNode(parentTagId, node.name || '');
-        if (!createResult.ok || !createResult.id) {
-          throw new Error(createResult.message || t('创建标签失败'));
-        }
-
-        const serverTagId = createResult.id;
-        const files = Array.isArray(node.files) ? node.files : [];
-        for (let i = 0; i < files.length; i += 1) {
-          const fileName = String(files[i] || '');
-          if (!fileName) {
-            continue;
-          }
-          await bindFileToTag(serverTagId, fileName);
-        }
-
-        const children = Array.isArray(node.children) ? node.children : [];
-        for (let i = 0; i < children.length; i += 1) {
-          await migrateLegacyTagNode(children[i], serverTagId);
-        }
-      }
-
-      async function migrateLegacyTagTree(legacyNodes) {
-        for (let i = 0; i < legacyNodes.length; i += 1) {
-          await migrateLegacyTagNode(legacyNodes[i], '');
-        }
-        try {
-          localStorage.removeItem(TAG_TREE_STORAGE_KEY);
-        } catch (_) {
-        }
-      }
-
-      async function removeTagNode(tagId) {
-        try {
-          return await fetchJson(api.tagDelete + '?id=' + encodeURIComponent(tagId), {
-            method: 'POST'
-          });
-        } catch (_) {
-          return null;
-        }
-      }
-
-      function clearExpandedNodeState(node) {
-        if (!node) {
+      function focusActiveFolderRenameInput() {
+        if (!folderTree || !activeFolderRenamePath) {
           return;
         }
-        expandedTagNodeIds.delete(node.id);
-        const children = Array.isArray(node.children) ? node.children : [];
-        for (let i = 0; i < children.length; i += 1) {
-          clearExpandedNodeState(children[i]);
+        setTimeout(function () {
+          if (!folderTree || !activeFolderRenamePath) {
+            return;
+          }
+          const input = folderTree.querySelector('.folder-rename-input[data-folder-rename-input]');
+          if (!input) {
+            return;
+          }
+          selectRenameInputText(input);
+        }, 0);
+      }
+
+      function clearFileRenameClickTimer() {
+        if (fileRenameClickTimer) {
+          clearTimeout(fileRenameClickTimer);
+          fileRenameClickTimer = null;
         }
       }
 
-      function getFileNameSet() {
-        const set = new Set();
-        allFiles.forEach(function (it) {
-          const name = String((it && it.name) || '');
-          if (name) {
-            set.add(name);
+      function initPreviewImageEditing(win) {
+        const shell = win ? win.querySelector('.preview-image-shell') : null;
+        const img = win ? win.querySelector('.preview-image') : null;
+        const cropRect = win ? win.querySelector('.preview-crop-rect') : null;
+        if (!win || !shell || !img || !cropRect) {
+          return;
+        }
+
+        let drag = null;
+        function clampPoint(e) {
+          const rect = img.getBoundingClientRect();
+          const x = Math.max(rect.left, Math.min(rect.right, e.clientX));
+          const y = Math.max(rect.top, Math.min(rect.bottom, e.clientY));
+          return { x: x, y: y, imageRect: rect };
+        }
+        function drawRect(a, b) {
+          const shellRect = shell.getBoundingClientRect();
+          const left = Math.min(a.x, b.x);
+          const top = Math.min(a.y, b.y);
+          const width = Math.abs(a.x - b.x);
+          const height = Math.abs(a.y - b.y);
+          cropRect.hidden = false;
+          cropRect.style.left = (left - shellRect.left) + 'px';
+          cropRect.style.top = (top - shellRect.top) + 'px';
+          cropRect.style.width = width + 'px';
+          cropRect.style.height = height + 'px';
+          win.__imageCropRect = {
+            x: ((left - b.imageRect.left) / b.imageRect.width) * img.naturalWidth,
+            y: ((top - b.imageRect.top) / b.imageRect.height) * img.naturalHeight,
+            width: (width / b.imageRect.width) * img.naturalWidth,
+            height: (height / b.imageRect.height) * img.naturalHeight
+          };
+        }
+
+        shell.addEventListener('mousedown', function (e) {
+          if (!win.__imageCropMode || !img.complete || !img.naturalWidth) {
+            return;
+          }
+          e.preventDefault();
+          const start = clampPoint(e);
+          drag = { start: start };
+          drawRect(start, start);
+        });
+        window.addEventListener('mousemove', function (e) {
+          if (!drag) {
+            return;
+          }
+          e.preventDefault();
+          drawRect(drag.start, clampPoint(e));
+        });
+        window.addEventListener('mouseup', function (e) {
+          if (!drag) {
+            return;
+          }
+          e.preventDefault();
+          drawRect(drag.start, clampPoint(e));
+          drag = null;
+        });
+
+        win.addEventListener('click', function (e) {
+          const action = e.target.closest('[data-image-edit]');
+          if (!action || !win.contains(action)) {
+            return;
+          }
+          e.preventDefault();
+          const type = action.getAttribute('data-image-edit') || '';
+          if (type === 'rotate-left') {
+            rotatePreviewImage(win, 'left');
+          } else if (type === 'rotate-right') {
+            rotatePreviewImage(win, 'right');
+          } else if (type === 'zoom-in') {
+            scalePreviewImage(win, 1.25);
+          } else if (type === 'zoom-out') {
+            scalePreviewImage(win, 0.8);
+          } else if (type === 'crop') {
+            setPreviewCropMode(win, true);
+          } else if (type === 'apply-crop') {
+            applyPreviewImageCrop(win);
+          } else if (type === 'cancel-crop') {
+            cancelPreviewImageCrop(win);
+          } else if (type === 'download') {
+            downloadPreviewImageEdits(win);
+          } else if (type === 'save') {
+            savePreviewImageEdits(win);
           }
         });
-        return set;
+
+        win.addEventListener('keydown', function (e) {
+          if (!e.target.closest('.preview-size-input[data-image-size]')) {
+            return;
+          }
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            applyPreviewImageManualSize(win);
+          }
+        });
+      }
+
+      function syncPreviewWindowButtons(win) {
+        if (!win) {
+          return;
+        }
+        const maximizeBtn = win.querySelector('[data-preview-window-action="maximize"]');
+        if (!maximizeBtn) {
+          return;
+        }
+        const restoreMode = win.classList.contains('is-minimized') || win.classList.contains('is-maximized');
+        maximizeBtn.textContent = restoreMode ? '❐' : '□';
+        maximizeBtn.title = restoreMode ? t('复原') : t('最大化');
+        maximizeBtn.setAttribute('aria-label', restoreMode ? t('复原') : t('最大化'));
+      }
+
+      function handleLocalDiskDragStart(e) {
+        const dragItem = e.target.closest('[data-local-drag]');
+        if (!dragItem || !localDiskExplorer || !localDiskExplorer.contains(dragItem)) {
+          return;
+        }
+        if (e.target.closest('.local-disk-select, .local-mkdir-btn, .local-delete-btn, .local-preview-btn, .local-file-tag-btn')) {
+          e.preventDefault();
+          return;
+        }
+        const sourcePath = decodeURIComponent(dragItem.getAttribute('data-local-drag') || '');
+        const paths = localDiskDragPathsFor(sourcePath);
+        if (!paths.length) {
+          e.preventDefault();
+          return;
+        }
+        activeLocalDiskDragPaths = paths;
+        dragItem.classList.add('local-disk-dragging');
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('application/webcool-local-disk-paths', JSON.stringify(paths));
+          e.dataTransfer.setData('text/plain', paths.join('\n'));
+        }
+      }
+
+      function closeFileContextMenu() {
+        if (activeFileContextMenu && activeFileContextMenu.parentNode) {
+          activeFileContextMenu.parentNode.removeChild(activeFileContextMenu);
+        }
+        activeFileContextMenu = null;
+      }
+
+      function showStatus(msg, type) {
+        statusBox.className = 'status show ' + (type || 'ok');
+        statusBox.textContent = msg;
       }
 
       async function bindFileToTag(tagId, fileName, options) {
@@ -1333,15 +797,414 @@
         }
       }
 
-      async function unbindFileFromTag(tagId, fileName, options) {
-        const opts = options || {};
-        try {
+      async function moveFilesToFolder(filePaths, folderPath) {
+        const list = Array.isArray(filePaths) ? filePaths.filter(Boolean) : [];
+        if (!list.length) {
+          return;
+        }
+        for (let i = 0; i < list.length; i += 1) {
           await fetchJson(
-            api.tagUnbind + '?tag_id=' + encodeURIComponent(tagId) + '&file=' + encodeURIComponent(fileName)
-              + (opts.local ? '&local=1' : ''),
+            withFolderPassword(
+              appendFilePassword(withFolderPassword(api.fileMove + '?file=' + encodeURIComponent(list[i]) + '&folder=' + encodeURIComponent(folderPath || ''), parentFolderPathFromFilePath(list[i])), list[i], false),
+              folderPath || '',
+              'target_folder_password'
+            ),
             { method: 'POST' }
           );
-          return true;
-        } catch (_) {
-          return false;
+          selectedFileNames.delete(list[i]);
         }
+        await loadFiles();
+        showStatus(list.length > 1 ? ('已移动 ' + list.length + ' 个文件') : '文件已移动', 'ok');
+      }
+
+      function showFileSummaryDialog(filePath) {
+        const file = getFileRecordByPath(filePath);
+        if (!file) {
+          showStatus(t('文件摘要失败：未找到文件'), 'err');
+          return;
+        }
+        const oldDialog = document.getElementById('file-summary-dialog');
+        if (oldDialog && oldDialog.parentNode) {
+          oldDialog.parentNode.removeChild(oldDialog);
+        }
+        const path = getFilePath(file);
+        const name = String(file.name || path || '');
+        const sizeText = file.directory ? t('文件夹') : (formatNumber(safeSize(file)) + t(' 字节'));
+        const createdText = getFileTimeText(file, ['created_time', 'created_at', 'uploaded_time']);
+        const modifiedText = getFileTimeText(file, ['modified_time', 'modified_at', 'uploaded_time']);
+        const rows = [
+          [t('文件名'), name],
+          [t('文件大小'), sizeText],
+          [t('文件类型'), inferFileTypeLabel(file)],
+          [t('创建时间'), createdText],
+          [t('修改时间'), modifiedText]
+        ];
+        const dialog = document.createElement('div');
+        dialog.className = 'tag-dialog file-summary-dialog';
+        dialog.id = 'file-summary-dialog';
+        dialog.innerHTML =
+          '<div class="tag-dialog-backdrop" data-file-summary-close="1"></div>' +
+          '<div class="tag-dialog-card file-summary-card" role="dialog" aria-modal="true" aria-labelledby="file-summary-title">' +
+            '<div class="tag-dialog-head">' +
+              '<h2 id="file-summary-title">' + escapeHtml(t('文件摘要')) + '</h2>' +
+              '<p>' + escapeHtml(path) + '</p>' +
+            '</div>' +
+            '<dl class="file-summary-list">' + rows.map(function (row) {
+              return '<div class="file-summary-row"><dt>' + escapeHtml(row[0]) + '</dt><dd>' + escapeHtml(row[1]) + '</dd></div>';
+            }).join('') + '</dl>' +
+            '<div class="tag-dialog-actions">' +
+              '<button type="button" class="tag-dialog-btn" data-file-summary-close="1">' + escapeHtml(t('确定')) + '</button>' +
+            '</div>' +
+          '</div>';
+        document.body.appendChild(dialog);
+      }
+
+      function startLocalDiskFileRename(path) {
+        const filePath = String(path || '');
+        const item = getLocalDiskItemByPath(filePath);
+        if (!item || item.directory) {
+          return;
+        }
+        clearLocalDiskRenameClickTimer();
+        activeLocalDiskRenamePath = filePath;
+        renderLocalDiskItems(activeLocalDiskItems);
+        window.setTimeout(function () {
+          const selector = '.local-disk-rename-input[data-local-disk-rename-path="' + encodeURIComponent(filePath) + '"]';
+          const input = (localDiskList && localDiskList.querySelector(selector))
+            || (localDiskExplorer && localDiskExplorer.querySelector(selector));
+          if (input) {
+            selectRenameInputText(input);
+          }
+        }, 0);
+      }
+
+      function activateAdminView(name) {
+        const isLanguage = name === 'language';
+        if (adminStorageTab) {
+          adminStorageTab.classList.toggle('active', !isLanguage);
+        }
+        if (adminLanguageTab) {
+          adminLanguageTab.classList.toggle('active', isLanguage);
+        }
+        if (adminStorageView) {
+          adminStorageView.hidden = isLanguage;
+        }
+        if (adminLanguageView) {
+          adminLanguageView.hidden = !isLanguage;
+        }
+        if (!isLanguage) {
+          loadAdminStoragePath();
+        }
+      }
+
+function saveUnlockedFilePasswords() {
+        try {
+          const entries = Array.from(unlockedFilePasswords.entries()).filter(function (entry) {
+            return entry[0] && entry[1];
+          });
+          sessionStorage.setItem(FILE_UNLOCK_SESSION_STORAGE_KEY, JSON.stringify(entries));
+        } catch (_) {}
+      }
+
+      async function handleLocalDirContextAction(action, path, locked, paths) {
+        const dirPath = String(path || '');
+        if (!action || !dirPath) {
+          return;
+        }
+        const actionPaths = Array.isArray(paths) && paths.length
+          ? paths.map(function (item) { return String(item || ''); }).filter(Boolean)
+          : [dirPath];
+        if (action === 'copy') {
+          localDiskClipboardPaths = actionPaths.slice();
+          localDiskClipboardDirectoryFlags = actionPaths.map(function () { return true; });
+          localDiskClipboardPath = localDiskClipboardPaths[0] || '';
+          localDiskClipboardDirectory = true;
+          showStatus(actionPaths.length > 1 ? (t('已拷贝 ') + actionPaths.length + t(' 个本地目录')) : (t('已拷贝本地目录路径：') + dirPath), 'ok');
+          return;
+        }
+        if (action === 'upload') {
+          if (actionPaths.length > 1) {
+            await openLocalImportDialog(actionPaths);
+            return;
+          }
+          if (locked && !getLocalDirPassword(dirPath) && !(await ensureLocalDirUnlocked(dirPath))) {
+            return;
+          }
+          await openLocalImportDialog([dirPath]);
+          return;
+        }
+        if (action === 'create') {
+          if (locked && !getLocalDirPassword(dirPath) && !(await ensureLocalDirUnlocked(dirPath))) {
+            return;
+          }
+          const name = window.prompt(t('请输入新建子目录名称'));
+          if (name === null) {
+            return;
+          }
+          const cleanName = String(name || '').trim();
+          if (!cleanName) {
+            showStatus(t('子目录名称不能为空'), 'err');
+            return;
+          }
+          await fetchJson(appendLocalDirPassword(api.localDiskMkdir + '?path=' + encodeURIComponent(dirPath) + '&name=' + encodeURIComponent(cleanName), dirPath), { method: 'POST' });
+          closeFileContextMenu();
+          localDiskTreeCache.delete(dirPath);
+          await loadLocalDisk(dirPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, dirPath) });
+          showStatus(t('子目录已创建：') + cleanName, 'ok');
+          return;
+        }
+        if (action === 'paste') {
+          const clipboardPaths = localDiskClipboardPaths.length ? localDiskClipboardPaths.slice() : (localDiskClipboardPath ? [localDiskClipboardPath] : []);
+          const clipboardDirFlags = localDiskClipboardDirectoryFlags.length ? localDiskClipboardDirectoryFlags.slice() : clipboardPaths.map(function () { return !!localDiskClipboardDirectory; });
+          if (!clipboardPaths.length) {
+            showStatus(t('没有可粘贴的本地文件或目录'), 'err');
+            return;
+          }
+          if (clipboardPaths.some(function (source, index) { return !!clipboardDirFlags[index] && localDiskPathContains(source, dirPath); })) {
+            showStatus(t('不能将目录粘贴到自身或其子目录中'), 'err');
+            return;
+          }
+          if (locked && !getLocalDirPassword(dirPath) && !(await ensureLocalDirUnlocked(dirPath))) {
+            return;
+          }
+          const buildCopyUrl = function (sourcePath, sourceDirectory, overwrite) {
+            const sourceLockPath = sourceDirectory && getLocalDirPassword(sourcePath)
+              ? sourcePath
+              : localDiskParentPath(sourcePath);
+            let url = api.localDiskCopy
+              + '?path=' + encodeURIComponent(sourcePath)
+              + '&target=' + encodeURIComponent(dirPath);
+            url += '&async=1';
+            if (overwrite) {
+              url += '&overwrite=1';
+            }
+            return appendLocalDirPassword(
+              appendLocalDirPassword(
+                appendFilePassword(url, sourcePath, true),
+                sourceLockPath
+              ),
+              dirPath,
+              'target_local_dir_password'
+            );
+          };
+          for (let i = 0; i < clipboardPaths.length; i += 1) {
+            const sourcePath = clipboardPaths[i];
+            const sourceDirectory = !!clipboardDirFlags[i];
+            let result = null;
+            try {
+              result = await fetchJson(buildCopyUrl(sourcePath, sourceDirectory, false), { method: 'POST' });
+            } catch (err) {
+              if (err && err.status === 409 && /same name|already contains|already exists/i.test(String(err.message || ''))) {
+                const confirmed = confirm(t('目标目录下已存在同名文件或目录，是否覆盖？'));
+                if (!confirmed) {
+                  showStatus(t('已取消粘贴'), 'warn');
+                  return;
+                }
+                result = await fetchJson(buildCopyUrl(sourcePath, sourceDirectory, true), { method: 'POST' });
+              } else {
+                throw err;
+              }
+            }
+            const copiedPath = String((result && result.path) || '');
+            const copiedItemName = copiedPath || sourcePath;
+            if (String((result && result.task_id) || '')) {
+              closeFolderContextMenu();
+              closeFileContextMenu();
+              setCopyTaskProgress('local-copy', 0, t('准备粘贴...'), { name: copiedItemName, state: 'running', progress: 0, size: 0, copied: 0 });
+              const copyResult = await pollLocalDiskCopyTask(String((result && result.task_id) || ''), dirPath, copiedItemName);
+              if (String((copyResult && copyResult.state) || '') !== 'done') {
+                return;
+              }
+            }
+          }
+          localDiskClipboardPaths = [];
+          localDiskClipboardDirectoryFlags = [];
+          localDiskClipboardPath = '';
+          localDiskClipboardDirectory = false;
+          localDiskTreeCache.delete(dirPath);
+          await loadLocalDisk(dirPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, dirPath) });
+          showStatus(clipboardPaths.length > 1 ? (t('已粘贴 ') + clipboardPaths.length + t(' 个项目到：') + dirPath) : (t('已粘贴到：') + dirPath), 'ok');
+          return;
+        }
+        if (action === 'lock') {
+          const password = await askLockPassword({
+            title: t('加锁本地目录'),
+            description: t('请为本地目录「') + dirPath + t('」设置锁密码。加锁后需要输入密码才能访问。'),
+            placeholder: t('请输入新锁密码'),
+            errorMessage: t('加锁失败，请重新输入密码。'),
+            statusErrorMessage: t('加锁失败：密码错误或验证失败')
+          });
+          if (password === null) {
+            return;
+          }
+          await fetchJson(api.fileLock + '?local=1&dir=1&path=' + encodeURIComponent(dirPath) + '&password=' + encodeURIComponent(password), { method: 'POST' });
+          deleteUnlockedLocalDirPassword(dirPath);
+          setLocalDiskDirLockedState(dirPath, true);
+          invalidateLocalDiskDirLockCache(dirPath);
+          const nextPath = localDiskPathContains(dirPath, activeLocalDiskPath)
+            ? localDiskParentPath(dirPath)
+            : (activeLocalDiskPath || '');
+          await loadLocalDisk(nextPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, nextPath) });
+          showStatus(t('本地目录已加锁：') + dirPath, 'ok');
+          return;
+        }
+        if (action === 'session-unlock') {
+          const password = await askLockPassword({
+            title: t('解锁本地目录'),
+            description: t('请输入本地目录「') + dirPath + t('」的锁密码。'),
+            onSubmit: async function (passwordText) {
+              await fetchJson(api.fileLockVerify + '?local=1&dir=1&path=' + encodeURIComponent(dirPath) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
+            }
+          });
+          if (password === null) {
+            return;
+          }
+          setUnlockedLocalDirPassword(dirPath, password);
+          await loadLocalDisk(dirPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, dirPath) });
+          showStatus(t('本地目录已解锁（当前会话）：') + dirPath, 'ok');
+          return;
+        }
+        if (action === 'session-lock') {
+          deleteUnlockedLocalDirPassword(dirPath);
+          if (localDiskPathContains(dirPath, activeLocalDiskPath)) {
+            await loadLocalDisk(localDiskParentPath(dirPath), { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, localDiskParentPath(dirPath)) });
+          } else {
+            renderLocalDiskItems(activeLocalDiskItems);
+          }
+          showStatus(t('本地目录已重新加锁：') + dirPath, 'ok');
+          return;
+        }
+        if (action === 'remove-lock') {
+          const password = await askLockPassword({
+            title: t('去锁本地目录'),
+            description: t('请输入本地目录「') + dirPath + t('」的锁密码。验证成功后会永久移除该目录锁。'),
+            errorMessage: t('密码错误或去锁失败，请重新输入。'),
+            statusErrorMessage: t('去锁失败：密码错误或验证失败'),
+            onSubmit: async function (passwordText) {
+              await fetchJson(api.fileUnlock + '?local=1&dir=1&path=' + encodeURIComponent(dirPath) + '&password=' + encodeURIComponent(passwordText), { method: 'POST' });
+            }
+          });
+          if (password === null) {
+            return;
+          }
+          deleteUnlockedLocalDirPassword(dirPath);
+          setLocalDiskDirLockedState(dirPath, false);
+          await loadLocalDisk(activeLocalDiskPath || '', { resetTreeRoot: false });
+          showStatus(t('本地目录已去锁：') + dirPath, 'ok');
+          return;
+        }
+        if (action === 'rename') {
+          if (locked && !getLocalDirPassword(dirPath) && !(await ensureLocalDirUnlocked(dirPath))) {
+            return;
+          }
+          const currentName = localBaseName(dirPath);
+          const nextName = window.prompt(t('请输入新的目录名称'), currentName);
+          if (nextName === null) {
+            return;
+          }
+          const cleanName = String(nextName || '').trim();
+          if (!cleanName || cleanName === currentName) {
+            return;
+          }
+          const url = appendLocalDirPassword(api.localDiskRename
+            + '?path=' + encodeURIComponent(dirPath)
+            + '&name=' + encodeURIComponent(cleanName), dirPath);
+          const result = await fetchJson(url, { method: 'POST' });
+          const nextPath = String((result && result.path) || localDiskParentPath(dirPath));
+          localDiskTreeCache.delete(dirPath);
+          expandedLocalDiskTreePaths.delete(dirPath);
+          await loadLocalDisk(nextPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, nextPath) });
+          showStatus(t('本地目录已改名：') + dirPath + ' -> ' + nextPath, 'ok');
+          return;
+        }
+        if (action === 'delete') {
+          if (actionPaths.length > 1) {
+            if (!confirm(t('确认将选中的 ') + actionPaths.length + t(' 个本地目录移至回收站？'))) {
+              return;
+            }
+            for (let i = 0; i < actionPaths.length; i += 1) {
+              const targetPath = actionPaths[i];
+              await fetchJson(appendLocalDirPassword(api.localDiskDelete + '?path=' + encodeURIComponent(targetPath), targetPath), { method: 'POST' });
+              localDiskTreeCache.delete(targetPath);
+              expandedLocalDiskTreePaths.delete(targetPath);
+              selectedLocalDiskPaths.delete(targetPath);
+            }
+            await loadLocalDisk(activeLocalDiskPath || localDiskParentPath(dirPath), { resetTreeRoot: false });
+            showStatus(t('已移除 ') + actionPaths.length + t(' 个本地目录到回收站'), 'warn');
+            return;
+          }
+          if (locked && !getLocalDirPassword(dirPath) && !(await ensureLocalDirUnlocked(dirPath))) {
+            return;
+          }
+          if (!confirm(t('确认将本地目录移至回收站：') + dirPath + t(' ？'))) {
+            return;
+          }
+          const url = appendLocalDirPassword(api.localDiskDelete + '?path=' + encodeURIComponent(dirPath), dirPath);
+          await fetchJson(url, { method: 'POST' });
+          localDiskTreeCache.delete(dirPath);
+          expandedLocalDiskTreePaths.delete(dirPath);
+          const nextPath = localDiskParentPath(dirPath);
+          await loadLocalDisk(nextPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, nextPath) });
+          showStatus(t('本地目录已移至回收站：') + dirPath, 'warn');
+          return;
+        }
+      }
+
+      function makeTagId() {
+        return 'tag_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
+      }
+
+      function updateTranscodeProgress(encodedName, percent, text) {
+        const fill = statusBox.querySelector('[data-progress-fill="' + encodedName + '"]');
+        const label = statusBox.querySelector('[data-progress-text="' + encodedName + '"]');
+        if (fill) {
+          fill.style.width = Math.max(0, Math.min(100, percent || 0)) + '%';
+        }
+        if (label) {
+          label.textContent = text || '';
+        }
+      }
+
+      function applyLocalImportProgressWindowState() {
+        if (localImportProgressDialog) {
+          localImportProgressDialog.classList.toggle('is-minimized', !!localImportProgressMinimized);
+        }
+        const showWindowControls = isCopyTaskWindowMode(localImportProgressWindowMode);
+        if (localImportProgressMinimize) {
+          localImportProgressMinimize.hidden = !showWindowControls || !!localImportProgressMinimized;
+        }
+        if (localImportProgressRestore) {
+          localImportProgressRestore.hidden = !showWindowControls || !localImportProgressMinimized;
+        }
+      }
+
+      function stepImagePreviewWindow(win, delta) {
+        if (!win || !Array.isArray(win.__imageGallery) || !win.__imageGallery.length) {
+          return;
+        }
+        const nextIndex = Number(win.__imageIndex || 0) + Number(delta || 0);
+        if (nextIndex < 0 || nextIndex >= win.__imageGallery.length) {
+          return;
+        }
+        updateImagePreviewWindow(win, win.__imageGallery, nextIndex);
+      }
+
+      function getSelectedLocalDiskPaths() {
+        const visible = getVisibleLocalDiskPathSet();
+        return Array.from(selectedLocalDiskPaths).filter(function (path) {
+          return visible.has(path);
+        });
+      }
+
+      async function loadAdminStoragePath() {
+        if (!adminStoragePath) {
+          return;
+        }
+        try {
+          const data = await fetchJson(api.adminStorage);
+          currentAdminStoragePath = String(data.path || '');
+          adminStoragePath.value = currentAdminStoragePath;
+        } catch (err) {
+          showStatus(t('加载存储路径失败：') + err.message, 'err');
+        }
+      }

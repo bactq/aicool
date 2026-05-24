@@ -1,11 +1,13 @@
-      function t(text) {
+// Shared helpers, state, and DOM references. Loaded first.
+
+function t(text) {
         if (window.WebCoolI18n && typeof window.WebCoolI18n.t === 'function') {
           return window.WebCoolI18n.t(text);
         }
         return String(text == null ? '' : text);
       }
 
-      function selectRenameInputText(input) {
+function selectRenameInputText(input) {
         if (!input || typeof input.select !== 'function') {
           return;
         }
@@ -35,7 +37,7 @@
         }, { once: true });
       }
 
-      const api = {
+      var api = {
         files: '/api/v1/files',
         folders: '/api/v1/folders',
         folderCreate: '/api/v1/folders/create',
@@ -99,229 +101,444 @@
         videoResumeSave: '/api/v1/video/resume/save'
       };
 
-      const uploadForm = document.getElementById('upload-form');
-      const reloadBtn = document.getElementById('reload-template-btn');
-      const adminStorageTab = document.getElementById('admin-storage-tab');
-      const adminLanguageTab = document.getElementById('admin-language-tab');
-      const adminStorageView = document.getElementById('admin-storage-view');
-      const adminLanguageView = document.getElementById('admin-language-view');
-      const adminLanguageSelect = document.getElementById('admin-language-select');
-      const adminLanguageApplyBtn = document.getElementById('admin-language-apply-btn');
-      const adminStoragePath = document.getElementById('admin-storage-path');
-      const adminStorageBrowseBtn = document.getElementById('admin-storage-browse-btn');
-      const adminStorageChooseBtn = document.getElementById('admin-storage-choose-btn');
-      const adminStorageProgress = document.getElementById('admin-storage-progress');
-      const adminStorageProgressFill = document.getElementById('admin-storage-progress-fill');
-      const adminStorageProgressText = document.getElementById('admin-storage-progress-text');
-      const adminStorageProgressMessage = document.getElementById('admin-storage-progress-message');
-      const adminStorageProgressPauseBtn = document.getElementById('admin-storage-progress-pause');
-      const adminStorageProgressResumeBtn = document.getElementById('admin-storage-progress-resume');
-      const adminStorageProgressCancelBtn = document.getElementById('admin-storage-progress-cancel');
-      const adminStoragePickerDialog = document.getElementById('admin-storage-picker-dialog');
-      const adminStoragePickerTree = document.getElementById('admin-storage-picker-tree');
-      const adminStoragePickerEmpty = document.getElementById('admin-storage-picker-empty');
-      const adminStoragePickerPath = document.getElementById('admin-storage-picker-path');
-      const adminStoragePickerRootBtn = document.getElementById('admin-storage-picker-root');
-      const adminStoragePickerHomeBtn = document.getElementById('admin-storage-picker-home');
-      const adminStoragePickerCancelBtn = document.getElementById('admin-storage-picker-cancel');
-      const adminStoragePickerConfirmBtn = document.getElementById('admin-storage-picker-confirm');
-      const statusBox = document.getElementById('status');
-      const uploadProgress = document.getElementById('upload-progress');
-      const uploadProgressFill = document.getElementById('upload-progress-fill');
-      const uploadProgressText = document.getElementById('upload-progress-text');
-      const uploadFolderPathInput = document.getElementById('upload-folder-path');
-      const shell = document.querySelector('.shell');
-      const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
-      const fileList = document.getElementById('file-list');
-      const fileTable = document.getElementById('file-table');
-      const fileEmpty = document.getElementById('file-empty');
-      const fileCounter = document.getElementById('file-counter');
-      const fileListTitle = document.getElementById('file-list-title');
-      const tagViewModeBtns = document.getElementById('tag-view-mode-btns');
-      const tagViewListBtn = document.getElementById('tag-view-list-btn');
-      const tagViewPreviewBtn = document.getElementById('tag-view-preview-btn');
-      const tagImagePreviewWrap = document.getElementById('tag-image-preview-wrap');
-      const fileSelectAll = document.getElementById('file-select-all');
-      const fileBulkTagAction = document.getElementById('file-bulk-tag-action');
-      const fileBulkAction = document.getElementById('file-bulk-action');
-      const fileBulkDeleteAction = document.getElementById('file-bulk-delete-action');
-      const fileViewContext = document.getElementById('file-view-context');
-      const remoteDiskShowHidden = document.getElementById('remote-disk-show-hidden');
-      const localDiskContext = document.getElementById('local-disk-context');
-      const localDiskHomeBtn = document.getElementById('local-disk-home-btn');
-      const localDiskRootBtn = document.getElementById('local-disk-root-btn');
-      const localDiskTrashBtn = document.getElementById('local-disk-trash-btn');
-      const localDiskUpBtn = document.getElementById('local-disk-up-btn');
-      const localDiskViewTableBtn = document.getElementById('local-disk-view-table-btn');
-      const localDiskViewSplitBtn = document.getElementById('local-disk-view-split-btn');
-      const localDiskImportBtn = document.getElementById('local-disk-import-btn');
-      const localDiskShowHidden = document.getElementById('local-disk-show-hidden');
-      const localDiskTableWrap = document.getElementById('local-disk-table-wrap');
-      const localDiskTable = document.getElementById('local-disk-table');
-      const localDiskList = document.getElementById('local-disk-list');
-      const localDiskTableSelectAll = document.getElementById('local-disk-table-select-all');
-      const localDiskTableBulkRemoveBtn = document.getElementById('local-disk-table-bulk-remove-btn');
-      const localDiskExplorer = document.getElementById('local-disk-explorer');
-      const localDiskDirResize = document.getElementById('local-disk-dir-resize');
-      const localDiskDirList = document.getElementById('local-disk-dir-list');
-      const localDiskDirEmpty = document.getElementById('local-disk-dir-empty');
-      const localDiskSplitTable = document.getElementById('local-disk-split-table');
-      const localDiskSplitList = document.getElementById('local-disk-split-list');
-      const localDiskSplitEmpty = document.getElementById('local-disk-split-empty');
-      const localDiskSelectAll = document.getElementById('local-disk-select-all');
-      const localDiskBulkTagBtn = document.getElementById('local-disk-bulk-tag-btn');
-      const localDiskBulkRemoveBtn = document.getElementById('local-disk-bulk-remove-btn');
-      const localDiskTableBulkTagBtn = document.getElementById('local-disk-table-bulk-tag-btn');
-      const localDiskEmpty = document.getElementById('local-disk-empty');
-      const localSortButtons = Array.from(document.querySelectorAll('.local-sort-btn[data-local-sort-key]'));
-      const explorerShell = document.querySelector('.explorer-shell');
-      const folderBrowser = document.querySelector('.folder-browser');
-      const folderTree = document.getElementById('folder-tree');
-      const folderTreeEmpty = document.getElementById('folder-tree-empty');
-      const folderCurrentPath = document.getElementById('folder-current-path');
-      const folderCreateBtn = document.getElementById('folder-create-btn');
-      const folderDeleteBtn = document.getElementById('folder-delete-btn');
-      const folderRestoreBtn = document.getElementById('folder-restore-btn');
-      const sortKey = document.getElementById('sort-key');
-      const sortOrder = document.getElementById('sort-order');
-      const sortButtons = Array.from(document.querySelectorAll('.sort-btn[data-sort-key]'));
-      const leftTagTreeSection = document.querySelector('.left-tag-tree-section');
-      const filesTagToggleBtn = document.getElementById('files-tag-toggle');
-      const tagManager = document.getElementById('tag-manager');
-      const tagDialog = document.getElementById('tag-dialog');
-      const tagDialogForm = document.getElementById('tag-dialog-form');
-      const tagDialogTitle = document.getElementById('tag-dialog-title');
-      const tagDialogDesc = document.getElementById('tag-dialog-desc');
-      const tagDialogLabel = document.getElementById('tag-dialog-label');
-      const tagDialogInput = document.getElementById('tag-dialog-input');
-      const tagDialogCancelBtn = document.getElementById('tag-dialog-cancel');
-      const lockDialog = document.getElementById('lock-dialog');
-      const lockDialogForm = document.getElementById('lock-dialog-form');
-      const lockDialogTitle = document.getElementById('lock-dialog-title');
-      const lockDialogDesc = document.getElementById('lock-dialog-desc');
-      const lockDialogInput = document.getElementById('lock-dialog-input');
-      const lockDialogError = document.getElementById('lock-dialog-error');
-      const lockDialogCancelBtn = document.getElementById('lock-dialog-cancel');
-      const lockDialogConfirmBtn = document.getElementById('lock-dialog-confirm');
-      const confirmDialog = document.getElementById('confirm-dialog');
-      const confirmDialogTitle = document.getElementById('confirm-dialog-title');
-      const confirmDialogDesc = document.getElementById('confirm-dialog-desc');
-      const confirmDialogCancelBtn = document.getElementById('confirm-dialog-cancel');
-      const confirmDialogExtraBtn = document.getElementById('confirm-dialog-extra');
-      const confirmDialogExtra2Btn = document.getElementById('confirm-dialog-extra2');
-      const confirmDialogExtra3Btn = document.getElementById('confirm-dialog-extra3');
-      const confirmDialogConfirmBtn = document.getElementById('confirm-dialog-confirm');
-      const localImportDialog = document.getElementById('local-import-dialog');
-      const localImportTree = document.getElementById('local-import-tree');
-      const localImportEmpty = document.getElementById('local-import-empty');
-      const localImportCancelBtn = document.getElementById('local-import-cancel');
-      const localImportConfirmBtn = document.getElementById('local-import-confirm');
-      const localImportProgressDialog = document.getElementById('local-import-progress-dialog');
-      const localImportProgressFill = document.getElementById('local-import-progress-fill');
-      const localImportProgressText = document.getElementById('local-import-progress-text');
-      const localImportProgressFiles = document.getElementById('local-import-progress-files');
-      const localImportProgressCancel = document.getElementById('local-import-progress-cancel');
-      const localImportProgressClose = document.getElementById('local-import-progress-close');
-      const localImportProgressMinimize = document.getElementById('local-import-progress-minimize');
-      const localImportProgressRestore = document.getElementById('local-import-progress-restore');
-      const previewLayer = document.getElementById('preview-layer');
-      const menuButtons = Array.from(document.querySelectorAll('.menu-btn[data-panel]'));
-      const panels = Array.from(document.querySelectorAll('.panel'));
-      const SIDEBAR_COLLAPSED_STORAGE_KEY = 'webcool:sidebar-collapsed:v1';
-      const TAG_TREE_STORAGE_KEY = 'webcool:file-tags:v1';
-      const FOLDER_UNLOCK_SESSION_STORAGE_KEY = 'webcool:folder-unlocks:v1';
-      const FILE_UNLOCK_SESSION_STORAGE_KEY = 'webcool:file-unlocks:v1';
-      const LANGUAGE_STORAGE_KEY = 'webcool:language:v1';
-      const UI_LANG = (document.documentElement.getAttribute('lang') || 'zh-CN').toLowerCase().indexOf('en') === 0
+      var uploadForm = document.getElementById('upload-form');
+
+      var reloadBtn = document.getElementById('reload-template-btn');
+
+      var adminStorageTab = document.getElementById('admin-storage-tab');
+
+      var adminLanguageTab = document.getElementById('admin-language-tab');
+
+      var adminStorageView = document.getElementById('admin-storage-view');
+
+      var adminLanguageView = document.getElementById('admin-language-view');
+
+      var adminLanguageSelect = document.getElementById('admin-language-select');
+
+      var adminLanguageApplyBtn = document.getElementById('admin-language-apply-btn');
+
+      var adminStoragePath = document.getElementById('admin-storage-path');
+
+      var adminStorageBrowseBtn = document.getElementById('admin-storage-browse-btn');
+
+      var adminStorageChooseBtn = document.getElementById('admin-storage-choose-btn');
+
+      var adminStorageProgress = document.getElementById('admin-storage-progress');
+
+      var adminStorageProgressFill = document.getElementById('admin-storage-progress-fill');
+
+      var adminStorageProgressText = document.getElementById('admin-storage-progress-text');
+
+      var adminStorageProgressMessage = document.getElementById('admin-storage-progress-message');
+
+      var adminStorageProgressPauseBtn = document.getElementById('admin-storage-progress-pause');
+
+      var adminStorageProgressResumeBtn = document.getElementById('admin-storage-progress-resume');
+
+      var adminStorageProgressCancelBtn = document.getElementById('admin-storage-progress-cancel');
+
+      var adminStoragePickerDialog = document.getElementById('admin-storage-picker-dialog');
+
+      var adminStoragePickerTree = document.getElementById('admin-storage-picker-tree');
+
+      var adminStoragePickerEmpty = document.getElementById('admin-storage-picker-empty');
+
+      var adminStoragePickerPath = document.getElementById('admin-storage-picker-path');
+
+      var adminStoragePickerRootBtn = document.getElementById('admin-storage-picker-root');
+
+      var adminStoragePickerHomeBtn = document.getElementById('admin-storage-picker-home');
+
+      var adminStoragePickerCancelBtn = document.getElementById('admin-storage-picker-cancel');
+
+      var adminStoragePickerConfirmBtn = document.getElementById('admin-storage-picker-confirm');
+
+      var statusBox = document.getElementById('status');
+
+      var uploadProgress = document.getElementById('upload-progress');
+
+      var uploadProgressFill = document.getElementById('upload-progress-fill');
+
+      var uploadProgressText = document.getElementById('upload-progress-text');
+
+      var uploadFolderPathInput = document.getElementById('upload-folder-path');
+
+      var shell = document.querySelector('.shell');
+
+      var sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+
+      var fileList = document.getElementById('file-list');
+
+      var fileTable = document.getElementById('file-table');
+
+      var fileEmpty = document.getElementById('file-empty');
+
+      var fileCounter = document.getElementById('file-counter');
+
+      var fileListTitle = document.getElementById('file-list-title');
+
+      var tagViewModeBtns = document.getElementById('tag-view-mode-btns');
+
+      var tagViewListBtn = document.getElementById('tag-view-list-btn');
+
+      var tagViewPreviewBtn = document.getElementById('tag-view-preview-btn');
+
+      var tagImagePreviewWrap = document.getElementById('tag-image-preview-wrap');
+
+      var fileSelectAll = document.getElementById('file-select-all');
+
+      var fileBulkTagAction = document.getElementById('file-bulk-tag-action');
+
+      var fileBulkAction = document.getElementById('file-bulk-action');
+
+      var fileBulkDeleteAction = document.getElementById('file-bulk-delete-action');
+
+      var fileViewContext = document.getElementById('file-view-context');
+
+      var remoteDiskShowHidden = document.getElementById('remote-disk-show-hidden');
+
+      var localDiskContext = document.getElementById('local-disk-context');
+
+      var localDiskHomeBtn = document.getElementById('local-disk-home-btn');
+
+      var localDiskRootBtn = document.getElementById('local-disk-root-btn');
+
+      var localDiskTrashBtn = document.getElementById('local-disk-trash-btn');
+
+      var localDiskUpBtn = document.getElementById('local-disk-up-btn');
+
+      var localDiskViewTableBtn = document.getElementById('local-disk-view-table-btn');
+
+      var localDiskViewSplitBtn = document.getElementById('local-disk-view-split-btn');
+
+      var localDiskImportBtn = document.getElementById('local-disk-import-btn');
+
+      var localDiskShowHidden = document.getElementById('local-disk-show-hidden');
+
+      var localDiskTableWrap = document.getElementById('local-disk-table-wrap');
+
+      var localDiskTable = document.getElementById('local-disk-table');
+
+      var localDiskList = document.getElementById('local-disk-list');
+
+      var localDiskTableSelectAll = document.getElementById('local-disk-table-select-all');
+
+      var localDiskTableBulkRemoveBtn = document.getElementById('local-disk-table-bulk-remove-btn');
+
+      var localDiskExplorer = document.getElementById('local-disk-explorer');
+
+      var localDiskDirResize = document.getElementById('local-disk-dir-resize');
+
+      var localDiskDirList = document.getElementById('local-disk-dir-list');
+
+      var localDiskDirEmpty = document.getElementById('local-disk-dir-empty');
+
+      var localDiskSplitTable = document.getElementById('local-disk-split-table');
+
+      var localDiskSplitList = document.getElementById('local-disk-split-list');
+
+      var localDiskSplitEmpty = document.getElementById('local-disk-split-empty');
+
+      var localDiskSelectAll = document.getElementById('local-disk-select-all');
+
+      var localDiskBulkTagBtn = document.getElementById('local-disk-bulk-tag-btn');
+
+      var localDiskBulkRemoveBtn = document.getElementById('local-disk-bulk-remove-btn');
+
+      var localDiskTableBulkTagBtn = document.getElementById('local-disk-table-bulk-tag-btn');
+
+      var localDiskEmpty = document.getElementById('local-disk-empty');
+
+      var localSortButtons = Array.from(document.querySelectorAll('.local-sort-btn[data-local-sort-key]'));
+
+      var explorerShell = document.querySelector('.explorer-shell');
+
+      var folderBrowser = document.querySelector('.folder-browser');
+
+      var folderTree = document.getElementById('folder-tree');
+
+      var folderTreeEmpty = document.getElementById('folder-tree-empty');
+
+      var folderCurrentPath = document.getElementById('folder-current-path');
+
+      var folderCreateBtn = document.getElementById('folder-create-btn');
+
+      var folderDeleteBtn = document.getElementById('folder-delete-btn');
+
+      var folderRestoreBtn = document.getElementById('folder-restore-btn');
+
+      var sortKey = document.getElementById('sort-key');
+
+      var sortOrder = document.getElementById('sort-order');
+
+      var sortButtons = Array.from(document.querySelectorAll('.sort-btn[data-sort-key]'));
+
+      var leftTagTreeSection = document.querySelector('.left-tag-tree-section');
+
+      var filesTagToggleBtn = document.getElementById('files-tag-toggle');
+
+      var tagManager = document.getElementById('tag-manager');
+
+      var tagDialog = document.getElementById('tag-dialog');
+
+      var tagDialogForm = document.getElementById('tag-dialog-form');
+
+      var tagDialogTitle = document.getElementById('tag-dialog-title');
+
+      var tagDialogDesc = document.getElementById('tag-dialog-desc');
+
+      var tagDialogLabel = document.getElementById('tag-dialog-label');
+
+      var tagDialogInput = document.getElementById('tag-dialog-input');
+
+      var tagDialogCancelBtn = document.getElementById('tag-dialog-cancel');
+
+      var lockDialog = document.getElementById('lock-dialog');
+
+      var lockDialogForm = document.getElementById('lock-dialog-form');
+
+      var lockDialogTitle = document.getElementById('lock-dialog-title');
+
+      var lockDialogDesc = document.getElementById('lock-dialog-desc');
+
+      var lockDialogInput = document.getElementById('lock-dialog-input');
+
+      var lockDialogError = document.getElementById('lock-dialog-error');
+
+      var lockDialogCancelBtn = document.getElementById('lock-dialog-cancel');
+
+      var lockDialogConfirmBtn = document.getElementById('lock-dialog-confirm');
+
+      var confirmDialog = document.getElementById('confirm-dialog');
+
+      var confirmDialogTitle = document.getElementById('confirm-dialog-title');
+
+      var confirmDialogDesc = document.getElementById('confirm-dialog-desc');
+
+      var confirmDialogCancelBtn = document.getElementById('confirm-dialog-cancel');
+
+      var confirmDialogExtraBtn = document.getElementById('confirm-dialog-extra');
+
+      var confirmDialogExtra2Btn = document.getElementById('confirm-dialog-extra2');
+
+      var confirmDialogExtra3Btn = document.getElementById('confirm-dialog-extra3');
+
+      var confirmDialogConfirmBtn = document.getElementById('confirm-dialog-confirm');
+
+      var localImportDialog = document.getElementById('local-import-dialog');
+
+      var localImportTree = document.getElementById('local-import-tree');
+
+      var localImportEmpty = document.getElementById('local-import-empty');
+
+      var localImportCancelBtn = document.getElementById('local-import-cancel');
+
+      var localImportConfirmBtn = document.getElementById('local-import-confirm');
+
+      var localImportProgressDialog = document.getElementById('local-import-progress-dialog');
+
+      var localImportProgressFill = document.getElementById('local-import-progress-fill');
+
+      var localImportProgressText = document.getElementById('local-import-progress-text');
+
+      var localImportProgressFiles = document.getElementById('local-import-progress-files');
+
+      var localImportProgressCancel = document.getElementById('local-import-progress-cancel');
+
+      var localImportProgressClose = document.getElementById('local-import-progress-close');
+
+      var localImportProgressMinimize = document.getElementById('local-import-progress-minimize');
+
+      var localImportProgressRestore = document.getElementById('local-import-progress-restore');
+
+      var previewLayer = document.getElementById('preview-layer');
+
+      var menuButtons = Array.from(document.querySelectorAll('.menu-btn[data-panel]'));
+
+      var panels = Array.from(document.querySelectorAll('.panel'));
+
+      var SIDEBAR_COLLAPSED_STORAGE_KEY = 'webcool:sidebar-collapsed:v1';
+
+      var TAG_TREE_STORAGE_KEY = 'webcool:file-tags:v1';
+
+      var FOLDER_UNLOCK_SESSION_STORAGE_KEY = 'webcool:folder-unlocks:v1';
+
+      var FILE_UNLOCK_SESSION_STORAGE_KEY = 'webcool:file-unlocks:v1';
+
+      var LANGUAGE_STORAGE_KEY = 'webcool:language:v1';
+
+      var UI_LANG = (document.documentElement.getAttribute('lang') || 'zh-CN').toLowerCase().indexOf('en') === 0
         ? 'en'
         : 'zh';
-      const TAG_MAX_LEVEL = 3;
-      const AUDIO_PLAY_MODE_LABELS = {
+
+      var TAG_MAX_LEVEL = 3;
+
+      var AUDIO_PLAY_MODE_LABELS = {
         random: t('随机播放'),
         sequential: t('顺序播放'),
         loop: t('循环播放')
       };
-      const AUDIO_PLAY_MODE_ICONS = {
+
+      var AUDIO_PLAY_MODE_ICONS = {
         random: '⤮',
         sequential: '⇥',
         loop: '↻'
       };
-      const RECYCLE_FOLDER_NAME = '回收站';
-      let allFiles = [];
-      let activeSourceFiles = [];
-      let currentFiles = [];
-      let folderTreeData = [];
-      let activeFolderPath = '';
-      let activeLocalDiskPath = '';
-      let activeLocalDiskParentPath = '/';
-      let activeLocalDiskHomePath = '';
-      let activeLocalDiskTrashPath = '';
-      let activeLocalDiskItems = [];
-      let localDiskSortKey = 'name';
-      let localDiskSortOrder = 'asc';
-      let localDiskViewMode = 'split';
-      const selectedLocalDiskPaths = new Set();
-      let activeLocalDiskDragPaths = [];
-      let activeLocalDiskRenamePath = '';
-      let localDiskRenameClickTimer = null;
-      let localDiskClipboardPath = '';
-      let localDiskClipboardDirectory = false;
-      let localDiskClipboardPaths = [];
-      let localDiskClipboardDirectoryFlags = [];
-      let remoteDiskClipboardPath = '';
-      let remoteDiskClipboardDirectory = false;
-      let remoteDiskClipboardPaths = [];
-      let remoteDiskClipboardDirectoryFlags = [];
-      let activeLocalDiskTreeRootPath = '';
-      let localImportTargetFolderPath = '';
-      let localImportOverridePaths = null;
-      let activeRemoteCopyTaskId = '';
-      let activeRemoteCopyCancelRequested = false;
-      let localImportProgressWindowMode = '';
-      let localImportProgressMinimized = false;
-      const localImportExpandedFolderPaths = new Set(['']);
-      const localDiskTreeCache = new Map();
-      const expandedLocalDiskTreePaths = new Set();
-      let activeDropFolderPath = null;
-      let activeFolderAutoExpandPath = '';
-      let folderAutoExpandTimer = null;
-      let activeFolderRenamePath = '';
-      let folderRenameRequestPath = '';
-      let activeFileRenamePath = '';
-      let fileRenameRequestPath = '';
-      let fileRenameClickTimer = null;
-      let activeFolderContextMenu = null;
-      let activeFileContextMenu = null;
-      const unlockedFolderPasswords = new Map();
-      const unlockedFilePasswords = new Map();
-      const selectedFileNames = new Set();
-      const selectedFolderPaths = new Set();
-      let lastSelectedFolderPath = '';
-      const expandedFolderPaths = new Set(['']);
-      let tagTree = [];
-      let activeFilterTagId = '';
-      let tagFileViewMode = 'list';
-      let currentAdminStoragePath = '';
-      let adminStorageProgressTimer = null;
-      let activeAdminStorageMigrateTaskId = '';
-      let adminStoragePickerRootPath = '';
-      let adminStoragePickerSelectedPath = '';
-      let activeAdminStorageHomePath = '';
-      const adminStoragePickerCache = new Map();
-      const adminStoragePickerExpandedPaths = new Set();
-      const expandedTagNodeIds = new Set();
-      let activeTagMenuId = '';
-      let activeDropTagNode = null;
-      let activeTagRenameId = '';
-      let tagRenameRequestId = '';
-      let previewZ = 900;
-      let activeTagPreviewImages = [];
-      let activeDrag = null;
-      let activeTagDialogResolver = null;
-      let activeLockDialogState = null;
-      let activeConfirmDialogResolver = null;
-      let activeAudioTagContextMenu = null;
-      let activeFileTagMenu = null;
-      const openedPreviewWindows = new Map();
-      const transcodeProgressTimers = new Map();
-      const videoResumeSaveTimers = new Map();
+
+      var RECYCLE_FOLDER_NAME = '回收站';
+
+      var allFiles = [];
+
+      var activeSourceFiles = [];
+
+      var currentFiles = [];
+
+      var folderTreeData = [];
+
+      var activeFolderPath = '';
+
+      var activeLocalDiskPath = '';
+
+      var activeLocalDiskParentPath = '/';
+
+      var activeLocalDiskHomePath = '';
+
+      var activeLocalDiskTrashPath = '';
+
+      var activeLocalDiskItems = [];
+
+      var localDiskSortKey = 'name';
+
+      var localDiskSortOrder = 'asc';
+
+      var localDiskViewMode = 'split';
+
+      var selectedLocalDiskPaths = new Set();
+
+      var activeLocalDiskDragPaths = [];
+
+      var activeLocalDiskRenamePath = '';
+
+      var localDiskRenameClickTimer = null;
+
+      var localDiskClipboardPath = '';
+
+      var localDiskClipboardDirectory = false;
+
+      var localDiskClipboardPaths = [];
+
+      var localDiskClipboardDirectoryFlags = [];
+
+      var remoteDiskClipboardPath = '';
+
+      var remoteDiskClipboardDirectory = false;
+
+      var remoteDiskClipboardPaths = [];
+
+      var remoteDiskClipboardDirectoryFlags = [];
+
+      var activeLocalDiskTreeRootPath = '';
+
+      var localImportTargetFolderPath = '';
+
+      var localImportOverridePaths = null;
+
+      var activeRemoteCopyTaskId = '';
+
+      var activeRemoteCopyCancelRequested = false;
+
+      var localImportProgressWindowMode = '';
+
+      var localImportProgressMinimized = false;
+
+      var localImportExpandedFolderPaths = new Set(['']);
+
+      var localDiskTreeCache = new Map();
+
+      var expandedLocalDiskTreePaths = new Set();
+
+      var activeDropFolderPath = null;
+
+      var activeFolderAutoExpandPath = '';
+
+      var folderAutoExpandTimer = null;
+
+      var activeFolderRenamePath = '';
+
+      var folderRenameRequestPath = '';
+
+      var activeFileRenamePath = '';
+
+      var fileRenameRequestPath = '';
+
+      var fileRenameClickTimer = null;
+
+      var activeFolderContextMenu = null;
+
+      var activeFileContextMenu = null;
+
+      var unlockedFolderPasswords = new Map();
+
+      var unlockedFilePasswords = new Map();
+
+      var selectedFileNames = new Set();
+
+      var selectedFolderPaths = new Set();
+
+      var lastSelectedFolderPath = '';
+
+      var expandedFolderPaths = new Set(['']);
+
+      var tagTree = [];
+
+      var activeFilterTagId = '';
+
+      var tagFileViewMode = 'list';
+
+      var currentAdminStoragePath = '';
+
+      var adminStorageProgressTimer = null;
+
+      var activeAdminStorageMigrateTaskId = '';
+
+      var adminStoragePickerRootPath = '';
+
+      var adminStoragePickerSelectedPath = '';
+
+      var activeAdminStorageHomePath = '';
+
+      var adminStoragePickerCache = new Map();
+
+      var adminStoragePickerExpandedPaths = new Set();
+
+      var expandedTagNodeIds = new Set();
+
+      var activeTagMenuId = '';
+
+      var activeDropTagNode = null;
+
+      var activeTagRenameId = '';
+
+      var tagRenameRequestId = '';
+
+      var previewZ = 900;
+
+      var activeTagPreviewImages = [];
+
+      var activeDrag = null;
+
+      var activeTagDialogResolver = null;
+
+      var activeLockDialogState = null;
+
+      var activeConfirmDialogResolver = null;
+
+      var activeAudioTagContextMenu = null;
+
+      var activeFileTagMenu = null;
+
+      var openedPreviewWindows = new Map();
+
+      var transcodeProgressTimers = new Map();
+
+      var videoResumeSaveTimers = new Map();

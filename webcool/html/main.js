@@ -20,19 +20,23 @@
     }
   }
 
-  function loadModuleSource(url) {
-    return fetch(url, { cache: 'no-cache' }).then(function (res) {
-      if (!res.ok) {
-        throw new Error(url + ' load failed: HTTP ' + res.status);
-      }
-      return res.text();
+  function loadModuleScript(url) {
+    return new Promise(function (resolve, reject) {
+      const script = document.createElement('script');
+      script.src = url;
+      script.async = false;
+      script.onload = resolve;
+      script.onerror = function () {
+        reject(new Error(url + ' load failed'));
+      };
+      document.head.appendChild(script);
     });
   }
 
-  Promise.all(modules.map(loadModuleSource))
-    .then(function (parts) {
-      const code = '(function () {\n' + parts.join('\n') + '\n})();';
-      (0, eval)(code + '\n//# sourceURL=webcool-main-runtime.js');
-    })
+  modules.reduce(function (chain, url) {
+    return chain.then(function () {
+      return loadModuleScript(url);
+    });
+  }, Promise.resolve())
     .catch(showLoadError);
 })();

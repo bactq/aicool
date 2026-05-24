@@ -1,741 +1,146 @@
-          imageEl.onload = function () {
-            if (!win.__imageBaseCanvas) {
-              capturePreviewBaseCanvas(win);
-            }
-            updatePreviewImageSizeLabel(win);
-          };
-          imageEl.alt = String(item.name || '图片预览');
-          imageEl.src = imagePreviewUrlForItem(item);
-        }
-        resetImageEditState(win);
-        if (prevBtn) {
-          prevBtn.disabled = nextIndex <= 0;
-          prevBtn.hidden = gallery.length <= 1;
-        }
-        if (nextBtn) {
-          nextBtn.disabled = nextIndex >= gallery.length - 1;
-          nextBtn.hidden = gallery.length <= 1;
-        }
+function downloadUrlForFile(filePath, preview) {
+        const encoded = encodeURIComponent(filePath || '');
+        let url = api.download + '?' + (preview ? 'preview=1&' : '') + 'file=' + encoded;
+        url = withFolderPassword(url, parentFolderPathFromFilePath(filePath));
+        return appendFilePassword(url, filePath, false);
       }
 
-      function stepImagePreviewWindow(win, delta) {
-        if (!win || !Array.isArray(win.__imageGallery) || !win.__imageGallery.length) {
+      function openTagLockContextMenu(tagId, locked, clientX, clientY) {
+        closeFileContextMenu();
+        closeFolderContextMenu();
+        closeAudioTagContextMenu();
+
+        const id = String(tagId || '');
+        if (!id) {
           return;
         }
-        const nextIndex = Number(win.__imageIndex || 0) + Number(delta || 0);
-        if (nextIndex < 0 || nextIndex >= win.__imageGallery.length) {
-          return;
+
+        const menu = document.createElement('div');
+        menu.className = 'folder-context-menu file-context-menu';
+        menu.setAttribute('data-tag-lock-id', id);
+        let html = '';
+        if (locked) {
+          const unlocked = !!getTagPassword(id);
+          html += '<button type="button" class="folder-context-item" data-tag-lock-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + t(unlocked ? '加锁' : '解锁') + '</button>';
+          html += '<button type="button" class="folder-context-item" data-tag-lock-action="remove-lock">' + t('去锁') + '</button>';
+        } else {
+          html += '<button type="button" class="folder-context-item" data-tag-lock-action="lock">' + t('加锁') + '</button>';
         }
-        updateImagePreviewWindow(win, win.__imageGallery, nextIndex);
+        menu.innerHTML = html;
+        document.body.appendChild(menu);
+        menu.style.left = Math.round(clientX) + 'px';
+        menu.style.top = Math.round(clientY) + 'px';
+        clampFloatingMenuPosition(menu, clientX, clientY);
+        activeFileContextMenu = menu;
       }
 
-      function getTopImagePreviewWindow() {
-        if (!previewLayer) {
-          return null;
+      async function migrateLegacyTagNode(node, parentTagId) {
+        const createResult = await addTagNode(parentTagId, node.name || '');
+        if (!createResult.ok || !createResult.id) {
+          throw new Error(createResult.message || t('创建标签失败'));
         }
-        return Array.from(previewLayer.querySelectorAll('.floating-preview')).filter(function (win) {
-          return win && win.isConnected && Array.isArray(win.__imageGallery) && win.__imageGallery.length > 1;
-        }).sort(function (a, b) {
-          return Number(b.style.zIndex || 0) - Number(a.style.zIndex || 0);
-        })[0] || null;
-      }
 
-      function buildImageGalleryFromFiles(files) {
-        return (Array.isArray(files) ? files : []).filter(function (file) {
-          return file && !file.directory && isImageName(file.name || getFilePath(file));
-        }).map(function (file) {
-          const rawName = getFilePath(file);
-          return {
-            file: rawName,
-            name: String(file.name || rawName || ''),
-            local: !!file.local
-          };
-        }).filter(function (item) {
-          return !!item.file;
-        });
-      }
-
-      function imageGalleryIndexOf(gallery, filePath) {
-        const target = String(filePath || '');
-        const index = (Array.isArray(gallery) ? gallery : []).findIndex(function (item) {
-          return String((item && item.file) || '') === target;
-        });
-        return index >= 0 ? index : 0;
-      }
-
-      function getSortedCurrentFiles() {
-        const key = sortKey.value || 'name';
-        const order = sortOrder.value || 'asc';
-        return (Array.isArray(currentFiles) ? currentFiles : []).slice().sort(function (a, b) {
-          return compareFiles(a, b, key, order);
-        });
-      }
-
-      function splitAudioSidecarCandidates(filePath) {
-        const text = String(filePath || '');
-        const match = text.match(/^(.*)_web_video(_\d+)?\.mp4$/i);
-        if (!match) {
-          return [];
-        }
-        const base = match[1];
-        const suffix = match[2] || '';
-        return [base + '_web_audio' + suffix + '.m4a', base + '_web_audio' + suffix + '.aac'];
-      }
-
-      function listHasFilePath(list, filePath, local) {
-        const target = String(filePath || '');
-        if (!target) {
-          return false;
-        }
-        return (Array.isArray(list) ? list : []).some(function (item) {
-          if (!item) {
-            return false;
-          }
-          if (!!item.local !== !!local) {
-            return false;
-          }
-          const currentPath = local ? String(item.path || '') : String(getFilePath(item) || '');
-          return currentPath === target;
-        });
-      }
-
-      function resolveSplitVideoAudioUrl(filePath, local) {
-        const candidates = splitAudioSidecarCandidates(filePath);
-        if (!candidates.length) {
-          return '';
-        }
-        for (let i = 0; i < candidates.length; i += 1) {
-          const sidecar = candidates[i];
-          if (local) {
-            if (listHasFilePath(activeLocalDiskItems, sidecar, true)) {
-              return localDiskDownloadUrl(sidecar) + '&v=' + Date.now();
-            }
+        const serverTagId = createResult.id;
+        const files = Array.isArray(node.files) ? node.files : [];
+        for (let i = 0; i < files.length; i += 1) {
+          const fileName = String(files[i] || '');
+          if (!fileName) {
             continue;
           }
-          const exists = listHasFilePath(currentFiles, sidecar, false)
-            || listHasFilePath(activeSourceFiles, sidecar, false)
-            || listHasFilePath(allFiles, sidecar, false);
-          if (exists) {
-            return downloadUrlForFile(sidecar, true) + '&v=' + Date.now();
-          }
+          await bindFileToTag(serverTagId, fileName);
         }
-        return '';
+
+        const children = Array.isArray(node.children) ? node.children : [];
+        for (let i = 0; i < children.length; i += 1) {
+          await migrateLegacyTagNode(children[i], serverTagId);
+        }
       }
 
-      function bindSplitVideoAudio(videoEl, audioEl) {
-        if (!videoEl || !audioEl) {
+      async function submitFolderRename(input) {
+        if (!input) {
+          return;
+        }
+        const oldPath = String(input.getAttribute('data-folder-rename-input') || '');
+        if (!canRenameFolderPath(oldPath) || activeFolderRenamePath !== oldPath) {
+          return;
+        }
+        if (folderRenameRequestPath === oldPath) {
+          return;
+        }
+        const nextName = String(input.value || '').trim();
+        const oldName = folderNameFromPath(oldPath);
+        if (!nextName) {
+          showStatus(t('文件夹名称不能为空'), 'err');
+          input.focus();
+          return;
+        }
+        if (nextName === oldName) {
+          activeFolderRenamePath = '';
+          renderFolderTree();
           return;
         }
 
-        function syncVolumeAndRate() {
-          audioEl.muted = !!videoEl.muted;
-          audioEl.volume = Math.max(0, Math.min(1, Number(videoEl.volume || 0)));
-          audioEl.playbackRate = Number(videoEl.playbackRate || 1) || 1;
-        }
-
-        function syncCurrentTime(force) {
-          const videoTime = Math.max(0, Number(videoEl.currentTime || 0));
-          const audioTime = Math.max(0, Number(audioEl.currentTime || 0));
-          if (force || Math.abs(videoTime - audioTime) > 0.35) {
-            try {
-              audioEl.currentTime = videoTime;
-            } catch (_) {}
-          }
-        }
-
-        syncVolumeAndRate();
-        videoEl.addEventListener('volumechange', syncVolumeAndRate);
-        videoEl.addEventListener('ratechange', syncVolumeAndRate);
-        videoEl.addEventListener('loadedmetadata', function () {
-          syncCurrentTime(true);
-        });
-        videoEl.addEventListener('play', function () {
-          syncVolumeAndRate();
-          syncCurrentTime(true);
-          audioEl.play().catch(function () {});
-        });
-        videoEl.addEventListener('pause', function () {
-          audioEl.pause();
-        });
-        videoEl.addEventListener('seeking', function () {
-          syncCurrentTime(true);
-        });
-        videoEl.addEventListener('timeupdate', function () {
-          if (!audioEl.paused) {
-            syncCurrentTime(false);
-          }
-        });
-        videoEl.addEventListener('ended', function () {
-          audioEl.pause();
-          syncCurrentTime(true);
-        });
-      }
-
-      function currentImageGalleryPreviewKey() {
-        if (activeFilterTagId) {
-          return 'image-gallery:tag:' + String(activeFilterTagId || 'default');
-        }
-        return 'image-gallery:folder:' + String(activeFolderPath || 'root');
-      }
-
-      function openCurrentFileImagePreview(filePath, displayName) {
-        const rawPath = String(filePath || '');
-        if (!rawPath) {
-          return;
-        }
-        const gallery = buildImageGalleryFromFiles(getSortedCurrentFiles());
-        const index = imageGalleryIndexOf(gallery, rawPath);
-        const current = gallery[index] || { file: rawPath, name: displayName || rawPath, local: false };
-        const opts = {
-          previewKey: currentImageGalleryPreviewKey(),
-          gallery: gallery.length ? gallery : [current],
-          galleryIndex: index,
-          local: !!current.local
-        };
-        if (current.local) {
-          opts.url = localDiskDownloadUrl(rawPath);
-        }
-        openPreview('image', encodeURIComponent(rawPath), displayName || current.name || rawPath, opts);
-      }
-
-      function buildLocalDiskImageGallery() {
-        return (Array.isArray(activeLocalDiskItems) ? activeLocalDiskItems : []).slice()
-          .sort(compareLocalDiskItems)
-          .filter(function (item) {
-            return item && !item.directory && isImageName(item.name || item.path);
-          }).map(function (item) {
-            const path = String(item.path || '');
-            return {
-              file: path,
-              name: String(item.name || localDiskBaseName(path)),
-              local: true
-            };
-          }).filter(function (item) {
-            return !!item.file;
-          });
-      }
-
-      function openLocalDiskImagePreview(path, displayName) {
-        const rawPath = String(path || '');
-        if (!rawPath) {
-          return;
-        }
-        const gallery = buildLocalDiskImageGallery();
-        const index = imageGalleryIndexOf(gallery, rawPath);
-        const current = gallery[index] || { file: rawPath, name: displayName || rawPath, local: true };
-        openPreview('image', encodeURIComponent(rawPath), displayName || current.name || rawPath, {
-          local: true,
-          url: localDiskDownloadUrl(rawPath),
-          previewKey: 'local-image-gallery:' + String(activeLocalDiskPath || localDiskParentPath(rawPath) || 'root'),
-          gallery: gallery.length ? gallery : [current],
-          galleryIndex: index
-        });
-      }
-
-      function imageEditMimeForFile(filePath) {
-        const text = String(filePath || '').toLowerCase();
-        if (/\.(jpg|jpeg)$/.test(text)) {
-          return 'image/jpeg';
-        }
-        if (/\.png$/.test(text)) {
-          return 'image/png';
-        }
-        return '';
-      }
-
-      function currentPreviewImageItem(win) {
-        if (!win || !Array.isArray(win.__imageGallery) || !win.__imageGallery.length) {
-          return null;
-        }
-        return win.__imageGallery[Math.max(0, Math.min(Number(win.__imageIndex || 0), win.__imageGallery.length - 1))] || null;
-      }
-
-      function setImageEditHint(win, text, error) {
-        const hint = win ? win.querySelector('.preview-edit-hint') : null;
-        if (!hint) {
-          return;
-        }
-        hint.textContent = String(text || '');
-        hint.classList.toggle('error', !!error);
-      }
-
-      function updatePreviewImageSizeLabel(win, width, height) {
-        if (!win) {
-          return;
-        }
-        const widthInput = win ? win.querySelector('.preview-size-input[data-image-size="width"]') : null;
-        const heightInput = win ? win.querySelector('.preview-size-input[data-image-size="height"]') : null;
-        const img = win.querySelector('.preview-image');
-        const w = Math.max(0, Math.round(Number(width || (img && img.naturalWidth) || 0)));
-        const h = Math.max(0, Math.round(Number(height || (img && img.naturalHeight) || 0)));
-        if (widthInput) {
-          widthInput.value = w ? String(w) : '';
-        }
-        if (heightInput) {
-          heightInput.value = h ? String(h) : '';
-        }
-      }
-
-      function resetImageEditState(win) {
-        if (!win) {
-          return;
-        }
-        win.__imageDirty = false;
-        win.__imageCropMode = false;
-        win.__imageCropRect = null;
-        win.__imageBaseCanvas = null;
-        win.__imageScale = 1;
-        win.__imageCurrentWidth = 0;
-        win.__imageCurrentHeight = 0;
-        const shell = win.querySelector('.preview-image-shell');
-        const cropRect = win.querySelector('.preview-crop-rect');
-        if (shell) {
-          shell.classList.remove('crop-mode');
-        }
-        if (cropRect) {
-          cropRect.hidden = true;
-          cropRect.removeAttribute('style');
-        }
-        setImageEditHint(win, '');
-        updatePreviewImageSizeLabel(win);
-      }
-
-      function canvasToBlob(canvas, type, quality) {
-        return new Promise(function (resolve, reject) {
-          canvas.toBlob(function (blob) {
-            if (blob) {
-              resolve(blob);
-            } else {
-              reject(new Error('生成图片失败'));
-            }
-          }, type || 'image/png', quality || 0.92);
-        });
-      }
-
-      function drawImageElementToCanvas(img) {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth || img.width;
-        canvas.height = img.naturalHeight || img.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        return canvas;
-      }
-
-      function cloneCanvas(source) {
-        const canvas = document.createElement('canvas');
-        canvas.width = source.width;
-        canvas.height = source.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(source, 0, 0);
-        return canvas;
-      }
-
-      function capturePreviewBaseCanvas(win) {
-        const img = win ? win.querySelector('.preview-image') : null;
-        if (!win || !img || !img.complete || !img.naturalWidth || !img.naturalHeight) {
-          return null;
-        }
-        win.__imageBaseCanvas = drawImageElementToCanvas(img);
-        win.__imageScale = 1;
-        win.__imageCurrentWidth = win.__imageBaseCanvas.width;
-        win.__imageCurrentHeight = win.__imageBaseCanvas.height;
-        updatePreviewImageSizeLabel(win);
-        return win.__imageBaseCanvas;
-      }
-
-      function previewBaseCanvas(win) {
-        return (win && win.__imageBaseCanvas) || capturePreviewBaseCanvas(win);
-      }
-
-      function replacePreviewImageWithCanvas(win, canvas, options) {
-        const img = win ? win.querySelector('.preview-image') : null;
-        const item = currentPreviewImageItem(win);
-        const opts = options || {};
-        const mime = imageEditMimeForFile(item && item.file);
-        if (!img || !mime) {
-          throw new Error('当前图片格式暂不支持编辑保存');
-        }
-        if (opts.updateBase !== false) {
-          win.__imageBaseCanvas = cloneCanvas(canvas);
-          win.__imageScale = 1;
-        }
-        win.__imageCurrentWidth = canvas.width;
-        win.__imageCurrentHeight = canvas.height;
-        img.src = canvas.toDataURL(mime, 0.92);
-        win.__imageDirty = true;
-        win.__imageCropRect = null;
-        const cropRect = win.querySelector('.preview-crop-rect');
-        if (cropRect) {
-          cropRect.hidden = true;
-          cropRect.removeAttribute('style');
-        }
-        updatePreviewImageSizeLabel(win, canvas.width, canvas.height);
-      }
-
-      function rotatePreviewImage(win, direction) {
-        const img = win ? win.querySelector('.preview-image') : null;
-        if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) {
-          setImageEditHint(win, '图片还没有加载完成，请稍后再试。', true);
-          return;
-        }
         try {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.naturalHeight;
-          canvas.height = img.naturalWidth;
-          const ctx = canvas.getContext('2d');
-          if (direction === 'left') {
-            ctx.translate(0, canvas.height);
-            ctx.rotate(-Math.PI / 2);
-          } else {
-            ctx.translate(canvas.width, 0);
-            ctx.rotate(Math.PI / 2);
-          }
-          ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
-          replacePreviewImageWithCanvas(win, canvas);
-          setImageEditHint(win, direction === 'left'
-            ? '已向左旋转 90 度，点击“保存到服务”写入文件。'
-            : '已向右旋转 90 度，点击“保存到服务”写入文件。');
-        } catch (err) {
-          setImageEditHint(win, '旋转失败：' + err.message, true);
-        }
-      }
-
-      function renderPreviewImageFromBase(win, width, height, message) {
-        const img = win ? win.querySelector('.preview-image') : null;
-        if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) {
-          setImageEditHint(win, '图片还没有加载完成，请稍后再试。', true);
-          return;
-        }
-        const base = previewBaseCanvas(win);
-        if (!base) {
-          setImageEditHint(win, '图片还没有加载完成，请稍后再试。', true);
-          return;
-        }
-        const nextWidth = Math.max(1, Math.round(Number(width || 0)));
-        const nextHeight = Math.max(1, Math.round(Number(height || 0)));
-        if (nextWidth > 12000 || nextHeight > 12000) {
-          setImageEditHint(win, '图片尺寸过大，无法调整。', true);
-          return;
-        }
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = nextWidth;
-          canvas.height = nextHeight;
-          const ctx = canvas.getContext('2d');
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
-          ctx.drawImage(base, 0, 0, nextWidth, nextHeight);
-          replacePreviewImageWithCanvas(win, canvas, { updateBase: false });
-          setImageEditHint(win, message || ('已调整至 ' + nextWidth + ' x ' + nextHeight + '。'));
-        } catch (err) {
-          setImageEditHint(win, '调整尺寸失败：' + err.message, true);
-        }
-      }
-
-      function scalePreviewImage(win, factor) {
-        const base = previewBaseCanvas(win);
-        if (!base) {
-          setImageEditHint(win, '图片还没有加载完成，请稍后再试。', true);
-          return;
-        }
-        const scale = Math.max(0.05, Math.min(20, Number(win.__imageScale || 1) * Number(factor || 1)));
-        const nextWidth = Math.max(1, Math.round(base.width * scale));
-        const nextHeight = Math.max(1, Math.round(base.height * scale));
-        win.__imageScale = scale;
-        renderPreviewImageFromBase(
-          win,
-          nextWidth,
-          nextHeight,
-          (Number(factor || 1) > 1 ? '已等比例放大至 ' : '已等比例缩小至 ') + nextWidth + ' x ' + nextHeight + '。'
-        );
-      }
-
-      function applyPreviewImageManualSize(win) {
-        const widthInput = win ? win.querySelector('.preview-size-input[data-image-size="width"]') : null;
-        const heightInput = win ? win.querySelector('.preview-size-input[data-image-size="height"]') : null;
-        const width = Math.round(Number(widthInput && widthInput.value));
-        const height = Math.round(Number(heightInput && heightInput.value));
-        if (!width || !height || width < 1 || height < 1) {
-          setImageEditHint(win, '请输入有效的图片宽度和高度。', true);
-          return;
-        }
-        const base = previewBaseCanvas(win);
-        if (base) {
-          win.__imageScale = width / base.width;
-        }
-        renderPreviewImageFromBase(win, width, height, '已按输入尺寸调整至 ' + width + ' x ' + height + '。');
-      }
-
-      function setPreviewCropMode(win, enabled) {
-        if (!win) {
-          return;
-        }
-        win.__imageCropMode = !!enabled;
-        const shell = win.querySelector('.preview-image-shell');
-        const cropRect = win.querySelector('.preview-crop-rect');
-        if (shell) {
-          shell.classList.toggle('crop-mode', !!enabled);
-        }
-        if (cropRect && !enabled && !win.__imageCropRect) {
-          cropRect.hidden = true;
-          cropRect.removeAttribute('style');
-        }
-        setImageEditHint(win, enabled ? '在图片上拖拽选择剪切区域，然后点击“应用剪切”。' : '');
-      }
-
-      function applyPreviewImageCrop(win) {
-        const img = win ? win.querySelector('.preview-image') : null;
-        const rect = win && win.__imageCropRect;
-        if (!img || !rect || rect.width < 2 || rect.height < 2) {
-          setImageEditHint(win, '请先拖拽选择一个剪切区域。', true);
-          return;
-        }
-        try {
-          const source = drawImageElementToCanvas(img);
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.max(1, Math.round(rect.width));
-          canvas.height = Math.max(1, Math.round(rect.height));
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(
-            source,
-            Math.round(rect.x), Math.round(rect.y), canvas.width, canvas.height,
-            0, 0, canvas.width, canvas.height
+          folderRenameRequestPath = oldPath;
+          const result = await fetchJson(
+            withFolderPassword(api.folderRename + '?path=' + encodeURIComponent(oldPath) + '&name=' + encodeURIComponent(nextName), oldPath),
+            { method: 'POST' }
           );
-          replacePreviewImageWithCanvas(win, canvas);
-          setPreviewCropMode(win, false);
-          setImageEditHint(win, '已应用剪切，点击“保存到服务”写入文件。');
+          const newPath = String((result && result.path) || '');
+          activeFolderRenamePath = '';
+          activeFolderPath = relocatePathAfterFolderMove(activeFolderPath, oldPath, newPath);
+          ensureFolderPathExpanded(activeFolderPath);
+          await loadFiles();
+          showStatus(t('文件夹已改名：') + nextName, 'ok');
         } catch (err) {
-          setImageEditHint(win, '剪切失败：' + err.message, true);
+          showStatus(t('文件夹改名失败：') + err.message, 'err');
+          selectRenameInputText(input);
+        } finally {
+          folderRenameRequestPath = '';
         }
       }
 
-      function cancelPreviewImageCrop(win) {
-        if (!win) {
+      async function submitFileRename(input) {
+        if (!input || input.disabled) {
           return;
         }
-        win.__imageCropRect = null;
-        const cropRect = win.querySelector('.preview-crop-rect');
-        if (cropRect) {
-          cropRect.hidden = true;
-          cropRect.removeAttribute('style');
-        }
-        setPreviewCropMode(win, false);
-      }
-
-      async function savePreviewImageEdits(win) {
-        const img = win ? win.querySelector('.preview-image') : null;
-        const item = currentPreviewImageItem(win);
-        if (!img || !item || !item.file) {
+        const oldPath = decodeURIComponent(input.getAttribute('data-file-rename-path') || '');
+        const nextName = String(input.value || '').trim();
+        const record = getFileRecordByPath(oldPath);
+        if (!oldPath || !record || !canRenameFileRecord(record)) {
+          cancelFileRename();
           return;
         }
-        const mime = imageEditMimeForFile(item.file);
-        if (!mime) {
-          setImageEditHint(win, 'GIF 动图暂不支持编辑保存，请先转换为 PNG/JPG。', true);
+        const currentName = String(record.name || oldPath.split('/').pop() || '');
+        if (!nextName || nextName === currentName) {
+          cancelFileRename();
           return;
         }
-        if (!win.__imageDirty) {
-          setImageEditHint(win, '图片尚未编辑，无需保存。');
-          return;
-        }
+        input.disabled = true;
+        resetStatus();
         try {
-          const canvas = drawImageElementToCanvas(img);
-          const blob = await canvasToBlob(canvas, mime, 0.92);
-          const form = new FormData();
-          form.append('image', blob, localDiskBaseName(item.file));
-          let url = api.imageSave + '?file=' + encodeURIComponent(item.file);
-          if (item.local) {
-            url += '&local=1';
-            url = appendLocalDirPassword(appendFilePassword(url, item.file, true), localDiskParentPath(item.file));
+          let url = api.fileRename + '?file=' + encodeURIComponent(oldPath) + '&name=' + encodeURIComponent(nextName);
+          url = withFolderPassword(url, parentFolderPathFromFilePath(oldPath));
+          url = appendFilePassword(url, oldPath, false);
+          const result = await fetchJson(url, { method: 'POST' });
+          const newPath = String((result && result.path) || '');
+          selectedFileNames.delete(oldPath);
+          if (newPath) {
+            selectedFileNames.add(newPath);
+          }
+          activeFileRenamePath = '';
+          fileRenameRequestPath = '';
+          if (activeFilterTagId) {
+            await showFilesForTag(activeFilterTagId);
           } else {
-            url = appendFilePassword(withFolderPassword(url, parentFolderPathFromFilePath(item.file)), item.file, false);
+            await loadFiles();
           }
-          setImageEditHint(win, '正在保存...');
-          await fetchJson(url, { method: 'POST', body: form });
-          win.__imageDirty = false;
-          win.__imageBaseCanvas = null;
-          win.__imageScale = 1;
-          img.src = imagePreviewUrlForItem(item);
-          showStatus('图片编辑结果已保存：' + item.file, 'ok');
-          setImageEditHint(win, '已保存。');
+          showStatus(t('文件已改名：') + currentName + ' -> ' + nextName, 'ok');
         } catch (err) {
-          setImageEditHint(win, '保存失败：' + err.message, true);
-          showStatus('保存图片失败：' + err.message, 'err');
+          input.disabled = false;
+          showStatus(t('文件改名失败：') + err.message, 'err');
+          selectRenameInputText(input);
         }
-      }
-
-      async function downloadPreviewImageEdits(win) {
-        const img = win ? win.querySelector('.preview-image') : null;
-        const item = currentPreviewImageItem(win);
-        if (!img || !item || !item.file) {
-          return;
-        }
-        const mime = imageEditMimeForFile(item.file);
-        if (!mime) {
-          setImageEditHint(win, 'GIF 动图暂不支持编辑后下载，请先转换为 PNG/JPG。', true);
-          return;
-        }
-        try {
-          const canvas = drawImageElementToCanvas(img);
-          const blob = await canvasToBlob(canvas, mime, 0.92);
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = localDiskBaseName(item.file) || 'image';
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          URL.revokeObjectURL(url);
-          setImageEditHint(win, '已生成本地下载文件。');
-        } catch (err) {
-          setImageEditHint(win, '下载失败：' + err.message, true);
-        }
-      }
-
-      function initPreviewImageEditing(win) {
-        const shell = win ? win.querySelector('.preview-image-shell') : null;
-        const img = win ? win.querySelector('.preview-image') : null;
-        const cropRect = win ? win.querySelector('.preview-crop-rect') : null;
-        if (!win || !shell || !img || !cropRect) {
-          return;
-        }
-
-        let drag = null;
-        function clampPoint(e) {
-          const rect = img.getBoundingClientRect();
-          const x = Math.max(rect.left, Math.min(rect.right, e.clientX));
-          const y = Math.max(rect.top, Math.min(rect.bottom, e.clientY));
-          return { x: x, y: y, imageRect: rect };
-        }
-        function drawRect(a, b) {
-          const shellRect = shell.getBoundingClientRect();
-          const left = Math.min(a.x, b.x);
-          const top = Math.min(a.y, b.y);
-          const width = Math.abs(a.x - b.x);
-          const height = Math.abs(a.y - b.y);
-          cropRect.hidden = false;
-          cropRect.style.left = (left - shellRect.left) + 'px';
-          cropRect.style.top = (top - shellRect.top) + 'px';
-          cropRect.style.width = width + 'px';
-          cropRect.style.height = height + 'px';
-          win.__imageCropRect = {
-            x: ((left - b.imageRect.left) / b.imageRect.width) * img.naturalWidth,
-            y: ((top - b.imageRect.top) / b.imageRect.height) * img.naturalHeight,
-            width: (width / b.imageRect.width) * img.naturalWidth,
-            height: (height / b.imageRect.height) * img.naturalHeight
-          };
-        }
-
-        shell.addEventListener('mousedown', function (e) {
-          if (!win.__imageCropMode || !img.complete || !img.naturalWidth) {
-            return;
-          }
-          e.preventDefault();
-          const start = clampPoint(e);
-          drag = { start: start };
-          drawRect(start, start);
-        });
-        window.addEventListener('mousemove', function (e) {
-          if (!drag) {
-            return;
-          }
-          e.preventDefault();
-          drawRect(drag.start, clampPoint(e));
-        });
-        window.addEventListener('mouseup', function (e) {
-          if (!drag) {
-            return;
-          }
-          e.preventDefault();
-          drawRect(drag.start, clampPoint(e));
-          drag = null;
-        });
-
-        win.addEventListener('click', function (e) {
-          const action = e.target.closest('[data-image-edit]');
-          if (!action || !win.contains(action)) {
-            return;
-          }
-          e.preventDefault();
-          const type = action.getAttribute('data-image-edit') || '';
-          if (type === 'rotate-left') {
-            rotatePreviewImage(win, 'left');
-          } else if (type === 'rotate-right') {
-            rotatePreviewImage(win, 'right');
-          } else if (type === 'zoom-in') {
-            scalePreviewImage(win, 1.25);
-          } else if (type === 'zoom-out') {
-            scalePreviewImage(win, 0.8);
-          } else if (type === 'crop') {
-            setPreviewCropMode(win, true);
-          } else if (type === 'apply-crop') {
-            applyPreviewImageCrop(win);
-          } else if (type === 'cancel-crop') {
-            cancelPreviewImageCrop(win);
-          } else if (type === 'download') {
-            downloadPreviewImageEdits(win);
-          } else if (type === 'save') {
-            savePreviewImageEdits(win);
-          }
-        });
-
-        win.addEventListener('keydown', function (e) {
-          if (!e.target.closest('.preview-size-input[data-image-size]')) {
-            return;
-          }
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            applyPreviewImageManualSize(win);
-          }
-        });
-      }
-
-      function buildLocalDiskFileRowHtml(item) {
-        const name = String((item && item.name) || '');
-        const path = String((item && item.path) || '');
-        const encodedPath = encodeURIComponent(path);
-        const checked = selectedLocalDiskPaths.has(path) ? ' checked' : '';
-        const selectedClass = selectedLocalDiskPaths.has(path) ? ' selected-file-row' : '';
-        const fileLocked = !!(item && item.locked);
-        const lockIcon = fileLocked
-          ? '<span class="folder-lock-icon file-lock-inline' + (getFilePassword(path, true) ? ' unlocked' : '') + '" title="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '" aria-label="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
-          : '';
-        const selectBox = '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '><button class="file-tag-quick-btn local-file-tag-btn" type="button" data-local-tag-file="' + encodedPath + '" title="' + escapeHtml(t('加入标签')) + '" aria-label="' + escapeHtml(t('加入标签')) + '">🏷</button></span>';
-        const renameInput = activeLocalDiskRenamePath === path
-          ? '<input class="file-rename-input local-disk-rename-input" type="text" value="' + escapeHtml(name) + '" data-local-disk-rename-path="' + encodedPath + '" aria-label="' + escapeHtml(t('改名文件')) + '">'
-          : '';
-        const displayName = selectBox + (renameInput || '<button type="button" class="file-name file-name-action local-disk-file-name-action local-disk-draggable-name" draggable="false" data-local-disk-file-name-click="' + encodedPath + '">' + escapeHtml(name) + '</button>') + lockIcon;
-        const previewBtn = isImageName(name)
-          ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
-          : '';
-        const videoBtn = isVideoName(name)
-          ? '<button class="local-preview-btn video-btn" data-kind="video" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">观影</button>'
-          : '';
-        const audioBtn = isAudioName(name)
-          ? '<button class="local-preview-btn audio-btn" data-kind="audio" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">听音</button>'
-          : '';
-        const textBtn = isTextName(name)
-          ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">查看</button>'
-          : '';
-        const pdfBtn = isPdfName(name)
-          ? '<button class="local-preview-btn preview-btn" data-kind="pdf" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
-          : '';
-        const deleteBtn = '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '" title="移至回收站" aria-label="移至回收站">移除</button>';
-        return (
-          '<tr class="local-disk-draggable' + selectedClass + '" draggable="true" data-local-drag="' + encodedPath + '" data-local-file-context="' + encodedPath + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (isVideoName(name) ? '1' : '0') + '">' +
-            '<td>' + displayName + '</td>' +
-            '<td>' + (formatNumber(Number(item.size || 0)) + ' 字节') + '</td>' +
-            '<td>' + escapeHtml((item && item.modified_time) || '-') + '</td>' +
-            '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + pdfBtn + '</div></td>' +
-            '<td class="row-danger-action"><div class="danger-actions">' + deleteBtn + '</div></td>' +
-          '</tr>'
-        );
-      }
-
-      function getLocalDiskItemByPath(path) {
-        const target = String(path || '');
-        return activeLocalDiskItems.find(function (item) {
-          return String((item && item.path) || '') === target;
-        }) || null;
       }
 
       function getLocalDiskTreeItemByPath(path) {
@@ -752,101 +157,152 @@
         return found;
       }
 
-      function isLocalDiskDirectoryPath(path) {
-        const item = getLocalDiskItemByPath(path) || getLocalDiskTreeItemByPath(path);
-        return !!(item && item.directory);
-      }
-
-      function localBaseName(path) {
-        const text = String(path || '').replace(/\/+$/, '');
-        const index = text.lastIndexOf('/');
-        return index >= 0 ? text.slice(index + 1) : text;
-      }
-
-      function clearLocalDiskRenameClickTimer() {
-        if (localDiskRenameClickTimer) {
-          clearTimeout(localDiskRenameClickTimer);
-          localDiskRenameClickTimer = null;
-        }
-      }
-
-      function refreshRenderedLocalDiskSelection() {
-        const roots = [localDiskList, localDiskExplorer].filter(Boolean);
-        roots.forEach(function (root) {
-          root.querySelectorAll('.local-disk-select[data-local-select]').forEach(function (checkbox) {
-            const path = decodeURIComponent(checkbox.getAttribute('data-local-select') || '');
-            const selected = selectedLocalDiskPaths.has(path);
-            checkbox.checked = selected;
-            const row = checkbox.closest('tr, .local-disk-dir-item');
-            if (row) {
-              row.classList.toggle('selected-file-row', selected);
-            }
-          });
-        });
-        updateLocalDiskBulkRemoveButton();
-      }
-
-      function startLocalDiskFileRename(path) {
-        const filePath = String(path || '');
-        const item = getLocalDiskItemByPath(filePath);
-        if (!item || item.directory) {
+      function minimizePreviewWindow(win) {
+        if (!win || win.classList.contains('is-minimized')) {
           return;
         }
-        clearLocalDiskRenameClickTimer();
-        activeLocalDiskRenamePath = filePath;
-        renderLocalDiskItems(activeLocalDiskItems);
-        window.setTimeout(function () {
-          const selector = '.local-disk-rename-input[data-local-disk-rename-path="' + encodeURIComponent(filePath) + '"]';
-          const input = (localDiskList && localDiskList.querySelector(selector))
-            || (localDiskExplorer && localDiskExplorer.querySelector(selector));
-          if (input) {
-            selectRenameInputText(input);
-          }
-        }, 0);
+        snapshotPreviewWindowRect(win);
+        win.classList.remove('is-maximized');
+        win.classList.add('is-minimized');
+        win.style.transform = 'none';
+        win.style.resize = 'none';
+        win.style.height = '';
+        win.style.maxHeight = '';
+        clampWindowPosition(win);
+        syncPreviewWindowButtons(win);
       }
 
-      function cancelLocalDiskFileRename() {
-        activeLocalDiskRenamePath = '';
-        clearLocalDiskRenameClickTimer();
-        renderLocalDiskItems(activeLocalDiskItems);
-      }
-
-      async function submitLocalDiskFileRename(input) {
-        if (!input || input.disabled) {
+      async function handleLocalDiskDrop(e) {
+        const target = getLocalDiskDropTarget(e);
+        if (!target || !activeLocalDiskDragPaths.length || activeLocalDiskDragPaths.indexOf(target.path) >= 0) {
           return;
         }
-        const oldPath = decodeURIComponent(input.getAttribute('data-local-disk-rename-path') || '');
-        const nextName = String(input.value || '').trim();
-        const item = getLocalDiskItemByPath(oldPath);
-        if (!oldPath || !item || item.directory) {
-          cancelLocalDiskFileRename();
-          return;
-        }
-        const currentName = String(item.name || localBaseName(oldPath) || '');
-        if (!nextName || nextName === currentName) {
-          cancelLocalDiskFileRename();
-          return;
-        }
-        input.disabled = true;
-        resetStatus();
+        e.preventDefault();
+        clearLocalDiskDropTarget();
+        const movePaths = activeLocalDiskDragPaths.slice();
+        activeLocalDiskDragPaths = [];
         try {
-          let url = api.localDiskRename + '?path=' + encodeURIComponent(oldPath) + '&name=' + encodeURIComponent(nextName);
-          url = appendLocalDirPassword(appendFilePassword(url, oldPath, true), localDiskParentPath(oldPath));
-          const result = await fetchJson(url, { method: 'POST' });
-          const newPath = String((result && result.path) || '');
-          selectedLocalDiskPaths.delete(oldPath);
-          if (newPath) {
-            selectedLocalDiskPaths.add(newPath);
-          }
-          activeLocalDiskRenamePath = '';
-          await loadLocalDisk(activeLocalDiskPath || localDiskParentPath(oldPath), {
-            resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, activeLocalDiskPath || localDiskParentPath(oldPath))
-          });
-          showStatus(t('文件已改名：') + currentName + ' -> ' + nextName, 'ok');
+          await Promise.all(movePaths.map(function (path) {
+            const sourceLockPath = getLocalDirPassword(path) ? path : localDiskParentPath(path);
+            return fetchJson(
+              appendLocalDirPassword(
+                appendLocalDirPassword(appendFilePassword(api.localDiskMove
+                  + '?path=' + encodeURIComponent(path)
+                  + '&target=' + encodeURIComponent(target.path), path, true), sourceLockPath),
+                target.path,
+                'target_local_dir_password'
+              ),
+              { method: 'POST' }
+            );
+          }));
+          showStatus('已移动 ' + movePaths.length + ' 个项目到：' + target.path, 'ok');
+          clearLocalDiskSelection();
+          removeLocalDiskTreePaths(movePaths);
+          localDiskTreeCache.delete(target.path);
+          loadLocalDisk(target.path, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, target.path) });
         } catch (err) {
-          input.disabled = false;
-          showStatus(t('文件改名失败：') + err.message, 'err');
-          selectRenameInputText(input);
+          showStatus('移动失败：' + err.message, 'err');
+          loadLocalDisk(activeLocalDiskPath || '', { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, activeLocalDiskPath || '') });
+        }
+      }
+
+      function openLocalDirContextMenu(path, locked, clientX, clientY) {
+        closeFileContextMenu();
+        closeFolderContextMenu();
+        const dirPath = String(path || '');
+        if (!dirPath || dirPath === '/') {
+          return;
+        }
+        const unlocked = !!getLocalDirPassword(dirPath);
+        const menu = document.createElement('div');
+        menu.className = 'folder-context-menu file-context-menu';
+        menu.setAttribute('data-local-dir-path', dirPath);
+        menu.setAttribute('data-local-dir-locked', locked ? '1' : '0');
+        const selectedDirs = getSelectedLocalDiskDirPaths();
+        const actionDirs = selectedDirs.indexOf(dirPath) >= 0 ? selectedDirs : [dirPath];
+        const isMultiDir = actionDirs.length > 1;
+        menu.setAttribute('data-local-dir-paths', actionDirs.join('\n'));
+        let html = '';
+        if (!isMultiDir && localDiskClipboardPaths.length) {
+          html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="paste">' + t('粘贴') + '</button>';
+        }
+        html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="copy">' + t('拷贝') + '</button>';
+        if (!isMultiDir) {
+          html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="create">' + t('新建子目录') + '</button>';
+        }
+        html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="upload">' + t('上传') + '</button>';
+        if (!isMultiDir) {
+          html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="rename">' + t('改名') + '</button>';
+        }
+        html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="delete">' + t('删除') + '</button>';
+        if (!isMultiDir && locked) {
+          html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="' + (unlocked ? 'session-lock' : 'session-unlock') + '">' + t(unlocked ? '加锁' : '解锁') + '</button>';
+          html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="remove-lock">' + t('去锁') + '</button>';
+        } else if (!isMultiDir) {
+          html += '<button type="button" class="folder-context-item" data-local-dir-menu-action="lock">' + t('加锁') + '</button>';
+        }
+        menu.innerHTML = html;
+        document.body.appendChild(menu);
+        menu.style.left = Math.round(clientX) + 'px';
+        menu.style.top = Math.round(clientY) + 'px';
+        clampFloatingMenuPosition(menu, clientX, clientY);
+        activeFileContextMenu = menu;
+      }
+
+      function setLockDialogError(message) {
+        if (!lockDialogError) {
+          return;
+        }
+        const text = String(message || '');
+        lockDialogError.textContent = text;
+        lockDialogError.hidden = !text;
+      }
+
+      function pruneTagRefsByCurrentFiles() {
+        const available = getFileNameSet();
+        let changed = false;
+        walkTagNodes(tagTree, function (node) {
+          const before = node.files.length;
+          node.files = node.files.filter(function (it) {
+            return available.has(it);
+          });
+          if (before !== node.files.length) {
+            changed = true;
+          }
+          return false;
+        }, 1, null, tagTree);
+        return changed;
+      }
+
+      function renderLocalImportTree() {
+        if (!localImportTree || !localImportEmpty) {
+          return;
+        }
+        const rootActive = localImportTargetFolderPath === '';
+        const body = buildLocalImportFolderTreeHtml(getRootFolderTreeNodesForRender(), 0);
+        localImportTree.innerHTML =
+          '<div class="folder-tree-node' + (rootActive ? ' active' : '') + '" data-local-import-folder="">' +
+            '<div class="folder-tree-line" style="padding-left:10px;">' +
+              '<span class="folder-tree-toggle placeholder">•</span>' +
+              '<div class="folder-tree-entry" data-local-import-select="">' +
+                '<span class="folder-tree-name">根目录</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          body;
+        localImportEmpty.style.display = body ? 'none' : 'block';
+      }
+
+      function handleFileNameDoubleClick(filePath, local) {
+        clearFileRenameClickTimer();
+        activeFileRenamePath = '';
+        fileRenameRequestPath = '';
+        const file = String(filePath || '');
+        if (file) {
+          selectedFileNames.clear();
+          selectedFileNames.add(file);
+          refreshRenderedFileSelection();
+          downloadRemoteListFile(file, !!local);
         }
       }
 
@@ -870,6 +326,220 @@
         }, 230);
       }
 
+      function redirectToSavedLanguageIfNeeded() {
+        let savedLang = '';
+        try {
+          savedLang = localStorage.getItem(LANGUAGE_STORAGE_KEY) || '';
+        } catch (_) {}
+        if (savedLang !== 'en' && savedLang !== 'zh') {
+          return;
+        }
+        const path = window.location.pathname || '';
+        if (savedLang !== UI_LANG) {
+          window.location.replace(localizedPageUrl(savedLang));
+        }
+      }
+
+function saveUnlockedFolderPasswords() {
+        try {
+          const entries = Array.from(unlockedFolderPasswords.entries()).filter(function (entry) {
+            return entry[0] && entry[1];
+          });
+          sessionStorage.setItem(FOLDER_UNLOCK_SESSION_STORAGE_KEY, JSON.stringify(entries));
+        } catch (_) {}
+      }
+
+      function openFolderContextMenu(path, clientX, clientY) {
+        closeFolderContextMenu();
+        const node = findFolderNodeByPath(path);
+        if (!node || !canRenameFolderPath(path)) {
+          return;
+        }
+        const menu = document.createElement('div');
+        menu.className = 'folder-context-menu';
+        menu.setAttribute('data-folder-path', path);
+        const lockActionsHtml = node.locked
+          ? '<button type="button" class="folder-context-item" data-folder-menu-action="' + (unlockedFolderPasswords.has(path) ? 'session-lock' : 'session-unlock') + '">' + t(unlockedFolderPasswords.has(path) ? '加锁' : '解锁') + '</button>' +
+            '<button type="button" class="folder-context-item" data-folder-menu-action="remove-lock">' + t('去锁') + '</button>'
+          : '<button type="button" class="folder-context-item" data-folder-menu-action="lock">' + t('加锁') + '</button>';
+        menu.innerHTML =
+          (remoteDiskClipboardPath ? '<button type="button" class="folder-context-item" data-folder-menu-action="paste">' + t('粘贴') + '</button>' : '') +
+          '<button type="button" class="folder-context-item" data-folder-menu-action="copy">' + t('拷贝') + '</button>' +
+          '<button type="button" class="folder-context-item" data-folder-menu-action="create">' + t('新建子目录') + '</button>' +
+          '<button type="button" class="folder-context-item" data-folder-menu-action="delete">' + t('删除') + '</button>' +
+          '<button type="button" class="folder-context-item" data-folder-menu-action="rename">' + t('改名') + '</button>' +
+          lockActionsHtml;
+        document.body.appendChild(menu);
+        menu.style.left = Math.round(clientX) + 'px';
+        menu.style.top = Math.round(clientY) + 'px';
+        clampFloatingMenuPosition(menu, clientX, clientY);
+        activeFolderContextMenu = menu;
+      }
+
+      function closeLockDialog(value) {
+        if (!lockDialog) {
+          return;
+        }
+        lockDialog.hidden = true;
+        document.body.style.overflow = '';
+        setLockDialogError('');
+        const state = activeLockDialogState;
+        activeLockDialogState = null;
+        if (state && state.resolve) {
+          state.resolve(value);
+        }
+      }
+
+      function isAudioSplitChoiceCandidate(item) {
+        return !!(item && item.allowAudioSplitChoice);
+      }
+
+      async function openLocalImportDialog(pathsOverride) {
+        const paths = Array.isArray(pathsOverride)
+          ? pathsOverride.map(function (path) { return String(path || ''); }).filter(Boolean)
+          : getSelectedLocalDiskImportPaths();
+        if (!paths.length) {
+          showStatus(t('请先选择要上传的本地文件或文件夹'), 'err');
+          return;
+        }
+        localImportOverridePaths = Array.isArray(pathsOverride) ? paths : null;
+        try {
+          await loadFolderTreeState();
+        } catch (err) {
+          localImportOverridePaths = null;
+          showStatus(t('加载远程目录失败：') + err.message, 'err');
+          return;
+        }
+        localImportTargetFolderPath = activeFolderPath || '';
+        ensureLocalImportFolderPathExpanded(localImportTargetFolderPath);
+        renderLocalImportTree();
+        if (localImportDialog) {
+          localImportDialog.hidden = false;
+        }
+      }
+
+      function renderFiles(files) {
+        activeSourceFiles = (Array.isArray(files) ? files : []).map(normalizeFileRecord);
+        if (activeFilterTagId) {
+          currentFiles = activeSourceFiles.slice();
+        } else {
+          currentFiles = activeSourceFiles.filter(function (file) {
+            return String(file.folder_path || '') === String(activeFolderPath || '');
+          });
+        }
+        syncSelectedFilesByCurrentView();
+        updateExplorerLayout();
+        updateFileViewContext();
+        updateFileSelectAllState();
+        updateFileBulkActionButton();
+        fileCounter.textContent = currentFiles.length + t(' 个文件');
+
+        if (!currentFiles.length) {
+          fileList.innerHTML = '';
+          fileTable.style.display = 'none';
+          if (tagImagePreviewWrap) tagImagePreviewWrap.hidden = true;
+          fileEmpty.textContent = activeFilterTagId ? t('当前标签下没有文件。') : t('当前目录没有文件。');
+          fileEmpty.style.display = 'block';
+          return;
+        }
+
+        const key = sortKey.value || 'name';
+        const order = sortOrder.value || 'asc';
+        const isTagFilterMode = !!activeFilterTagId;
+        const sorted = currentFiles.slice().sort((a, b) => compareFiles(a, b, key, order));
+        updateSortIndicator();
+        const isRecycleMode = !isTagFilterMode && isRecycleFolderPath(activeFolderPath);
+        if (fileTable && fileTable.classList) {
+          fileTable.classList.toggle('recycle-mode', isRecycleMode);
+        }
+
+        fileEmpty.style.display = 'none';
+
+        if (tagFileViewMode === 'preview' && isActiveTagPreviewEnabled()) {
+          fileTable.style.display = 'none';
+          renderTagImagePreview(sorted);
+          updateFileSelectAllState();
+          updateFileBulkActionButton();
+          return;
+        }
+
+        if (tagImagePreviewWrap) tagImagePreviewWrap.hidden = true;
+        fileTable.style.display = 'table';
+        fileList.innerHTML = sorted.map(file => {
+          const name = escapeHtml(file.name || '');
+          const rawName = getFilePath(file);
+          const encodedPath = encodeURIComponent(rawName);
+          const isLocalTaggedFile = !!file.local;
+          const isDir = !!file.directory;
+          const fileLocked = !!file.locked;
+          const lockIcon = fileLocked
+            ? '<span class="folder-lock-icon file-lock-inline' + (getFilePassword(rawName, isLocalTaggedFile) ? ' unlocked' : '') + '" title="' + escapeHtml(t(getFilePassword(rawName, isLocalTaggedFile) ? '点击重新加锁' : '点击解锁')) + '" aria-label="' + escapeHtml(t(getFilePassword(rawName, isLocalTaggedFile) ? '点击重新加锁' : '点击解锁')) + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
+            : '';
+          const pathMeta = file.folder_path
+            ? '<div class="file-path-meta">' + escapeHtml(file.folder_path) + '</div>'
+            : '';
+          const size = safeSize(file);
+          const uploaded = escapeHtml(file.uploaded_time || '-');
+          const checked = selectedFileNames.has(rawName) ? ' checked' : '';
+          const selectedClass = selectedFileNames.has(rawName) ? ' selected-file-row' : '';
+          const previewBtn = !isDir && isImageName(file.name)
+            ? (isLocalTaggedFile
+              ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('预览') + '</button>'
+              : '<button class="preview-btn" data-preview-file="' + encodedPath + '" data-preview-name="' + escapeHtml(rawName) + '">' + t('预览') + '</button>')
+            : '';
+          const videoBtn = !isDir && isVideoName(file.name)
+            ? (isLocalTaggedFile
+              ? '<button class="local-preview-btn video-btn" data-kind="video" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('观影') + '</button>'
+              : '<button class="video-btn" data-video-file="' + encodedPath + '" data-video-name="' + escapeHtml(rawName) + '">' + t('观影') + '</button>')
+            : '';
+          const audioBtn = !isDir && isAudioName(file.name)
+            ? (isLocalTaggedFile
+              ? '<button class="local-preview-btn audio-btn" data-kind="audio" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('听音') + '</button>'
+              : '<button class="audio-btn" data-audio-file="' + encodedPath + '" data-audio-name="' + escapeHtml(rawName) + '">' + t('听音') + '</button>')
+            : '';
+          const textBtn = !isDir && isTextName(file.name)
+            ? (isLocalTaggedFile
+              ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('查看') + '</button>'
+              : '<button class="text-btn" data-text-file="' + encodedPath + '" data-text-name="' + escapeHtml(rawName) + '">' + t('查看') + '</button>')
+            : '';
+          const pdfBtn = !isDir && isPdfName(file.name)
+            ? (isLocalTaggedFile
+              ? '<button class="local-preview-btn preview-btn" data-kind="pdf" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('预览') + '</button>'
+              : '<button class="pdf-btn preview-btn" data-pdf-file="' + encodedPath + '" data-pdf-name="' + escapeHtml(rawName) + '">' + t('预览') + '</button>')
+            : '';
+          const primaryActionBtn = isTagFilterMode
+            ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '"' + (isLocalTaggedFile ? ' data-local-tag-file="1"' : '') + '>' + t('移除') + '</button>'
+            : (isRecycleMode
+              ? ('<button class="restore-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">' + t('恢复') + '</button>')
+              : '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">' + t('删除') + '</button>');
+          const permanentDeleteBtn = isRecycleMode
+            ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">' + t('彻底删除') + '</button>'
+            : '';
+          const renameInput = !isDir && activeFileRenamePath === rawName
+            ? '<input class="file-rename-input" type="text" value="' + escapeHtml(file.name || '') + '" data-file-rename-path="' + encodedPath + '" aria-label="' + escapeHtml(t('改名文件')) + '">'
+            : '';
+          const nameContent = isDir
+            ? '<span class="file-name local-folder-link"><span class="local-folder-icon">📁</span>' + name + '</span>'
+            : (renameInput || '<button type="button" class="file-name file-name-action" draggable="false" data-file-name-click="' + encodedPath + '" data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '">' + name + '</button>');
+          const tagQuickBtn = isDir
+            ? ''
+            : '<button class="file-tag-quick-btn" type="button" data-tag-file="' + encodedPath + '" title="' + escapeHtml(t('加入标签')) + '" aria-label="' + escapeHtml(t('加入标签')) + '">🏷</button>';
+          return (
+            '<tr class="draggable-file-row' + selectedClass + '" draggable="' + (isDir ? 'false' : 'true') + '" data-drag-file="' + encodedPath + '"' + (isDir ? '' : ' data-file-context="' + encodedPath + '"') + ' data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (!isDir && isVideoName(file.name) ? '1' : '0') + '">' +
+              '<td class="file-select-cell"><div class="file-select-tools"><input class="file-select-input" type="checkbox" data-select-file="' + encodedPath + '" aria-label="' + escapeHtml(t('选择') + (isDir ? t('目录 ') : t('文件 ')) + rawName) + '"' + checked + '>' + tagQuickBtn + '</div></td>' +
+              '<td' + (isDir ? '' : ' data-file-context="' + encodedPath + '"') + ' data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (!isDir && isVideoName(file.name) ? '1' : '0') + '">' + nameContent + lockIcon + pathMeta + '</td>' +
+              '<td>' + (isDir ? t('文件夹') : (formatNumber(size) + t(' 字节'))) + '</td>' +
+              '<td>' + uploaded + '</td>' +
+              '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + pdfBtn + '</div></td>' +
+              '<td class="row-danger-action"><div class="danger-actions">' + primaryActionBtn + '</div></td>' +
+              '<td class="row-permanent-action"><div class="permanent-actions">' + permanentDeleteBtn + '</div></td>' +
+            '</tr>'
+          );
+        }).join('');
+        updateFileSelectAllState();
+        updateFileBulkActionButton();
+      }
+
       function handleLocalDiskFileNameDoubleClick(path) {
         const filePath = String(path || '');
         if (!filePath) {
@@ -883,100 +553,71 @@
         downloadRemoteListFile(filePath, true);
       }
 
-      function showLocalDiskFileSummaryDialog(path) {
-        const filePath = String(path || '');
-        const item = getLocalDiskItemByPath(filePath) || { path: filePath, name: localBaseName(filePath), size: 0 };
-        const oldDialog = document.getElementById('file-summary-dialog');
-        if (oldDialog && oldDialog.parentNode) {
-          oldDialog.parentNode.removeChild(oldDialog);
-        }
-        const rows = [
-          [t('文件名'), String(item.name || localBaseName(filePath) || '')],
-          [t('文件大小'), formatNumber(Number(item.size || 0)) + t(' 字节')],
-          [t('文件类型'), inferFileTypeLabel({ name: item.name || filePath, directory: false })],
-          [t('创建时间'), String(item.created_time || '-')],
-          [t('修改时间'), String(item.modified_time || '-')]
-        ];
-        const dialog = document.createElement('div');
-        dialog.className = 'tag-dialog file-summary-dialog';
-        dialog.id = 'file-summary-dialog';
-        dialog.innerHTML =
-          '<div class="tag-dialog-backdrop" data-file-summary-close="1"></div>' +
-          '<div class="tag-dialog-card file-summary-card" role="dialog" aria-modal="true" aria-labelledby="file-summary-title">' +
-            '<div class="tag-dialog-head">' +
-              '<h2 id="file-summary-title">' + escapeHtml(t('文件摘要')) + '</h2>' +
-              '<p>' + escapeHtml(filePath) + '</p>' +
-            '</div>' +
-            '<dl class="file-summary-list">' + rows.map(function (row) {
-              return '<div class="file-summary-row"><dt>' + escapeHtml(row[0]) + '</dt><dd>' + escapeHtml(row[1]) + '</dd></div>';
-            }).join('') + '</dl>' +
-            '<div class="tag-dialog-actions">' +
-              '<button type="button" class="tag-dialog-btn" data-file-summary-close="1">' + escapeHtml(t('确定')) + '</button>' +
-            '</div>' +
-          '</div>';
-        document.body.appendChild(dialog);
-      }
-
-      async function handleLocalDiskFileDeleteOrRemove(path) {
-        const filePath = String(path || '');
-        if (!filePath) {
+      function setAdminStorageProgress(visible, percent, message) {
+        if (!adminStorageProgress) {
           return;
         }
-        if (!confirm(t('确认删除本地文件：') + filePath + t(' ？'))) {
-          return;
+        adminStorageProgress.hidden = !visible;
+        const safePercent = Math.max(0, Math.min(100, Number(percent || 0)));
+        if (adminStorageProgressFill) {
+          adminStorageProgressFill.style.width = safePercent.toFixed(1) + '%';
         }
-        resetStatus();
-        await fetchJson(appendLocalDirPassword(appendFilePassword(api.localDiskDelete + '?path=' + encodeURIComponent(filePath), filePath, true), localDiskParentPath(filePath)), { method: 'POST' });
-        selectedLocalDiskPaths.delete(filePath);
-        showStatus(t('本地文件已删除：') + filePath, 'warn');
-        await loadLocalDisk(activeLocalDiskPath || localDiskParentPath(filePath), {
-          resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, activeLocalDiskPath || localDiskParentPath(filePath))
-        });
+        if (adminStorageProgressText) {
+          adminStorageProgressText.textContent = safePercent.toFixed(1).replace(/\.0$/, '') + '%';
+        }
+        if (adminStorageProgressMessage) {
+          adminStorageProgressMessage.textContent = String(message || '');
+        }
       }
 
-      function getVisibleLocalDiskPathSet() {
-        const visible = new Set();
-        activeLocalDiskItems.forEach(function (item) {
-          if (item && item.path) {
-            visible.add(String(item.path));
-          }
-        });
-        if (activeLocalDiskTreeRootPath) {
-          visible.add(activeLocalDiskTreeRootPath);
-        }
-        localDiskTreeCache.forEach(function (dirs) {
-          dirs.forEach(function (item) {
-            if (item && item.path) {
-              visible.add(String(item.path));
-            }
+      function tagLockKey(tagId) {
+        return 'tag:' + String(tagId || '');
+      }
+
+      function clearSelectedFolders() {
+        selectedFolderPaths.clear();
+        lastSelectedFolderPath = '';
+      }
+
+      function saveTagTreeState() {
+      }
+
+      function setTranscodeButtons(encodedName, options) {
+        const opts = options || {};
+        const startBtns = statusBox.querySelectorAll('[data-transcode-file="' + encodedName + '"]');
+        const cancelBtn = statusBox.querySelector('[data-cancel-file="' + encodedName + '"]');
+        const confirmBtn = statusBox.querySelector('[data-confirm-transcode="' + encodedName + '"]');
+        if (typeof opts.startDisabled === 'boolean') {
+          startBtns.forEach(function (startBtn) {
+            startBtn.disabled = opts.startDisabled;
           });
+        }
+        if (cancelBtn && typeof opts.cancelDisabled === 'boolean') {
+          cancelBtn.disabled = opts.cancelDisabled;
+        }
+        if (confirmBtn && typeof opts.confirmVisible === 'boolean') {
+          confirmBtn.hidden = !opts.confirmVisible;
+        }
+        if (cancelBtn) {
+          cancelBtn.textContent = getTranscodeTaskId(encodedName) ? t('取消转码') : t('不转换');
+        }
+      }
+
+      function restoreLocalImportProgressWindow() {
+        localImportProgressMinimized = false;
+        const desc = document.getElementById('local-import-progress-desc');
+        if (desc && isCopyTaskWindowMode(localImportProgressWindowMode)) {
+          desc.textContent = getCopyTaskProgressDescription();
+        }
+        applyLocalImportProgressWindowState();
+      }
+
+      function getSortedCurrentFiles() {
+        const key = sortKey.value || 'name';
+        const order = sortOrder.value || 'asc';
+        return (Array.isArray(currentFiles) ? currentFiles : []).slice().sort(function (a, b) {
+          return compareFiles(a, b, key, order);
         });
-        return visible;
-      }
-
-      function getSelectedLocalDiskPaths() {
-        const visible = getVisibleLocalDiskPathSet();
-        return Array.from(selectedLocalDiskPaths).filter(function (path) {
-          return visible.has(path);
-        });
-      }
-
-      function getSelectedLocalDiskFilePaths() {
-        return activeLocalDiskItems.filter(function (item) {
-          return item && !item.directory && selectedLocalDiskPaths.has(String(item.path || ''));
-        }).map(function (item) {
-          return String(item.path || '');
-        }).filter(Boolean);
-      }
-
-      function getSelectedLocalDiskDirPaths() {
-        return getSelectedLocalDiskPaths().filter(function (path) {
-          return isLocalDiskDirectoryPath(path);
-        });
-      }
-
-      function getSelectedLocalDiskImportPaths() {
-        return getSelectedLocalDiskPaths();
       }
 
       function getVisibleLocalDiskFilePaths() {
@@ -987,102 +628,172 @@
         }).filter(Boolean);
       }
 
-      function updateLocalDiskSelectAllState() {
-        const filePaths = getVisibleLocalDiskFilePaths();
-        const selectedCount = filePaths.filter(function (path) {
-          return selectedLocalDiskPaths.has(path);
-        }).length;
-        [localDiskSelectAll, localDiskTableSelectAll].forEach(function (selectAll) {
-          if (!selectAll) {
+      async function applyAdminStoragePathChange() {
+        if (!adminStoragePath || !adminStorageChooseBtn) {
+          return;
+        }
+        const nextPath = String(adminStoragePath.value || '').trim();
+        if (!nextPath) {
+          showStatus(t('存储路径不能为空'), 'err');
+          adminStoragePath.value = currentAdminStoragePath;
+          return;
+        }
+        if (nextPath === currentAdminStoragePath) {
+          showStatus(t('存储路径未改变'), 'warn');
+          return;
+        }
+        const storageChangeChoice = await askConfirmDialog({
+          title: t('确认修改存储路径'),
+          description: t('是否将当前存储路径下的文件移动到目标目录？'),
+          confirmText: t('是，开始移动'),
+          extraText: t('否，只修改路径'),
+          extraValue: 'no-migrate',
+          cancelText: t('取消'),
+          danger: false
+        });
+        if (storageChangeChoice === false) {
+          adminStoragePath.value = currentAdminStoragePath;
+          setAdminStorageProgress(false, 0, '');
+          showStatus(t('已取消，存储路径未修改'), 'warn');
+          return;
+        }
+        if (storageChangeChoice === 'no-migrate') {
+          adminStorageChooseBtn.disabled = true;
+          adminStoragePath.disabled = true;
+          setAdminStorageProgress(false, 0, '');
+          try {
+            await fetchJson(
+              api.adminStorageMigrate + '?path=' + encodeURIComponent(nextPath) + '&migrate=0',
+              { method: 'POST' }
+            );
+            await loadAdminStoragePath();
+            loadFiles();
+            showStatus(t('存储路径已修改，未迁移文件：') + currentAdminStoragePath, 'ok');
+          } catch (err) {
+            adminStoragePath.value = currentAdminStoragePath;
+            showStatus(t('只修改存储路径失败：') + err.message, 'err');
+          } finally {
+            adminStorageChooseBtn.disabled = false;
+            adminStoragePath.disabled = false;
+          }
+          return;
+        }
+        adminStorageChooseBtn.disabled = true;
+        adminStoragePath.disabled = true;
+        setAdminStorageProgress(true, 0, t('正在提交移动任务...'));
+        try {
+          const startData = await fetchJson(
+            api.adminStorageMigrate + '?path=' + encodeURIComponent(nextPath),
+            { method: 'POST' }
+          );
+          const migrateData = await pollAdminStorageMigration(String(startData.task_id || ''));
+          await loadAdminStoragePath();
+          loadFiles();
+          showStatus(t('存储路径已修改：') + currentAdminStoragePath, 'ok');
+          await askCleanupOldStorageAfterMigration(migrateData);
+        } catch (err) {
+          adminStoragePath.value = currentAdminStoragePath;
+          setAdminStorageProgress(true, 0, '移动失败：' + err.message);
+          showStatus('修改存储路径失败：' + err.message, 'err');
+        } finally {
+          adminStorageChooseBtn.disabled = false;
+          adminStoragePath.disabled = false;
+        }
+      }
+
+      function getTagPassword(tagId) {
+        return unlockedFilePasswords.get(tagLockKey(tagId)) || '';
+      }
+
+      function activatePanel(panelId, options) {
+        setActivePanel(panelId);
+
+        if (panelId === 'panel-files' && !(options && options.skipLoadFiles)) {
+          loadFiles();
+        } else if (panelId === 'panel-local-disk') {
+          loadLocalDisk(activeLocalDiskPath || '');
+        } else if (panelId === 'panel-admin') {
+          loadAdminStoragePath();
+        }
+      }
+
+      async function openFileTagMenu(button, fileName) {
+        return openFilesTagMenu(button, [fileName], {});
+      }
+
+      async function startManualTranscode(encodedName, mode) {
+        setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true });
+
+        const fileName = decodeURIComponent(encodedName);
+        const requestedMode = mode === 'audio_only' || mode === 'audio_split' || mode === 'full_mp4' ? mode : 'auto';
+        try {
+          setTranscodeVisualState(encodedName, 'running');
+          updateTranscodeProgress(encodedName, 0, t('任务创建中...'));
+          setTranscodeReason(encodedName, requestedMode === 'audio_split'
+            ? t('状态：正在请求后台启动转码任务（拆分视频并转音频）')
+            : (requestedMode === 'audio_only'
+              ? t('状态：正在请求后台启动转码任务（只转音频）')
+            : (requestedMode === 'full_mp4'
+              ? t('状态：正在请求后台启动转码任务（音视频都转）')
+              : t('状态：正在请求后台启动转码任务'))));
+          let url = api.convertVideo + '?file=' + encodeURIComponent(fileName);
+          if (requestedMode !== 'auto') {
+            url += '&mode=' + encodeURIComponent(requestedMode);
+          }
+          const data = await fetchJson(url, {
+            method: 'POST'
+          });
+
+          if (data.completed) {
+            setTranscodeVisualState(encodedName, 'done');
+            updateTranscodeProgress(encodedName, 100, t('无需转码'));
+            setTranscodeReason(encodedName, t('状态：文件已经可直接播放'));
+            setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true, confirmVisible: true });
             return;
           }
-          selectAll.checked = filePaths.length > 0 && selectedCount === filePaths.length;
-          selectAll.indeterminate = selectedCount > 0 && selectedCount < filePaths.length;
-          selectAll.disabled = filePaths.length === 0;
-        });
-      }
 
-      function updateLocalDiskBulkRemoveButton() {
-        const disabled = getSelectedLocalDiskFilePaths().length === 0;
-        [localDiskBulkRemoveBtn, localDiskTableBulkRemoveBtn, localDiskBulkTagBtn, localDiskTableBulkTagBtn].forEach(function (btn) {
-          if (btn) {
-            btn.disabled = disabled;
+          if (!data.task_id) {
+            throw new Error('missing task id');
           }
-        });
-        if (localDiskImportBtn) {
-          localDiskImportBtn.disabled = getSelectedLocalDiskImportPaths().length === 0;
+
+          setTranscodeTaskId(encodedName, String(data.task_id));
+          setTranscodeReason(encodedName, t('状态：后台任务已启动，任务号 ') + String(data.task_id));
+          updateTranscodeProgress(encodedName, Number(data.progress || 0), t('已启动'));
+          setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: false });
+          stopTranscodePolling(encodedName);
+          const timer = setInterval(function () {
+            pollTranscodeProgress(encodedName, data.task_id);
+          }, 1000);
+          transcodeProgressTimers.set(encodedName, timer);
+          await pollTranscodeProgress(encodedName, data.task_id);
+        } catch (err) {
+          stopTranscodePolling(encodedName);
+          setTranscodeTaskId(encodedName, '');
+          setTranscodeVisualState(encodedName, 'failed');
+          updateTranscodeProgress(encodedName, 0, t('失败：') + err.message);
+          setTranscodeReason(encodedName, t('状态：失败，') + err.message);
+          setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
         }
-        updateLocalDiskSelectAllState();
       }
 
-      function setVisibleLocalDiskFilesSelected(checked) {
-        getVisibleLocalDiskFilePaths().forEach(function (path) {
-          if (checked) {
-            selectedLocalDiskPaths.add(path);
-          } else {
-            selectedLocalDiskPaths.delete(path);
-          }
-        });
-        renderLocalDiskItems(activeLocalDiskItems);
+      function setRemoteCopyProgress(progress, text, item) {
+        setCopyTaskProgress('remote-copy', progress, text, item);
       }
 
-      function removeSelectedLocalDiskFiles() {
-        const paths = getSelectedLocalDiskFilePaths();
-        if (!paths.length) {
+      function openLocalDiskImagePreview(path, displayName) {
+        const rawPath = String(path || '');
+        if (!rawPath) {
           return;
         }
-        if (!confirm('确认将选中的 ' + paths.length + ' 个本地文件移至回收站？')) {
-          return;
-        }
-        [localDiskBulkRemoveBtn, localDiskTableBulkRemoveBtn].forEach(function (btn) {
-          if (btn) {
-            btn.disabled = true;
-          }
-        });
-        return Promise.all(paths.map(function (path) {
-          return fetchJson(appendLocalDirPassword(appendFilePassword(api.localDiskDelete + '?path=' + encodeURIComponent(path), path, true), localDiskParentPath(path)), { method: 'POST' });
-        })).then(function () {
-          showStatus('已移除 ' + paths.length + ' 个本地文件到回收站', 'warn');
-          clearLocalDiskSelection();
-          loadLocalDisk(activeLocalDiskPath || '');
-        }).catch(function (err) {
-          showStatus('批量移除失败：' + err.message, 'err');
-          loadLocalDisk(activeLocalDiskPath || '');
-        });
-      }
-
-      function updateLocalDiskSelection(path, checked) {
-        if (!path) {
-          return;
-        }
-        if (checked) {
-          selectedLocalDiskPaths.add(path);
-        } else {
-          selectedLocalDiskPaths.delete(path);
-        }
-        updateLocalDiskBulkRemoveButton();
-      }
-
-      function clearLocalDiskSelection() {
-        selectedLocalDiskPaths.clear();
-        updateLocalDiskBulkRemoveButton();
-      }
-
-      function removeLocalDiskTreePaths(paths) {
-        const moved = new Set((Array.isArray(paths) ? paths : []).map(function (path) {
-          return String(path || '');
-        }).filter(Boolean));
-        if (!moved.size) {
-          return;
-        }
-        localDiskTreeCache.forEach(function (dirs, key) {
-          localDiskTreeCache.set(key, dirs.filter(function (item) {
-            return !moved.has(String((item && item.path) || ''));
-          }));
-        });
-        moved.forEach(function (path) {
-          localDiskTreeCache.delete(path);
-          expandedLocalDiskTreePaths.delete(path);
+        const gallery = buildLocalDiskImageGallery();
+        const index = imageGalleryIndexOf(gallery, rawPath);
+        const current = gallery[index] || { file: rawPath, name: displayName || rawPath, local: true };
+        openPreview('image', encodeURIComponent(rawPath), displayName || current.name || rawPath, {
+          local: true,
+          url: localDiskDownloadUrl(rawPath),
+          previewKey: 'local-image-gallery:' + String(activeLocalDiskPath || localDiskParentPath(rawPath) || 'root'),
+          gallery: gallery.length ? gallery : [current],
+          galleryIndex: index
         });
       }
 
@@ -1105,84 +816,107 @@
         });
       }
 
-      function setFileLockedState(path, local, locked) {
-        const target = String(path || '');
-        const isLocal = !!local;
-        if (!target) {
+      async function openAdminStoragePickerDialog() {
+        if (!adminStoragePickerDialog) {
           return;
         }
+        try {
+          await jumpAdminStoragePickerPath('/');
+          adminStoragePickerDialog.hidden = false;
+          document.body.style.overflow = 'hidden';
+        } catch (err) {
+          showStatus(t('加载本地目录树失败：') + err.message, 'err');
+        }
+      }
 
-        function updateList(list) {
-          (Array.isArray(list) ? list : []).forEach(function (item) {
-            if (!item) {
-              return;
-            }
-            if (!!item.local === isLocal && getFilePath(item) === target) {
-              item.locked = !!locked;
-            }
+      function getFileLabel(file) {
+        return String((file && file.display_path) || getFilePath(file) || '');
+      }
+
+      async function verifyUploadedVideos(uploadResult) {
+        const items = Array.isArray(uploadResult) ? uploadResult : [];
+        const videoNames = items
+          .filter(function (it) {
+            return it && it.saved === true && isVideoName(it.name || '');
+          })
+          .map(function (it) {
+            return String(it.path || it.name || '');
           });
+
+        if (!videoNames.length) {
+          return [];
         }
 
-        updateList(allFiles);
-        updateList(activeSourceFiles);
-        activeLocalDiskItems.forEach(function (item) {
-          if (!item || item.directory) {
-            return;
+        const failed = [];
+        for (const name of videoNames) {
+          if (isRealMediaVideoName(name)) {
+            failed.push({ name: name, reason: t('RM/RMVB视频为旧格式，为了兼容浏览器播放，建议转换为MP4') });
+            continue;
           }
-          if (String(item.path || '') === target) {
-            item.locked = !!locked;
+
+          const probe = await isVideoPlayable(name, 8000);
+          const audioProbe = await checkVideoAudio(name);
+
+          let needConvert = !probe.ok;
+          let reason = probe.reason || t('无法解析视频');
+
+          const allowAudioSplitChoice = !!(audioProbe && audioProbe.ok && audioProbe.has_audio && audioProbe.browser_audio_supported === false);
+
+          if (allowAudioSplitChoice) {
+            needConvert = true;
+            reason = t('音频编码 ') + (audioProbe.audio_codec || 'unknown') + t(' 浏览器不支持');
           }
-        });
-      }
 
-      function invalidateLocalDiskDirLockCache(path) {
-        const target = String(path || '');
-        if (!target) {
-          return;
+          if (needConvert) {
+            failed.push({ name: name, reason: reason, allowAudioSplitChoice: allowAudioSplitChoice });
+          }
         }
-        localDiskTreeCache.delete(target);
+
+        return failed;
       }
 
-      function localDiskBaseName(path) {
-        const text = String(path || '/').replace(/\/+$/, '') || '/';
-        if (text === '/') {
-          return '/';
+      function walkTagNodes(list, visitor, level, parent, parentList) {
+        const nodes = Array.isArray(list) ? list : [];
+        for (let i = 0; i < nodes.length; i += 1) {
+          const node = nodes[i];
+          const stop = visitor(node, level, parent, parentList, i);
+          if (stop) {
+            return true;
+          }
+          if (walkTagNodes(node.children, visitor, level + 1, node, node.children)) {
+            return true;
+          }
         }
-        const pos = text.lastIndexOf('/');
-        return pos >= 0 ? text.slice(pos + 1) : text;
+        return false;
       }
 
-      function localDiskPathContains(base, path) {
-        const left = String(base || '/');
-        const right = String(path || '/');
-        return left === '/'
-          ? right.charAt(0) === '/'
-          : (right === left || right.indexOf(left + '/') === 0);
+      function normalizeFolderNode(node) {
+        const item = node && typeof node === 'object' ? node : {};
+        const children = Array.isArray(item.children) ? item.children.map(normalizeFolderNode) : [];
+        return {
+          name: String(item.name || ''),
+
+          path: String(item.path || ''),
+          parent_path: String(item.parent_path || ''),
+          file_count: Number(item.file_count || 0),
+          locked: !!item.locked,
+          children: children
+        };
       }
 
-      function localDiskParentPath(path) {
-        const text = String(path || '/').replace(/\/+$/, '') || '/';
-        if (text === '/') {
-          return '/';
-        }
-        const pos = text.lastIndexOf('/');
-        return pos <= 0 ? '/' : text.slice(0, pos);
+      function clearTagFileFilter() {
+        activeFilterTagId = '';
+        renderFiles(allFiles);
+        renderTagTree();
       }
 
-      function cacheLocalDiskTreeNode(path, items) {
-        const dirs = (Array.isArray(items) ? items : []).filter(function (item) {
-          return !!(item && item.directory);
-        }).sort(function (a, b) {
-          return String((a && a.name) || '').localeCompare(String((b && b.name) || ''), 'zh-CN');
-        });
-        localDiskTreeCache.set(String(path || '/'), dirs);
-      }
-
-      function resetLocalDiskTreeRoot(path) {
-        activeLocalDiskTreeRootPath = String(path || '/');
-        localDiskTreeCache.clear();
-        expandedLocalDiskTreePaths.clear();
-        expandedLocalDiskTreePaths.add(activeLocalDiskTreeRootPath);
+      function cloneCanvas(source) {
+        const canvas = document.createElement('canvas');
+        canvas.width = source.width;
+        canvas.height = source.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(source, 0, 0);
+        return canvas;
       }
 
       function ensureLocalDiskTreeRoot(path) {
@@ -1192,244 +926,114 @@
         }
       }
 
-      function renderLocalDiskTreeNode(path, level, itemMeta) {
-        const textPath = String(path || '/');
-        const encodedPath = encodeURIComponent(textPath);
-        const name = localDiskBaseName(textPath);
-        const checked = selectedLocalDiskPaths.has(textPath) ? ' checked' : '';
-        const isActive = textPath === activeLocalDiskPath;
-        const isExpanded = expandedLocalDiskTreePaths.has(textPath);
-        const hasCache = localDiskTreeCache.has(textPath);
-        const dirs = localDiskTreeCache.get(textPath) || [];
-        const canMove = level > 0;
-        const dirLocked = !!(itemMeta && itemMeta.locked);
-        const dirLockIcon = localDirLockIconHtml(textPath, dirLocked);
-        const createBtn = '<button type="button" class="local-mkdir-btn local-disk-dir-create-inline" data-local-mkdir="' + encodedPath + '" data-local-name="' + escapeHtml(textPath) + '" title="新建子目录" aria-label="新建子目录">+</button>';
-        const deleteBtn = level > 0 && itemMeta && itemMeta.empty_directory
-          ? '<button type="button" class="local-delete-btn local-disk-dir-delete-inline" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(textPath) + '" title="删除空目录" aria-label="删除空目录">-</button>'
-          : '';
-        const selectBox = canMove
-          ? '<input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '>'
-          : '<span class="local-disk-select-placeholder"></span>';
-        let html = '<div class="local-disk-tree-row local-disk-dir-item' + (canMove ? ' local-disk-draggable' : '') + (isActive ? ' active' : '') + '" ' + (canMove ? 'draggable="true" data-local-drag="' + encodedPath + '" ' : '') + 'data-local-drop-target="' + encodedPath + '" data-local-dir-context="' + encodedPath + '" data-local-dir-locked="' + (dirLocked ? '1' : '0') + '" style="--tree-level:' + level + '">' +
-          '<button type="button" class="local-disk-tree-caret" data-local-toggle="' + encodedPath + '" title="展开或收起目录" aria-label="展开或收起目录">' + (isExpanded && dirs.length ? '▾' : (hasCache && !dirs.length ? '' : '▸')) + '</button>' +
-          selectBox +
-          '<button type="button" class="local-disk-dir-link" data-local-folder="' + encodedPath + '">' +
-            '<span class="local-folder-icon">📁</span>' +
-            '<span class="local-disk-dir-item-name">' + escapeHtml(name) + '</span>' +
-          '</button>' +
-          dirLockIcon +
-          createBtn +
-          deleteBtn +
-          '</div>';
-        if (isExpanded && dirs.length) {
-          html += '<div class="local-disk-tree-children">';
-          html += dirs.map(function (item) {
-            return renderLocalDiskTreeNode(String(item.path || ''), level + 1, item);
-          }).join('');
-          html += '</div>';
-        }
-        return html;
-      }
-
-      function renderLocalDiskItems(items) {
-        activeLocalDiskItems = Array.isArray(items) ? items.slice() : [];
-        const list = activeLocalDiskItems.slice().sort(compareLocalDiskItems);
-        updateLocalDiskSortIndicator();
-        if (localDiskContext) {
-          localDiskContext.textContent = '当前路径：' + activeLocalDiskPath;
-        }
-
-        if (localDiskViewMode === 'split') {
-          renderLocalDiskSplitView(list);
-        } else {
-          renderLocalDiskTableView(list);
-        }
-      }
-
-      function renderLocalDiskTableView(list) {
-        if (!localDiskList || !localDiskTable || !localDiskEmpty) {
-          return;
-        }
-        if (localDiskTableWrap) {
-          localDiskTableWrap.hidden = false;
-        }
-        if (localDiskExplorer) {
-          localDiskExplorer.hidden = true;
-        }
-        if (!list.length) {
-          localDiskList.innerHTML = '';
-          localDiskTable.style.display = 'none';
-          localDiskEmpty.textContent = '当前目录没有可显示的内容。';
-          localDiskEmpty.style.display = 'block';
-          return;
-        }
-
-        localDiskEmpty.style.display = 'none';
-        localDiskTable.style.display = 'table';
-        localDiskList.innerHTML = list.map(function (item) {
-          const name = String((item && item.name) || '');
-          const path = String((item && item.path) || '');
-          const encodedPath = encodeURIComponent(path);
-          const isDir = !!(item && item.directory);
-          const dirLocked = isDir && !!(item && item.locked);
-          const dirLockIcon = isDir ? localDirLockIconHtml(path, dirLocked) : '';
-          const fileLocked = !isDir && !!(item && item.locked);
-          const lockIcon = fileLocked
-            ? '<span class="folder-lock-icon file-lock-inline' + (getFilePassword(path, true) ? ' unlocked' : '') + '" title="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '" aria-label="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
-            : '';
-          const checked = selectedLocalDiskPaths.has(path) ? ' checked' : '';
-          const selectedClass = selectedLocalDiskPaths.has(path) ? ' selected-file-row' : '';
-          const selectBox = isDir
-            ? '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '></span>'
-            : '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '><button class="file-tag-quick-btn local-file-tag-btn" type="button" data-local-tag-file="' + encodedPath + '" title="' + escapeHtml(t('加入标签')) + '" aria-label="' + escapeHtml(t('加入标签')) + '">🏷</button></span>';
-          const renameInput = !isDir && activeLocalDiskRenamePath === path
-            ? '<input class="file-rename-input local-disk-rename-input" type="text" value="' + escapeHtml(name) + '" data-local-disk-rename-path="' + encodedPath + '" aria-label="' + escapeHtml(t('改名文件')) + '">'
-            : '';
-          const nameHtml = isDir
-            ? '<button type="button" class="local-folder-link" data-local-folder="' + encodedPath + '"><span class="local-folder-icon">📁</span><span>' + escapeHtml(name) + '</span></button>' + dirLockIcon
-            : (renameInput || '<button type="button" class="file-name file-name-action local-disk-file-name-action" data-local-disk-file-name-click="' + encodedPath + '">' + escapeHtml(name) + '</button>') + lockIcon;
-          const displayName = '<span class="local-disk-table-name-cell">' + selectBox + nameHtml + '</span>';
-          const previewBtn = !isDir && isImageName(name)
-            ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
-            : '';
-          const videoBtn = !isDir && isVideoName(name)
-            ? '<button class="local-preview-btn video-btn" data-kind="video" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">观影</button>'
-            : '';
-          const audioBtn = !isDir && isAudioName(name)
-            ? '<button class="local-preview-btn audio-btn" data-kind="audio" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">听音</button>'
-            : '';
-          const textBtn = !isDir && isTextName(name)
-            ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">查看</button>'
-            : '';
-          const pdfBtn = !isDir && isPdfName(name)
-            ? '<button class="local-preview-btn preview-btn" data-kind="pdf" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
-            : '';
-          const deleteBtn = isDir
-            ? (item.empty_directory
-              ? '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">删除</button>'
-              : '')
-            : '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '" title="移至回收站" aria-label="移至回收站">移除</button>';
-          return (
-            '<tr class="' + selectedClass.trim() + '"' + (!isDir ? (' data-local-file-context="' + encodedPath + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (isVideoName(name) ? '1' : '0') + '"') : (' data-local-dir-context="' + encodedPath + '" data-local-dir-locked="' + (dirLocked ? '1' : '0') + '"')) + '>' +
-              '<td>' + displayName + '</td>' +
-              '<td>' + (isDir ? '文件夹' : '文件') + '</td>' +
-              '<td>' + (isDir ? '-' : (formatNumber(Number(item.size || 0)) + ' 字节')) + '</td>' +
-              '<td>' + escapeHtml((item && item.modified_time) || '-') + '</td>' +
-              '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + pdfBtn + '</div></td>' +
-              '<td class="row-danger-action"><div class="danger-actions">' + deleteBtn + '</div></td>' +
-            '</tr>'
-          );
-        }).join('');
-        updateLocalDiskBulkRemoveButton();
-      }
-
-      function renderLocalDiskSplitView(list) {
-        if (!localDiskDirList || !localDiskDirEmpty || !localDiskSplitList || !localDiskSplitTable || !localDiskSplitEmpty) {
-          return;
-        }
-        if (localDiskTableWrap) {
-          localDiskTableWrap.hidden = true;
-        }
-        if (localDiskExplorer) {
-          localDiskExplorer.hidden = false;
-        }
-        const files = list.filter(function (item) { return !(item && item.directory); });
-
-        // Render directories
-        if (activeLocalDiskTreeRootPath) {
-          localDiskDirEmpty.style.display = 'none';
-          localDiskDirList.innerHTML = renderLocalDiskTreeNode(activeLocalDiskTreeRootPath, 0, null);
-        } else {
-          localDiskDirList.innerHTML = '';
-          localDiskDirEmpty.style.display = 'block';
-        }
-
-        // Render files
-        if (files.length) {
-          localDiskSplitEmpty.style.display = 'none';
-          localDiskSplitTable.style.display = 'table';
-          localDiskSplitList.innerHTML = files.map(buildLocalDiskFileRowHtml).join('');
-        } else {
-          localDiskSplitList.innerHTML = '';
-          localDiskSplitTable.style.display = 'none';
-          localDiskSplitEmpty.style.display = 'block';
-        }
-
-        updateLocalDiskBulkRemoveButton();
-        localDiskEmpty.style.display = 'none';
-      }
-
-      function compareLocalDiskItems(a, b) {
-        const left = a || {};
-        const right = b || {};
-        const nameRes = String(left.name || '').localeCompare(String(right.name || ''), 'zh-CN');
-        let res = 0;
-        if (localDiskSortKey === 'type') {
-          const typeRes = (left.directory === right.directory) ? 0 : (left.directory ? -1 : 1);
-          if (typeRes === 0) {
-            return nameRes;
-          }
-          res = typeRes;
-        } else if (localDiskSortKey === 'size') {
-          res = Number(left.size || 0) - Number(right.size || 0);
-        } else if (localDiskSortKey === 'modified_at') {
-          res = Number(left.modified_at || 0) - Number(right.modified_at || 0);
-        } else {
-          res = nameRes;
-        }
-        return localDiskSortOrder === 'desc' ? -res : res;
-      }
-
-      function updateLocalDiskSortIndicator() {
-        localSortButtons.forEach(function (btn) {
-          const key = btn.getAttribute('data-local-sort-key') || '';
-          const arrow = btn.querySelector('.arrow');
-          btn.classList.toggle('active', key === localDiskSortKey);
-          if (arrow) {
-            arrow.textContent = key === localDiskSortKey ? (localDiskSortOrder === 'desc' ? '↓' : '↑') : '-';
-          }
-        });
-      }
-
-      async function loadLocalDisk(path, options) {
-        const opts = options || {};
-        const target = typeof path === 'string' ? path : (activeLocalDiskPath || '');
+      async function loadFiles() {
         try {
-          const showHidden = localDiskShowHidden && localDiskShowHidden.checked;
-          let url = target
-            ? (api.localDiskList + '?path=' + encodeURIComponent(target) + (showHidden ? '&show_hidden=1' : ''))
-            : (api.localDiskList + (showHidden ? '?show_hidden=1' : ''));
-          if (target) {
-            url = appendLocalDirPassword(url, target);
+          let filesUrl = api.files;
+          let activePassword = getFolderPasswordForPath(activeFolderPath);
+          const remoteShowHidden = !!(remoteDiskShowHidden && remoteDiskShowHidden.checked);
+          if (!remoteShowHidden && String(activeFolderPath || '').split('/').some(function (part) { return part.charAt(0) === '.'; })) {
+            activeFolderPath = '';
+            activePassword = '';
           }
-          const data = await fetchJson(url);
-          activeLocalDiskPath = String(data.path || '/');
-          activeLocalDiskParentPath = String(data.parent_path || '/');
-          activeLocalDiskHomePath = String(data.home_path || activeLocalDiskHomePath || '');
-          activeLocalDiskTrashPath = String(data.trash_path || activeLocalDiskTrashPath || '');
-          if (opts.resetTreeRoot) {
-            resetLocalDiskTreeRoot(activeLocalDiskPath);
+          if (activeFolderPath && getFolderLockAncestorPath(activeFolderPath) && !activePassword) {
+            activeFolderPath = '';
+            activePassword = '';
+          }
+          if (activeFolderPath) {
+            filesUrl += '?folder=' + encodeURIComponent(activeFolderPath);
+            if (activePassword) {
+              filesUrl += '&folder_password=' + encodeURIComponent(activePassword);
+            }
+          }
+          if (remoteShowHidden) {
+            filesUrl += (filesUrl.indexOf('?') >= 0 ? '&' : '?') + 'show_hidden=1';
+          }
+          const results = await Promise.all([
+            fetchJson(filesUrl),
+            fetchJson(folderListUrl())
+          ]);
+          allFiles = Array.isArray(results[0].files) ? results[0].files.map(normalizeFileRecord) : [];
+          folderTreeData = Array.isArray(results[1].folders) ? results[1].folders.map(normalizeFolderNode) : [];
+          ensureFolderPathExpanded(activeFolderPath);
+          await loadTagTreeState();
+          renderFolderTree();
+          renderTagTree();
+          if (activeFilterTagId) {
+            try {
+              await showFilesForTag(activeFilterTagId);
+            } catch (_) {
+              clearTagFileFilter();
+            }
           } else {
-            ensureLocalDiskTreeRoot(activeLocalDiskPath);
+            renderFiles(allFiles);
           }
-          cacheLocalDiskTreeNode(activeLocalDiskPath, Array.isArray(data.items) ? data.items : []);
-          expandedLocalDiskTreePaths.add(activeLocalDiskPath);
-          clearLocalDiskSelection();
-          renderLocalDiskItems(Array.isArray(data.items) ? data.items : []);
+          await recoverRunningTranscodeTasks();
         } catch (err) {
-          if (localDiskList) {
-            localDiskList.innerHTML = '';
-          }
-          if (localDiskTable) {
-            localDiskTable.style.display = 'none';
-          }
-          if (localDiskEmpty) {
-            localDiskEmpty.textContent = '加载本地磁盘失败：' + err.message;
-            localDiskEmpty.style.display = 'block';
-          }
-          showStatus('加载本地磁盘失败：' + err.message, 'err');
+          allFiles = [];
+          folderTreeData = [];
+          fileList.innerHTML = '';
+          fileTable.style.display = 'none';
+          fileEmpty.textContent = '加载虚拟磁盘失败：' + err.message;
+          fileEmpty.style.display = 'block';
+          renderFolderTree();
+          renderTagTree();
+          showStatus('加载列表失败：' + err.message, 'err');
         }
+      }
+
+      function canRenameFolderPath(path) {
+        const text = String(path || '');
+        return !!text && !isRecycleFolderPath(text);
+      }
+
+      function closeAudioTagContextMenu() {
+        if (!activeAudioTagContextMenu) {
+          return;
+        }
+        if (activeAudioTagContextMenu.parentNode) {
+          activeAudioTagContextMenu.parentNode.removeChild(activeAudioTagContextMenu);
+        }
+        activeAudioTagContextMenu = null;
+      }
+
+      function isActiveTagPreviewEnabled() {
+        return isTagPreviewEnabled(activeFilterTagId);
+      }
+
+      function syncFolderActionButtons() {
+        if (folderDeleteBtn) {
+          folderDeleteBtn.disabled = !activeFolderPath || isRecycleRootFolderPath(activeFolderPath);
+        }
+        if (folderRestoreBtn) {
+          folderRestoreBtn.disabled = !activeFolderPath || !isRecycleFolderPath(activeFolderPath) || isRecycleRootFolderPath(activeFolderPath);
+        }
+        if (folderCurrentPath) {
+          folderCurrentPath.textContent = getFolderLabel(activeFolderPath);
+        }
+        setUploadTargetFolder(activeFolderPath);
+      }
+
+      function isCurrentFileLocal(fileName) {
+        const target = String(fileName || '');
+        const found = getFileRecordByPath(target);
+        return !!(found && found.local);
+      }
+
+      function setPreviewCropMode(win, enabled) {
+        if (!win) {
+          return;
+        }
+        win.__imageCropMode = !!enabled;
+        const shell = win.querySelector('.preview-image-shell');
+        const cropRect = win.querySelector('.preview-crop-rect');
+        if (shell) {
+          shell.classList.toggle('crop-mode', !!enabled);
+        }
+        if (cropRect && !enabled && !win.__imageCropRect) {
+          cropRect.hidden = true;
+          cropRect.removeAttribute('style');
+        }
+        setImageEditHint(win, enabled ? '在图片上拖拽选择剪切区域，然后点击“应用剪切”。' : '');
       }
 
       async function toggleLocalDiskTreePath(path) {
@@ -1457,545 +1061,14 @@
         }
       }
 
-      function openPreview(kind, file, name, options) {
-        const opts = options || {};
-        const previewKey = (opts.previewKey || file);
-        const existed = openedPreviewWindows.get(previewKey);
-        if (existed && existed.isConnected) {
-          bringToFront(existed);
-          if (kind === 'image' && Array.isArray(opts.gallery) && opts.gallery.length) {
-            updateImagePreviewWindow(existed, opts.gallery, Number(opts.galleryIndex || 0));
-          }
-          const video = existed.querySelector('video');
-          if (video) {
-            video.play().catch(function () {});
-          }
+      function handleLocalDiskFileRenameFocusoutEvent(e) {
+        const input = e.target.closest('.local-disk-rename-input');
+        if (!input) {
           return;
         }
-
-        const rawFileForUrl = decodeURIComponent(String(file || ''));
-        const url = (opts.url || downloadUrlForFile(rawFileForUrl, true)) + '&v=' + Date.now();
-        const win = document.createElement('div');
-        win.className = 'floating-preview';
-        win.classList.add('preview-kind-' + kind);
-        previewZ += 1;
-        win.style.zIndex = String(previewZ);
-
-        const titleText = kind === 'video' ? '视频播放：'
-          : (kind === 'audio' ? '音频播放：'
-            : (kind === 'pdf' ? 'PDF预览：'
-              : (kind === 'text' ? '文本查看：' : '图片预览：')));
-        const escapedTitle = escapeHtml(name || '');
-
-        let mediaHtml = '';
-        let bodyClass = 'preview-body';
-        if (kind === 'video') {
-          const rawName = decodeURIComponent(String(file || '')) || String(name || '');
-          const subtitleName = toVttSidecarName(rawName);
-          const subtitleUrl = (opts.local ? localDiskDownloadUrl(subtitleName) : downloadUrlForFile(subtitleName, true)) + '&v=' + Date.now();
-          const sidecarAudioUrl = resolveSplitVideoAudioUrl(rawName, opts.local);
-          const sidecarAudioHint = sidecarAudioUrl
-            ? '<div class="preview-sidecar-audio-hint">' +
-                escapeHtml(t('当前声音由拆分出的独立音频文件同步播放。由于视频文件本身没有音轨，播放器里的音量图标可能显示为禁用，但不影响实际出声。')) +
-              '</div>'
-            : '';
-          bodyClass += ' preview-body-video';
-          mediaHtml = '<div class="preview-video-stack">' +
-              '<video class="preview-video" controls preload="metadata">' +
-                '<track kind="subtitles" srclang="zh-CN" label="中文字幕" default src="' + subtitleUrl + '">' +
-              '</video>' +
-              (sidecarAudioUrl ? ('<audio class="preview-video-sidecar-audio" preload="metadata" hidden src="' + escapeHtml(sidecarAudioUrl) + '"></audio>') : '') +
-              sidecarAudioHint +
-              (((opts.local && isLocalDiskConvertibleVideoName(rawName)) || (!opts.local && isRealMediaVideoName(rawName)))
-                ? '<div class="preview-video-tools">' +
-                    (opts.local ? '<button class="preview-convert-btn" type="button" data-preview-stream-video="' + encodeURIComponent(rawName) + '">' + t('边转边看') + '</button>' : '') +
-                    '<button class="preview-convert-btn" type="button" data-preview-convert-video="' + encodeURIComponent(rawName) + '" data-preview-convert-local="' + (opts.local ? '1' : '0') + '">' + t('转换为MP4') + '</button><span>' + (opts.local ? t('本地磁盘RM/RMVB/AVI格式可转换为MP4，输出文件会保存在源文件相同目录。') : t('RM/RMVB格式浏览器兼容性较差，可转换为MP4后播放。')) + '</span></div>' +
-                    (opts.local ? '<div class="preview-stream-progress" data-preview-stream-progress hidden><div class="preview-stream-progress-fill" data-preview-stream-progress-fill></div><span data-preview-stream-progress-text>' + t('等待边转边看') + '</span></div>' : '')
-                : '') +
-            '</div>';
-        } else if (kind === 'audio') {
-          mediaHtml = '<audio class="preview-audio" controls preload="metadata" src="' + url + '"></audio>';
-        } else if (kind === 'pdf') {
-          mediaHtml = '<iframe class="preview-pdf" src="' + escapeHtml(url) + '" title="' + escapedTitle + '"></iframe>';
-        } else if (kind === 'text') {
-          mediaHtml = '<pre class="preview-text">加载中...</pre>';
-        } else {
-          bodyClass += ' preview-body-image';
-          const showNav = Array.isArray(opts.gallery) && opts.gallery.length > 1;
-          mediaHtml = '<div class="preview-image-toolbar">' +
-              '<button class="preview-edit-btn" type="button" data-image-edit="rotate-left" title="向左旋转90度" aria-label="向左旋转90度">' +
-                '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
-                  '<rect x="8" y="9.5" width="9" height="9" rx="1.8"></rect><path d="M6 4.8v4.4h4.4"></path><path d="M6 9.2a6.5 6.5 0 0 1 10.5-3.8"></path>' +
-                '</svg>' +
-              '</button>' +
-              '<button class="preview-edit-btn" type="button" data-image-edit="rotate-right" title="向右旋转90度" aria-label="向右旋转90度">' +
-                '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
-                  '<rect x="7" y="9.5" width="9" height="9" rx="1.8"></rect><path d="M18 4.8v4.4h-4.4"></path><path d="M18 9.2A6.5 6.5 0 0 0 7.5 5.4"></path>' +
-                '</svg>' +
-              '</button>' +
-              '<button class="preview-edit-btn" type="button" data-image-edit="crop" title="剪切" aria-label="剪切">✂</button>' +
-              '<button class="preview-edit-btn" type="button" data-image-edit="apply-crop" title="应用剪切" aria-label="应用剪切">✓</button>' +
-              '<button class="preview-edit-btn" type="button" data-image-edit="cancel-crop" title="取消剪切" aria-label="取消剪切">×</button>' +
-              '<button class="preview-edit-btn" type="button" data-image-edit="zoom-in" title="等比例放大" aria-label="等比例放大">＋</button>' +
-              '<button class="preview-edit-btn" type="button" data-image-edit="zoom-out" title="等比例缩小" aria-label="等比例缩小">－</button>' +
-              '<span class="preview-image-size" title="当前图像尺寸">' +
-                '<input class="preview-size-input" data-image-size="width" type="number" min="1" step="1" aria-label="图片宽度">' +
-                '<span>x</span>' +
-                '<input class="preview-size-input" data-image-size="height" type="number" min="1" step="1" aria-label="图片高度">' +
-              '</span>' +
-              '<button class="preview-edit-btn" type="button" data-image-edit="download" title="下载到本地" aria-label="下载到本地">' +
-                '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">' +
-                  '<path d="M12 3v12"></path><path d="M6.5 9.5 12 15l5.5-5.5"></path><path d="M5 17v2.2c0 .9.7 1.6 1.6 1.6h10.8c.9 0 1.6-.7 1.6-1.6V17"></path>' +
-                '</svg>' +
-              '</button>' +
-              '<button class="preview-edit-btn primary" type="button" data-image-edit="save" title="保存到服务" aria-label="保存到服务">💾</button>' +
-              '<div class="preview-edit-hint" aria-live="polite"></div>' +
-            '</div>' +
-            '<div class="preview-image-shell">'
-            + '<button class="preview-nav-btn preview-nav-prev" type="button" data-preview-nav="prev" aria-label="上一张"' + (showNav ? '' : ' hidden') + '>‹</button>'
-            + '<img class="preview-image" alt="图片预览" src="' + url + '">'
-            + '<div class="preview-crop-rect" hidden></div>'
-            + '<button class="preview-nav-btn preview-nav-next" type="button" data-preview-nav="next" aria-label="下一张"' + (showNav ? '' : ' hidden') + '>›</button>'
-            + '</div>';
-        }
-
-        win.innerHTML =
-          '<div class="preview-head">' +
-            '<div class="preview-title">' + titleText + escapedTitle + '</div>' +
-            '<div class="preview-head-actions">' +
-              '<button class="preview-window-btn" type="button" data-preview-window-action="minimize" title="' + escapeHtml(t('最小化')) + '" aria-label="' + escapeHtml(t('最小化')) + '">−</button>' +
-              '<button class="preview-window-btn" type="button" data-preview-window-action="maximize" title="' + escapeHtml(t('最大化')) + '" aria-label="' + escapeHtml(t('最大化')) + '">□</button>' +
-              '<button class="preview-close" type="button" title="' + escapeHtml(t('关闭')) + '" aria-label="' + escapeHtml(t('关闭')) + '">×</button>' +
-            '</div>' +
-          '</div>' +
-          '<div class="' + bodyClass + '">' + mediaHtml + '</div>';
-
-        previewLayer.appendChild(win);
-        centerPreviewWindow(win);
-        openedPreviewWindows.set(previewKey, win);
-
-        const mediaVideo = win.querySelector('video');
-        if (mediaVideo) {
-          const rawVideoFile = decodeURIComponent(String(file || ''));
-          const mediaSidecarAudio = win.querySelector('.preview-video-sidecar-audio');
-          bindVideoResume(mediaVideo, opts.local ? ('local:' + rawVideoFile) : rawVideoFile);
-          mediaVideo.src = url;
-          if (mediaSidecarAudio) {
-            bindSplitVideoAudio(mediaVideo, mediaSidecarAudio);
+        window.setTimeout(function () {
+          if (document.activeElement !== input) {
+            submitLocalDiskFileRename(input);
           }
-          mediaVideo.play().catch(function () {});
-          const streamBtn = win.querySelector('[data-preview-stream-video]');
-          if (streamBtn) {
-            streamBtn.addEventListener('click', async function () {
-              const rawStreamFile = decodeURIComponent(streamBtn.getAttribute('data-preview-stream-video') || '');
-              if (!rawStreamFile) {
-                return;
-              }
-              let stateUrl = api.localDiskVideoStreamState + '?path=' + encodeURIComponent(rawStreamFile);
-              stateUrl = appendLocalDirPassword(appendFilePassword(stateUrl, rawStreamFile, true), localDiskParentPath(rawStreamFile));
-              let savedStreamOffsetMs = 0;
-              try {
-                const stateData = await fetchJson(stateUrl);
-                savedStreamOffsetMs = Math.max(0, Number(stateData.position_ms || 0));
-              } catch (_) {
-                savedStreamOffsetMs = 0;
-              }
-              let streamUrl = api.localDiskVideoStream + '?path=' + encodeURIComponent(rawStreamFile);
-              streamUrl = appendLocalDirPassword(appendFilePassword(streamUrl, rawStreamFile, true), localDiskParentPath(rawStreamFile));
-              const streamTaskId = 'local-stream-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);
-              streamUrl += '&stream_task_id=' + encodeURIComponent(streamTaskId);
-              streamBtn.disabled = true;
-              streamBtn.textContent = t('边转边看中');
-              const progressBox = win.querySelector('[data-preview-stream-progress]');
-              const progressFill = win.querySelector('[data-preview-stream-progress-fill]');
-              const progressText = win.querySelector('[data-preview-stream-progress-text]');
-              if (progressBox) {
-                progressBox.hidden = false;
-              }
-              if (progressFill) {
-                progressFill.style.width = '0%';
-              }
-              if (progressText) {
-                progressText.textContent = t('边转边看准备中...');
-              }
-              if (win.__streamProgressTimer) {
-                clearInterval(win.__streamProgressTimer);
-              }
-              if (win.__streamStateTimer) {
-                clearInterval(win.__streamStateTimer);
-              }
-              win.__streamProgressTimer = setInterval(async function () {
-                try {
-                  const data = await fetchJson(api.convertProgress + '?task_id=' + encodeURIComponent(streamTaskId));
-                  const percent = Math.max(0, Math.min(data.done ? 100 : 99, Math.round(Number(data.progress || 0))));
-                  if (progressFill) {
-                    progressFill.style.width = percent + '%';
-                  }
-                  if (progressText) {
-                    progressText.textContent = data.done
-                      ? (data.success ? t('边转边看完成 100%') : t('边转边看失败'))
-                      : ((data.message || t('边转边看中...')) + ' ' + percent + '%');
-                  }
-                  if (data.done) {
-                    clearInterval(win.__streamProgressTimer);
-                    win.__streamProgressTimer = null;
-                  }
-                } catch (_) {
-                  if (progressText) {
-                    progressText.textContent = t('边转边看准备中...');
-                  }
-                }
-              }, 800);
-              mediaVideo.pause();
-              mediaVideo.src = streamUrl + '&v=' + Date.now();
-              mediaVideo.load();
-              const saveStreamState = function () {
-                const absoluteMs = Math.max(0, Math.round(savedStreamOffsetMs + ((Number(mediaVideo.currentTime) || 0) * 1000)));
-                fetch(stateUrl + '&position_ms=' + encodeURIComponent(String(absoluteMs)), { method: 'POST' }).catch(function () {});
-              };
-              win.__saveStreamState = saveStreamState;
-              win.__streamStateTimer = setInterval(saveStreamState, 5000);
-              mediaVideo.addEventListener('pause', saveStreamState);
-              mediaVideo.addEventListener('ended', function refreshLocalAfterStreamConvert() {
-                mediaVideo.removeEventListener('ended', refreshLocalAfterStreamConvert);
-                if (win.__streamProgressTimer) {
-                  clearInterval(win.__streamProgressTimer);
-                  win.__streamProgressTimer = null;
-                }
-                if (typeof win.__saveStreamState === 'function') {
-                  win.__saveStreamState();
-                }
-                if (win.__streamStateTimer) {
-                  clearInterval(win.__streamStateTimer);
-                  win.__streamStateTimer = null;
-                }
-                if (progressFill) {
-                  progressFill.style.width = '100%';
-                }
-                if (progressText) {
-                  progressText.textContent = t('边转边看完成 100%');
-                }
-                loadLocalDisk(activeLocalDiskPath || localDiskParentPath(rawStreamFile) || '');
-              });
-              mediaVideo.play().catch(function () {});
-            });
-          }
-          const convertBtn = win.querySelector('[data-preview-convert-video]');
-          if (convertBtn) {
-            convertBtn.addEventListener('click', async function () {
-              const rawConvertFile = decodeURIComponent(convertBtn.getAttribute('data-preview-convert-video') || '');
-              if (!rawConvertFile) {
-                return;
-              }
-              convertBtn.disabled = true;
-              convertBtn.textContent = t('转换任务已启动');
-              mediaVideo.pause();
-              const encoded = encodeURIComponent(rawConvertFile);
-              const isLocalConvert = convertBtn.getAttribute('data-preview-convert-local') === '1';
-              showManualTranscodePrompt([{ name: rawConvertFile, reason: isLocalConvert ? t('本地磁盘RM/RMVB/AVI格式可转换为MP4，输出文件会保存在源文件相同目录。') : t('RM/RMVB格式浏览器兼容性较差，可转换为MP4后播放。') }]);
-              if (isLocalConvert) {
-                await startLocalVideoTranscode(encoded);
-              } else {
-                await startManualTranscode(encoded);
-              }
-            });
-          }
-
-          // Check if video has audio track
-          if (!opts.local) {
-          checkVideoAudio(rawVideoFile).then(function (probeResult) {
-            const hasSidecarAudio = !!mediaSidecarAudio;
-            if (probeResult && probeResult.ok && ((!probeResult.has_audio && !hasSidecarAudio) || probeResult.browser_audio_supported === false)) {
-              // No audio or unsupported browser audio codec
-              var message = '此视频文件不含音频轨道，音量按钮将不可用。';
-              if (probeResult && probeResult.has_audio && probeResult.browser_audio_supported === false) {
-                message = '此视频音频编码为 ' + (probeResult.audio_codec || 'unknown') + '，浏览器通常不支持播放声音。';
-              }
-              const warning = document.createElement('div');
-              warning.style.cssText = 'margin-top: 8px; padding: 8px 10px; background: #fff7e8; border: 1px solid #e3c89d; border-radius: 6px; font-size: 12px; color: #8a5a00; display: flex; align-items: flex-start; gap: 8px;';
-              warning.innerHTML = '<span style="flex-shrink: 0; font-weight: 700;">!</span><span>' + escapeHtml(message) + ' 请在页面提示中手动确认是否转码。</span>';
-              const body = win.querySelector('.preview-body');
-              if (body && body.querySelector('video')) {
-                body.insertBefore(warning, body.querySelector('video').nextSibling);
-              }
-            }
-          });
-          }
-        }
-
-        const mediaAudio = win.querySelector('audio');
-        if (mediaAudio) {
-          const rawAudioFile = decodeURIComponent(String(file || ''));
-          if (!opts.local) {
-            bindVideoResume(mediaAudio, rawAudioFile);
-          }
-          mediaAudio.play().catch(function () {});
-        }
-
-        const mediaText = win.querySelector('.preview-text');
-        if (mediaText) {
-          const lang = detectCodeLang(name);
-          if (lang) {
-            mediaText.classList.add('code');
-          }
-          fetch(url)
-            .then(function (res) {
-              if (!res.ok) {
-                throw new Error('http ' + res.status);
-              }
-              return res.text();
-            })
-            .then(function (text) {
-              if (lang) {
-                mediaText.innerHTML = highlightCodeText(text, lang);
-              } else {
-                mediaText.textContent = text;
-              }
-            })
-            .catch(function (err) {
-              mediaText.textContent = '文本加载失败: ' + err.message;
-            });
-        }
-
-        const closeBtn = win.querySelector('.preview-close');
-        const head = win.querySelector('.preview-head');
-        const minimizeBtn = win.querySelector('[data-preview-window-action="minimize"]');
-        const maximizeBtn = win.querySelector('[data-preview-window-action="maximize"]');
-
-        closeBtn.addEventListener('click', function () {
-          closePreviewWindow(win, previewKey);
-        });
-
-        if (minimizeBtn) {
-          minimizeBtn.addEventListener('click', function () {
-            minimizePreviewWindow(win);
-          });
-        }
-
-        if (maximizeBtn) {
-          maximizeBtn.addEventListener('click', function () {
-            togglePreviewWindowMaximize(win);
-          });
-        }
-        syncPreviewWindowButtons(win);
-
-        const prevNavBtn = win.querySelector('.preview-nav-btn[data-preview-nav="prev"]');
-        const nextNavBtn = win.querySelector('.preview-nav-btn[data-preview-nav="next"]');
-        if (prevNavBtn) {
-          prevNavBtn.addEventListener('click', function () {
-            stepImagePreviewWindow(win, -1);
-          });
-        }
-        if (nextNavBtn) {
-          nextNavBtn.addEventListener('click', function () {
-            stepImagePreviewWindow(win, 1);
-          });
-        }
-
-        if (kind === 'image' && Array.isArray(opts.gallery) && opts.gallery.length) {
-          updateImagePreviewWindow(win, opts.gallery, Number(opts.galleryIndex || 0));
-        } else if (kind === 'image') {
-          updateImagePreviewWindow(win, [{
-            file: rawFileForUrl,
-            name: String(name || rawFileForUrl || ''),
-            local: !!opts.local
-          }], 0);
-        }
-        if (kind === 'image') {
-          initPreviewImageEditing(win);
-        }
-
-        win.addEventListener('mousedown', function () {
-          bringToFront(win);
-        });
-
-        head.addEventListener('mousedown', function (e) {
-          if (e.target.closest('.preview-close') || e.target.closest('.preview-window-btn') || win.classList.contains('is-maximized')) {
-            return;
-          }
-          snapshotPreviewWindowRect(win);
-          const rect = win.getBoundingClientRect();
-          bringToFront(win);
-          activeDrag = {
-            win: win,
-            startX: e.clientX,
-            startY: e.clientY,
-            left: rect.left,
-            top: rect.top
-          };
-          win.style.transform = 'none';
-          e.preventDefault();
-        });
-
-        head.addEventListener('dblclick', function (e) {
-          if (e.target.closest('.preview-close') || e.target.closest('.preview-window-btn')) {
-            return;
-          }
-          e.preventDefault();
-          bringToFront(win);
-          togglePreviewWindowMaximize(win);
-        });
+        }, 0);
       }
-
-      function closePreviewWindow(win, key) {
-        if (!win) {
-          return;
-        }
-        const media = win.querySelector('video, audio');
-        if (media) {
-          if (typeof win.__saveStreamState === 'function') {
-            win.__saveStreamState();
-          }
-          if (win.__streamStateTimer) {
-            clearInterval(win.__streamStateTimer);
-            win.__streamStateTimer = null;
-          }
-          if (win.__streamProgressTimer) {
-            clearInterval(win.__streamProgressTimer);
-            win.__streamProgressTimer = null;
-          }
-          const resumeFile = media.getAttribute('data-resume-file') || '';
-          if (resumeFile && media.getAttribute('data-resume-media-ready') === '1') {
-            clearScheduledVideoResumeSave(resumeFile);
-            const ms = Math.max(0, Math.round((Number(media.currentTime) || 0) * 1000));
-            saveVideoResumePosition(resumeFile, ms).catch(function () {});
-          } else if (resumeFile) {
-            clearScheduledVideoResumeSave(resumeFile);
-          }
-          media.setAttribute('data-resume-closing', '1');
-          media.pause();
-          media.src = '';
-        }
-        if (key) {
-          openedPreviewWindows.delete(key);
-        } else {
-          openedPreviewWindows.forEach(function (value, k) {
-            if (value === win) {
-              openedPreviewWindows.delete(k);
-            }
-          });
-        }
-        if (win.parentNode) {
-          win.parentNode.removeChild(win);
-        }
-      }
-
-      function bringToFront(win) {
-        if (!win) {
-          return;
-        }
-        previewZ += 1;
-        win.style.zIndex = String(previewZ);
-      }
-
-      function snapshotPreviewWindowRect(win) {
-        if (!win || win.classList.contains('is-maximized')) {
-          return;
-        }
-        const rect = win.getBoundingClientRect();
-        win.dataset.restoreLeft = Math.round(rect.left) + 'px';
-        win.dataset.restoreTop = Math.round(rect.top) + 'px';
-        win.dataset.restoreWidth = Math.round(rect.width) + 'px';
-        win.dataset.restoreHeight = Math.round(rect.height) + 'px';
-      }
-
-      function syncPreviewWindowButtons(win) {
-        if (!win) {
-          return;
-        }
-        const maximizeBtn = win.querySelector('[data-preview-window-action="maximize"]');
-        if (!maximizeBtn) {
-          return;
-        }
-        const restoreMode = win.classList.contains('is-minimized') || win.classList.contains('is-maximized');
-        maximizeBtn.textContent = restoreMode ? '❐' : '□';
-        maximizeBtn.title = restoreMode ? t('复原') : t('最大化');
-        maximizeBtn.setAttribute('aria-label', restoreMode ? t('复原') : t('最大化'));
-      }
-
-      function restorePreviewWindowGeometry(win) {
-        if (!win) {
-          return;
-        }
-        win.classList.remove('is-minimized', 'is-maximized');
-        win.style.transform = 'none';
-        win.style.resize = 'both';
-        win.style.maxHeight = '90vh';
-        win.style.width = win.dataset.restoreWidth || '';
-        win.style.height = win.dataset.restoreHeight || '';
-        win.style.left = win.dataset.restoreLeft || '';
-        win.style.top = win.dataset.restoreTop || '';
-        if (!win.dataset.restoreLeft || !win.dataset.restoreTop) {
-          centerPreviewWindow(win);
-        } else {
-          clampWindowPosition(win);
-        }
-        syncPreviewWindowButtons(win);
-      }
-
-      function togglePreviewWindowMaximize(win) {
-        if (!win) {
-          return;
-        }
-        if (win.classList.contains('is-minimized') || win.classList.contains('is-maximized')) {
-          restorePreviewWindowGeometry(win);
-          return;
-        }
-        snapshotPreviewWindowRect(win);
-        win.classList.remove('is-minimized');
-        win.classList.add('is-maximized');
-        win.style.transform = 'none';
-        win.style.resize = 'none';
-        win.style.left = '22px';
-        win.style.top = '22px';
-        win.style.width = 'calc(100vw - 44px)';
-        win.style.height = 'calc(100vh - 44px)';
-        win.style.maxHeight = 'calc(100vh - 44px)';
-        syncPreviewWindowButtons(win);
-      }
-
-      function minimizePreviewWindow(win) {
-        if (!win || win.classList.contains('is-minimized')) {
-          return;
-        }
-        snapshotPreviewWindowRect(win);
-        win.classList.remove('is-maximized');
-        win.classList.add('is-minimized');
-        win.style.transform = 'none';
-        win.style.resize = 'none';
-        win.style.height = '';
-        win.style.maxHeight = '';
-        clampWindowPosition(win);
-        syncPreviewWindowButtons(win);
-      }
-
-      function centerPreviewWindow(win) {
-        if (!win) {
-          return;
-        }
-
-        win.style.transform = 'none';
-        const count = previewLayer.querySelectorAll('.floating-preview').length;
-        const w = win.offsetWidth || 760;
-        const h = win.offsetHeight || 520;
-        const offset = (count - 1) * 24;
-        const left = Math.max(8, Math.round((window.innerWidth - w) / 2));
-        const top = Math.max(8, Math.round((window.innerHeight - h) / 2));
-        win.style.left = (left + offset) + 'px';
-        win.style.top = (top + offset) + 'px';
-        clampWindowPosition(win);
-      }
-
-      function clampWindowPosition(win) {
-        if (!win) {
-          return;
-        }
-
-        const rect = win.getBoundingClientRect();
-        const maxLeft = Math.max(8, window.innerWidth - rect.width - 8);
-        const maxTop = Math.max(8, window.innerHeight - 42);
-        let left = rect.left;
-        let top = rect.top;
-
-        if (left < 8) left = 8;
-        if (left > maxLeft) left = maxLeft;

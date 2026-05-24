@@ -1,87 +1,783 @@
-      }
-
-      function removeFileRefsFromAllTags(fileName) {
-        return 0;
-      }
-
-      function pruneTagRefsByCurrentFiles() {
-        const available = getFileNameSet();
-        let changed = false;
-        walkTagNodes(tagTree, function (node) {
-          const before = node.files.length;
-          node.files = node.files.filter(function (it) {
-            return available.has(it);
-          });
-          if (before !== node.files.length) {
-            changed = true;
-          }
-          return false;
-        }, 1, null, tagTree);
-        return changed;
-      }
-
-      function isAudioSplitChoiceCandidate(item) {
-        return !!(item && item.allowAudioSplitChoice);
-      }
-
-      function buildTranscodeActionButtons(encoded, item) {
-        if (isAudioSplitChoiceCandidate(item)) {
-          return '' +
-            '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '" data-transcode-mode="audio_split">' + t('拆分视频并转音频') + '</button>' +
-            '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '" data-transcode-mode="full_mp4">' + t('音视频都转') + '</button>';
+function appendFilePassword(url, path, local) {
+        const password = getFilePassword(path, local);
+        if (!password) {
+          return url;
         }
-        return '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '" data-transcode-mode="auto">' + t('确认转码') + '</button>';
+        return url + '&file_password=' + encodeURIComponent(password);
       }
 
-      function showManualTranscodePrompt(candidates) {
-        const list = Array.isArray(candidates) ? candidates : [];
-        if (!list.length) {
+      function isRealMediaVideoName(name) {
+        return /\.(rm|rmvb)$/i.test(String(name || ''));
+      }
+
+      function startTagRename(tagId) {
+        const id = String(tagId || '');
+        const meta = findTagMetaById(id);
+        if (!meta || !canRenameTagNode(meta.node, meta.level)) {
           return;
         }
+        activeTagRenameId = id;
+        renderTagTree();
+      }
 
-        statusBox.className = 'status show warn';
-        if (!statusBox.querySelector('.transcode-list')) {
-          statusBox.innerHTML =
-            '<div>' + t('检测到以下视频为了兼容浏览器建议进行兼容处理，请选择是否处理：') + '</div>' +
-            '<div class="transcode-list"></div>';
-        }
+      function setUploadProgress(percent, text) {
+        const p = Math.max(0, Math.min(100, Number(percent) || 0));
+        uploadProgress.style.display = 'block';
+        uploadProgressFill.style.width = p + '%';
+        uploadProgressText.textContent = text || (t('上传中 ') + p + '%');
+      }
 
-        const listEl = statusBox.querySelector('.transcode-list');
-        if (!listEl) {
-          return;
-        }
-
-        list.forEach(function (item) {
-          const name = String(item.name || '');
-          if (!name) {
-            return;
-          }
-          const reason = String(item.reason || t('浏览器兼容性不足'));
-          const encoded = encodeURIComponent(name);
-          let row = statusBox.querySelector('[data-transcode-item="' + encoded + '"]');
-          if (row) {
-            const reasonEl = row.querySelector('.transcode-item-reason');
-            if (reasonEl && !getTranscodeTaskId(encoded)) {
-              reasonEl.textContent = t('原因：') + reason;
+      function pollRemoteCopyTask(taskId, targetPath, copiedPath, copiedDirectory) {
+        return pollCopyTask(taskId, {
+          mode: 'remote-copy',
+          copiedPath: copiedPath,
+          onProgressTick: async function () {
+            if (!activeFilterTagId) {
+              ensureFolderPathExpanded(targetPath);
+              await loadFolderTreeState();
             }
+          },
+          onDone: async function () {
+            remoteDiskClipboardPath = '';
+            remoteDiskClipboardDirectory = false;
+            remoteDiskClipboardPaths = [];
+            remoteDiskClipboardDirectoryFlags = [];
+            activeFolderPath = targetPath;
+            ensureFolderPathExpanded(targetPath);
+            if (copiedDirectory && copiedPath) { ensureFolderPathExpanded(copiedPath); }
+            await loadFiles();
+            if (copiedDirectory && copiedPath) {
+              ensureFolderPathExpanded(copiedPath);
+              renderFolderTree();
+            }
+          }
+        });
+      }
+
+      function setImageEditHint(win, text, error) {
+        const hint = win ? win.querySelector('.preview-edit-hint') : null;
+        if (!hint) {
+          return;
+        }
+        hint.textContent = String(text || '');
+        hint.classList.toggle('error', !!error);
+      }
+
+      function localDiskBaseName(path) {
+        const text = String(path || '/').replace(/\/+$/, '') || '/';
+        if (text === '/') {
+          return '/';
+        }
+        const pos = text.lastIndexOf('/');
+        return pos >= 0 ? text.slice(pos + 1) : text;
+      }
+
+      async function loadVideoResumePosition(fileName) {
+        const data = await fetchJson(api.videoResume + '?file=' + encodeURIComponent(fileName || ''));
+        return {
+          found: !!data.found,
+          positionMs: Math.max(0, Number(data.position_ms || 0))
+        };
+      }
+
+      function isRecycleRootFolderPath(path) {
+        return String(path || '') === RECYCLE_FOLDER_NAME;
+      }
+
+      async function checkVideoAudio(videoFileName) {
+        try {
+          const response = await fetch(api.probeVideo + '?file=' + encodeURIComponent(videoFileName || ''));
+          if (!response.ok) {
+            return { ok: false };
+          }
+          const data = await response.json();
+          return data;
+        } catch (err) {
+          return { ok: false, error: err.message };
+        }
+      }
+
+      function getTagFileTypeConstraint(tagId) {
+        const rootMeta = getTagRootMeta(tagId);
+        if (!rootMeta || !rootMeta.node) {
+          return '';
+        }
+        const rootName = String(rootMeta.node.name || '').trim();
+        if (rootName === '视频') {
+          return 'video';
+        }
+        if (rootName === '音频') {
+          return 'audio';
+        }
+        if (rootName === '图片') {
+          return 'image';
+        }
+        return '';
+      }
+
+      function setFolderNodeLockedState(path, locked) {
+        const node = findFolderNodeByPath(path);
+        if (node) {
+          node.locked = !!locked;
+        }
+      }
+
+      function compareFiles(a, b, key, order) {
+        let res = 0;
+        if (key === 'size') {
+          res = safeSize(a) - safeSize(b);
+        } else if (key === 'uploaded_at') {
+          res = safeTime(a) - safeTime(b);
+        } else {
+          const an = String(a.name || '');
+          const bn = String(b.name || '');
+          res = an.localeCompare(bn, 'zh-CN');
+        }
+        return order === 'desc' ? -res : res;
+      }
+
+      function replacePreviewImageWithCanvas(win, canvas, options) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        const item = currentPreviewImageItem(win);
+        const opts = options || {};
+        const mime = imageEditMimeForFile(item && item.file);
+        if (!img || !mime) {
+          throw new Error('当前图片格式暂不支持编辑保存');
+        }
+        if (opts.updateBase !== false) {
+          win.__imageBaseCanvas = cloneCanvas(canvas);
+          win.__imageScale = 1;
+        }
+        win.__imageCurrentWidth = canvas.width;
+        win.__imageCurrentHeight = canvas.height;
+        img.src = canvas.toDataURL(mime, 0.92);
+        win.__imageDirty = true;
+        win.__imageCropRect = null;
+        const cropRect = win.querySelector('.preview-crop-rect');
+        if (cropRect) {
+          cropRect.hidden = true;
+          cropRect.removeAttribute('style');
+        }
+        updatePreviewImageSizeLabel(win, canvas.width, canvas.height);
+      }
+
+      function renderLocalDiskTableView(list) {
+        if (!localDiskList || !localDiskTable || !localDiskEmpty) {
+          return;
+        }
+        if (localDiskTableWrap) {
+          localDiskTableWrap.hidden = false;
+        }
+        if (localDiskExplorer) {
+          localDiskExplorer.hidden = true;
+        }
+        if (!list.length) {
+          localDiskList.innerHTML = '';
+          localDiskTable.style.display = 'none';
+          localDiskEmpty.textContent = '当前目录没有可显示的内容。';
+          localDiskEmpty.style.display = 'block';
+          return;
+        }
+
+        localDiskEmpty.style.display = 'none';
+        localDiskTable.style.display = 'table';
+        localDiskList.innerHTML = list.map(function (item) {
+          const name = String((item && item.name) || '');
+          const path = String((item && item.path) || '');
+          const encodedPath = encodeURIComponent(path);
+          const isDir = !!(item && item.directory);
+          const dirLocked = isDir && !!(item && item.locked);
+          const dirLockIcon = isDir ? localDirLockIconHtml(path, dirLocked) : '';
+          const fileLocked = !isDir && !!(item && item.locked);
+          const lockIcon = fileLocked
+            ? '<span class="folder-lock-icon file-lock-inline' + (getFilePassword(path, true) ? ' unlocked' : '') + '" title="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '" aria-label="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
+            : '';
+          const checked = selectedLocalDiskPaths.has(path) ? ' checked' : '';
+          const selectedClass = selectedLocalDiskPaths.has(path) ? ' selected-file-row' : '';
+          const selectBox = isDir
+            ? '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '></span>'
+            : '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '><button class="file-tag-quick-btn local-file-tag-btn" type="button" data-local-tag-file="' + encodedPath + '" title="' + escapeHtml(t('加入标签')) + '" aria-label="' + escapeHtml(t('加入标签')) + '">🏷</button></span>';
+          const renameInput = !isDir && activeLocalDiskRenamePath === path
+            ? '<input class="file-rename-input local-disk-rename-input" type="text" value="' + escapeHtml(name) + '" data-local-disk-rename-path="' + encodedPath + '" aria-label="' + escapeHtml(t('改名文件')) + '">'
+            : '';
+          const nameHtml = isDir
+            ? '<button type="button" class="local-folder-link" data-local-folder="' + encodedPath + '"><span class="local-folder-icon">📁</span><span>' + escapeHtml(name) + '</span></button>' + dirLockIcon
+            : (renameInput || '<button type="button" class="file-name file-name-action local-disk-file-name-action" data-local-disk-file-name-click="' + encodedPath + '">' + escapeHtml(name) + '</button>') + lockIcon;
+          const displayName = '<span class="local-disk-table-name-cell">' + selectBox + nameHtml + '</span>';
+          const previewBtn = !isDir && isImageName(name)
+            ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
+            : '';
+          const videoBtn = !isDir && isVideoName(name)
+            ? '<button class="local-preview-btn video-btn" data-kind="video" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">观影</button>'
+            : '';
+          const audioBtn = !isDir && isAudioName(name)
+            ? '<button class="local-preview-btn audio-btn" data-kind="audio" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">听音</button>'
+            : '';
+          const textBtn = !isDir && isTextName(name)
+            ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">查看</button>'
+            : '';
+          const pdfBtn = !isDir && isPdfName(name)
+            ? '<button class="local-preview-btn preview-btn" data-kind="pdf" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
+            : '';
+          const deleteBtn = isDir
+            ? (item.empty_directory
+              ? '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">删除</button>'
+              : '')
+            : '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '" title="移至回收站" aria-label="移至回收站">移除</button>';
+          return (
+            '<tr class="' + selectedClass.trim() + '"' + (!isDir ? (' data-local-file-context="' + encodedPath + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (isVideoName(name) ? '1' : '0') + '"') : (' data-local-dir-context="' + encodedPath + '" data-local-dir-locked="' + (dirLocked ? '1' : '0') + '"')) + '>' +
+              '<td>' + displayName + '</td>' +
+              '<td>' + (isDir ? '文件夹' : '文件') + '</td>' +
+              '<td>' + (isDir ? '-' : (formatNumber(Number(item.size || 0)) + ' 字节')) + '</td>' +
+              '<td>' + escapeHtml((item && item.modified_time) || '-') + '</td>' +
+              '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + pdfBtn + '</div></td>' +
+              '<td class="row-danger-action"><div class="danger-actions">' + deleteBtn + '</div></td>' +
+            '</tr>'
+          );
+        }).join('');
+        updateLocalDiskBulkRemoveButton();
+      }
+
+      function clampLocalDiskDirWidth(width) {
+        const explorerRect = localDiskExplorer ? localDiskExplorer.getBoundingClientRect() : null;
+        const explorerWidth = explorerRect ? explorerRect.width : 900;
+        const maxWidth = Math.max(240, Math.min(680, explorerWidth - 260));
+        return Math.round(Math.max(220, Math.min(Number(width) || 270, maxWidth)));
+      }
+
+      function collectFolderPaths(nodes, out) {
+        const list = Array.isArray(nodes) ? nodes : [];
+        const result = Array.isArray(out) ? out : [];
+        list.forEach(function (node) {
+          const path = String((node && node.path) || '');
+          if (path) {
+            result.push(path);
+          }
+          if (node && Array.isArray(node.children) && node.children.length) {
+            collectFolderPaths(node.children, result);
+          }
+        });
+        return result;
+      }
+
+      function detectCodeLang(name) {
+        const n = String(name || '').toLowerCase();
+        if (/\.(c|h)$/i.test(n)) return 'c';
+        if (/\.(cpp|hpp|cc)$/i.test(n)) return 'cpp';
+        if (/\.java$/i.test(n)) return 'java';
+        if (/\.(js|jsx)$/i.test(n)) return 'javascript';
+        if (/\.(ts|tsx)$/i.test(n)) return 'typescript';
+        if (/\.py$/i.test(n)) return 'python';
+        if (/\.go$/i.test(n)) return 'go';
+        if (/\.sql$/i.test(n)) return 'sql';
+        if (/\.(sh|bash)$/i.test(n)) return 'shell';
+        if (/\.proto$/i.test(n)) return 'proto';
+        return '';
+      }
+
+      function getTagRootName(tagId) {
+        const rootMeta = getTagRootMeta(tagId);
+        if (!rootMeta || !rootMeta.node) {
+          return '';
+        }
+        return String(rootMeta.node.name || '').trim();
+      }
+
+      function findFolderTreeNodeElement(path) {
+        if (!folderTree) {
+          return null;
+        }
+        const target = String(path || '');
+        const nodes = folderTree.querySelectorAll('.folder-tree-node[data-folder-path]');
+        for (let i = 0; i < nodes.length; i += 1) {
+          const node = nodes[i];
+          if (String(node.getAttribute('data-folder-path') || '') === target) {
+            return node;
+          }
+        }
+        return null;
+      }
+
+      function syncSelectedFilesByCurrentView() {
+        const visibleNames = new Set((Array.isArray(currentFiles) ? currentFiles : []).map(function (file) {
+          return getFilePath(file);
+        }).filter(Boolean));
+
+        Array.from(selectedFileNames).forEach(function (name) {
+          if (!visibleNames.has(name)) {
+            selectedFileNames.delete(name);
+          }
+        });
+      }
+
+      function rotatePreviewImage(win, direction) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) {
+          setImageEditHint(win, '图片还没有加载完成，请稍后再试。', true);
+          return;
+        }
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalHeight;
+          canvas.height = img.naturalWidth;
+          const ctx = canvas.getContext('2d');
+          if (direction === 'left') {
+            ctx.translate(0, canvas.height);
+            ctx.rotate(-Math.PI / 2);
+          } else {
+            ctx.translate(canvas.width, 0);
+            ctx.rotate(Math.PI / 2);
+          }
+          ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+          replacePreviewImageWithCanvas(win, canvas);
+          setImageEditHint(win, direction === 'left'
+            ? '已向左旋转 90 度，点击“保存到服务”写入文件。'
+            : '已向右旋转 90 度，点击“保存到服务”写入文件。');
+        } catch (err) {
+          setImageEditHint(win, '旋转失败：' + err.message, true);
+        }
+      }
+
+      function renderLocalDiskSplitView(list) {
+        if (!localDiskDirList || !localDiskDirEmpty || !localDiskSplitList || !localDiskSplitTable || !localDiskSplitEmpty) {
+          return;
+        }
+        if (localDiskTableWrap) {
+          localDiskTableWrap.hidden = true;
+        }
+        if (localDiskExplorer) {
+          localDiskExplorer.hidden = false;
+        }
+        const files = list.filter(function (item) { return !(item && item.directory); });
+
+        // Render directories
+        if (activeLocalDiskTreeRootPath) {
+          localDiskDirEmpty.style.display = 'none';
+          localDiskDirList.innerHTML = renderLocalDiskTreeNode(activeLocalDiskTreeRootPath, 0, null);
+        } else {
+          localDiskDirList.innerHTML = '';
+          localDiskDirEmpty.style.display = 'block';
+        }
+
+        // Render files
+        if (files.length) {
+          localDiskSplitEmpty.style.display = 'none';
+          localDiskSplitTable.style.display = 'table';
+          localDiskSplitList.innerHTML = files.map(buildLocalDiskFileRowHtml).join('');
+        } else {
+          localDiskSplitList.innerHTML = '';
+          localDiskSplitTable.style.display = 'none';
+          localDiskSplitEmpty.style.display = 'block';
+        }
+
+        updateLocalDiskBulkRemoveButton();
+        localDiskEmpty.style.display = 'none';
+      }
+
+      function setLocalDiskDirWidth(width, persist) {
+        if (!localDiskExplorer) {
+          return;
+        }
+        const nextWidth = clampLocalDiskDirWidth(width);
+        localDiskExplorer.style.setProperty('--local-disk-dir-width', nextWidth + 'px');
+        if (persist) {
+          try {
+            window.localStorage.setItem('webcool.localDiskDirWidth', String(nextWidth));
+          } catch (_) {}
+        }
+      }
+
+      function getFolderPasswordForPath(path) {
+        const lockedPath = getFolderLockAncestorPath(path);
+        if (!lockedPath) {
+          return '';
+        }
+        return unlockedFolderPasswords.get(lockedPath) || '';
+      }
+
+      function sortAudioFilesForPlaylist(files) {
+        return (Array.isArray(files) ? files : []).slice().sort(function (a, b) {
+          return getFilePath(a).localeCompare(getFilePath(b), 'zh-CN');
+        });
+      }
+
+      async function ensureTagUnlocked(tagId) {
+        const id = String(tagId || '');
+        if (!id) {
+          return false;
+        }
+        const meta = findTagMetaById(id);
+        if (!meta || !meta.node) {
+          showStatus(t('标签不存在，可能已被删除'), 'err');
+          return false;
+        }
+        if (!meta.node.locked || getTagPassword(id)) {
+          return true;
+        }
+        return await handleTagLockAction('session-unlock', id, { silentSuccess: true });
+      }
+
+      function renderFolderTree() {
+        if (!folderTree || !folderTreeEmpty) {
+          return;
+        }
+        syncFolderActionButtons();
+        if (!folderTreeData.length) {
+          folderTree.innerHTML = '';
+          folderTreeEmpty.textContent = t('当前没有文件夹。');
+          folderTreeEmpty.style.display = 'block';
+          return;
+        }
+        folderTreeEmpty.style.display = 'none';
+        folderTree.innerHTML =
+          '<div class="folder-tree-node' + (activeFolderPath ? '' : ' active') + (activeDropFolderPath === '' ? ' drop-target' : '') + '" data-folder-path="">' +
+            '<div class="folder-tree-line" style="padding-left:10px;">' +
+              '<span class="folder-tree-toggle placeholder">•</span>' +
+              '<div class="folder-tree-entry" data-folder-select="">' +
+                '<span class="folder-tree-name"><span class="folder-tree-icon root" aria-hidden="true">⌂</span>' + t('根目录') + '</span>' +
+                '<span class="folder-tree-count"></span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          buildFolderTreeHtml(getRootFolderTreeNodesForRender(), 0);
+        syncFolderDropHighlight();
+        focusActiveFolderRenameInput();
+      }
+
+      function canRenameFileRecord(file) {
+        if (!file || file.directory || file.local) {
+          return false;
+        }
+        return !isRecycleFolderPath(activeFolderPath);
+      }
+
+      async function downloadPreviewImageEdits(win) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        const item = currentPreviewImageItem(win);
+        if (!img || !item || !item.file) {
+          return;
+        }
+        const mime = imageEditMimeForFile(item.file);
+        if (!mime) {
+          setImageEditHint(win, 'GIF 动图暂不支持编辑后下载，请先转换为 PNG/JPG。', true);
+          return;
+        }
+        try {
+          const canvas = drawImageElementToCanvas(img);
+          const blob = await canvasToBlob(canvas, mime, 0.92);
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = localDiskBaseName(item.file) || 'image';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+          setImageEditHint(win, '已生成本地下载文件。');
+        } catch (err) {
+          setImageEditHint(win, '下载失败：' + err.message, true);
+        }
+      }
+
+      function snapshotPreviewWindowRect(win) {
+        if (!win || win.classList.contains('is-maximized')) {
+          return;
+        }
+        const rect = win.getBoundingClientRect();
+        win.dataset.restoreLeft = Math.round(rect.left) + 'px';
+        win.dataset.restoreTop = Math.round(rect.top) + 'px';
+        win.dataset.restoreWidth = Math.round(rect.width) + 'px';
+        win.dataset.restoreHeight = Math.round(rect.height) + 'px';
+      }
+
+      function localDiskDragPathsFor(sourcePath) {
+        const selected = getSelectedLocalDiskPaths();
+        if (selected.indexOf(sourcePath) >= 0) {
+          return selected;
+        }
+        return sourcePath ? [sourcePath] : [];
+      }
+
+      function closeFolderContextMenu() {
+        if (activeFolderContextMenu && activeFolderContextMenu.parentNode) {
+          activeFolderContextMenu.parentNode.removeChild(activeFolderContextMenu);
+        }
+        activeFolderContextMenu = null;
+      }
+
+      async function startAudioPlaylistFromTag(tagId, tagName, mode) {
+        const files = await loadAudioFilesForTag(tagId);
+        if (!files.length) {
+          throw new Error(t('该标签下没有音频文件'));
+        }
+        openAudioPlaylistWindow(tagId, tagName, mode, files);
+      }
+
+      function getFileNameSet() {
+        const set = new Set();
+        allFiles.forEach(function (it) {
+          const name = String((it && it.name) || '');
+          if (name) {
+            set.add(name);
+          }
+        });
+        return set;
+      }
+
+      async function restoreCurrentRecycleFolder() {
+        if (!activeFolderPath || !isRecycleFolderPath(activeFolderPath) || isRecycleRootFolderPath(activeFolderPath)) {
+          return;
+        }
+        const selected = selectedFolderPaths.has(activeFolderPath)
+          ? normalizeFolderMoveSources(Array.from(selectedFolderPaths)).filter(function (path) {
+            return isRecycleFolderPath(path) && !isRecycleRootFolderPath(path);
+          })
+          : [activeFolderPath];
+        if (!selected.length) {
+          return;
+        }
+        const confirmed = await askConfirmDialog({
+          title: selected.length > 1 ? '批量恢复目录' : '恢复目录',
+          description: selected.length > 1
+            ? ('确认恢复回收站中选中的 ' + selected.length + ' 个目录？将恢复到原路径（如冲突会自动改名）。')
+            : ('确认恢复回收站中的目录「' + activeFolderPath + '」？将恢复到原路径（如冲突会自动改名）。'),
+          confirmText: '恢复',
+          danger: false
+        });
+        if (!confirmed) {
+          return;
+        }
+        let restoredCount = 0;
+        let lastTargetPath = '';
+        for (let i = 0; i < selected.length; i += 1) {
+          const result = await fetchJson(api.restore + '?file=' + encodeURIComponent(selected[i]));
+          lastTargetPath = String((result && result.path) || '');
+          restoredCount += 1;
+        }
+        clearSelectedFolders();
+        activeFolderPath = RECYCLE_FOLDER_NAME;
+        ensureFolderPathExpanded(activeFolderPath);
+        await loadFiles();
+        showStatus(restoredCount > 1
+          ? ('已恢复 ' + restoredCount + ' 个目录')
+          : ('已恢复目录' + (lastTargetPath ? ('：' + lastTargetPath) : '')),
+          'ok');
+      }
+
+      function getFileTimeText(file, keys) {
+        for (let i = 0; i < keys.length; i += 1) {
+          const value = file && file[keys[i]];
+          if (value !== undefined && value !== null && String(value) !== '') {
+            return String(value);
+          }
+        }
+        return '-';
+      }
+
+      function refreshRenderedLocalDiskSelection() {
+        const roots = [localDiskList, localDiskExplorer].filter(Boolean);
+        roots.forEach(function (root) {
+          root.querySelectorAll('.local-disk-select[data-local-select]').forEach(function (checkbox) {
+            const path = decodeURIComponent(checkbox.getAttribute('data-local-select') || '');
+            const selected = selectedLocalDiskPaths.has(path);
+            checkbox.checked = selected;
+            const row = checkbox.closest('tr, .local-disk-dir-item');
+            if (row) {
+              row.classList.toggle('selected-file-row', selected);
+            }
+          });
+        });
+        updateLocalDiskBulkRemoveButton();
+      }
+
+      async function fetchJson(url, options) {
+        const res = await fetch(url, options || {});
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_) {
+          data = { ok: false, error: 'invalid json response' };
+        }
+        if (!res.ok || !data.ok) {
+          const err = new Error(data.error || ('http ' + res.status));
+          err.status = res.status;
+          err.data = data;
+          throw err;
+        }
+        return data;
+      }
+
+function deleteUnlockedFolderPassword(path) {
+        const target = String(path || '');
+        if (!target) {
+          return;
+        }
+        unlockedFolderPasswords.delete(target);
+        saveUnlockedFolderPasswords();
+      }
+
+      async function handleFileContextAction(action, path, local) {
+        if (!action || !path) {
+          return;
+        }
+        const fileLabel = local ? path : path;
+        if (action === 'lock') {
+          const password = await askLockPassword({
+            title: t('加锁文件'),
+            description: t('请为文件「') + fileLabel + t('」设置锁密码。'),
+            placeholder: t('请输入新锁密码'),
+            errorMessage: t('加锁失败，请重新输入密码。'),
+            statusErrorMessage: t('加锁失败：密码错误或验证失败')
+          });
+          if (password === null) {
             return;
           }
-          listEl.insertAdjacentHTML('beforeend',
-            '<div class="transcode-item" data-transcode-item="' + encoded + '">' +
-              '<div class="transcode-item-head">' +
-                '<div>' +
-                  '<div class="transcode-item-name">' + escapeHtml(name) + '</div>' +
-                  '<div class="transcode-item-reason">' + t('原因：') + escapeHtml(reason) + '</div>' +
-                '</div>' +
-                '<div class="transcode-actions">' +
-                  buildTranscodeActionButtons(encoded, item) +
-                  '<button type="button" class="transcode-cancel-btn" data-cancel-file="' + encoded + '">' + t('不转换') + '</button>' +
-                  '<button type="button" class="transcode-confirm-btn" data-confirm-transcode="' + encoded + '" hidden>' + t('确认') + '</button>' +
-                  '<div class="transcode-progress"><div class="transcode-progress-fill" data-progress-fill="' + encoded + '"></div></div>' +
-                  '<span class="transcode-progress-text" data-progress-text="' + encoded + '">' + t('等待确认') + '</span>' +
-                '</div>' +
-              '</div>' +
-            '</div>');
+          const url = api.fileLock
+            + (local
+              ? ('?local=1&path=' + encodeURIComponent(path))
+              : ('?file=' + encodeURIComponent(path)))
+            + '&password=' + encodeURIComponent(password);
+          await fetchJson(url, { method: 'POST' });
+          deleteUnlockedFilePassword(path, local);
+          setFileLockedState(path, local, true);
+          if (activeFilterTagId) {
+            renderFiles(activeSourceFiles);
+          } else if (local) {
+            renderLocalDiskItems(activeLocalDiskItems);
+          } else {
+            renderFiles(activeSourceFiles);
+          }
+          showStatus(t('文件已加锁：') + fileLabel, 'ok');
+          return;
+        }
+        if (action === 'session-unlock') {
+          const password = await askLockPassword({
+            title: t('解锁文件'),
+            description: t('请输入文件「') + fileLabel + t('」的锁密码。'),
+            onSubmit: async function (passwordText) {
+              const url = api.fileLockVerify
+                + (local
+                  ? ('?local=1&path=' + encodeURIComponent(path))
+                  : ('?file=' + encodeURIComponent(path)))
+                + '&password=' + encodeURIComponent(passwordText);
+              await fetchJson(url, { method: 'POST' });
+            }
+          });
+          if (password === null) {
+            return;
+          }
+          setUnlockedFilePassword(path, local, password);
+          if (activeFilterTagId) {
+            renderFiles(activeSourceFiles);
+          } else if (local) {
+            renderLocalDiskItems(activeLocalDiskItems);
+          } else {
+            renderFiles(activeSourceFiles);
+          }
+          showStatus(t('文件已解锁（当前会话）：') + fileLabel, 'ok');
+          return;
+        }
+        if (action === 'session-lock') {
+          deleteUnlockedFilePassword(path, local);
+          if (activeFilterTagId) {
+            renderFiles(activeSourceFiles);
+          } else if (local) {
+            renderLocalDiskItems(activeLocalDiskItems);
+          } else {
+            renderFiles(activeSourceFiles);
+          }
+          showStatus(t('文件已重新加锁：') + fileLabel, 'ok');
+          return;
+        }
+        if (action === 'remove-lock') {
+          const password = await askLockPassword({
+            title: t('去锁文件'),
+            description: t('请输入文件「') + fileLabel + t('」的锁密码。验证成功后会永久移除该文件锁。'),
+            errorMessage: t('密码错误或去锁失败，请重新输入。'),
+            statusErrorMessage: t('去锁失败：密码错误或验证失败'),
+            onSubmit: async function (passwordText) {
+              const url = api.fileUnlock
+                + (local
+                  ? ('?local=1&path=' + encodeURIComponent(path))
+                  : ('?file=' + encodeURIComponent(path)))
+                + '&password=' + encodeURIComponent(passwordText);
+              await fetchJson(url, { method: 'POST' });
+            }
+          });
+          if (password === null) {
+            return;
+          }
+          deleteUnlockedFilePassword(path, local);
+          setFileLockedState(path, local, false);
+          if (activeFilterTagId) {
+            renderFiles(activeSourceFiles);
+          } else if (local) {
+            renderLocalDiskItems(activeLocalDiskItems);
+          } else {
+            renderFiles(activeSourceFiles);
+          }
+          showStatus(t('文件已去锁：') + fileLabel, 'ok');
+          return;
+        }
+        if (action === 'open-local-player') {
+          let url = api.localDiskOpenFile + '?path=' + encodeURIComponent(path);
+          url = appendFilePassword(url, path, true);
+          url = appendLocalDirPassword(url, localDiskParentPath(path));
+          await fetchJson(url, { method: 'POST' });
+          showStatus(t('已调用本地播放器：') + fileLabel, 'ok');
+          return;
+        }
+        if (action === 'choose-local-player') {
+          let url = api.localDiskOpenFile + '?chooser=1&path=' + encodeURIComponent(path);
+          url = appendFilePassword(url, path, true);
+          url = appendLocalDirPassword(url, localDiskParentPath(path));
+          await fetchJson(url, { method: 'POST' });
+          showStatus(t('已打开本地播放器选择窗口：') + fileLabel, 'ok');
+        }
+      }
+
+      function askConfirmDialog(options) {
+        if (!confirmDialog || !confirmDialogTitle || !confirmDialogDesc) {
+          return Promise.resolve(false);
+        }
+        if (activeConfirmDialogResolver) {
+          closeConfirmDialog(false);
+        }
+        const opts = options || {};
+        confirmDialog.classList.toggle('wide-confirm-dialog', !!opts.wide);
+        confirmDialogTitle.textContent = String(opts.title || t('确认操作'));
+        confirmDialogDesc.textContent = String(opts.description || t('请确认是否继续。'));
+        if (confirmDialogCancelBtn) {
+          confirmDialogCancelBtn.textContent = String(opts.cancelText || t('取消'));
+        }
+        if (confirmDialogExtraBtn) {
+          const hasExtra = opts.extraText != null && String(opts.extraText) !== '';
+          confirmDialogExtraBtn.hidden = !hasExtra;
+          confirmDialogExtraBtn.textContent = hasExtra ? String(opts.extraText) : '';
+          confirmDialogExtraBtn.setAttribute('data-confirm-extra-value', String(opts.extraValue == null ? 'extra' : opts.extraValue));
+        }
+        const extraButtons = Array.isArray(opts.extraButtons) ? opts.extraButtons : [];
+        [confirmDialogExtra2Btn, confirmDialogExtra3Btn].forEach(function (btn, idx) {
+          if (!btn) { return; }
+          const item = extraButtons[idx];
+          const visible = item && item.text != null && String(item.text) !== '';
+          btn.hidden = !visible;
+          btn.textContent = visible ? String(item.text) : '';
+          btn.setAttribute('data-confirm-extra-value', visible ? String(item.value == null ? ('extra' + (idx + 2)) : item.value) : '');
+        });
+        if (confirmDialogConfirmBtn) {
+          confirmDialogConfirmBtn.textContent = String(opts.confirmText || t('确认'));
+          confirmDialogConfirmBtn.classList.toggle('danger', opts.danger !== false);
+        }
+        confirmDialog.hidden = false;
+        document.body.style.overflow = 'hidden';
+        requestAnimationFrame(function () {
+          if (confirmDialogConfirmBtn) {
+            confirmDialogConfirmBtn.focus();
+          }
+        });
+        return new Promise(function (resolve) {
+          activeConfirmDialogResolver = resolve;
         });
       }
 
@@ -118,138 +814,178 @@
         }
       }
 
-      function updateTranscodeProgress(encodedName, percent, text) {
-        const fill = statusBox.querySelector('[data-progress-fill="' + encodedName + '"]');
-        const label = statusBox.querySelector('[data-progress-text="' + encodedName + '"]');
-        if (fill) {
-          fill.style.width = Math.max(0, Math.min(100, percent || 0)) + '%';
-        }
-        if (label) {
-          label.textContent = text || '';
-        }
+      function getCopyTaskProgressDescription() {
+        return localImportProgressWindowMode === 'local-copy'
+          ? t('正在将本地磁盘文件或目录粘贴到目标目录。')
+          : t('正在将虚拟磁盘文件或目录粘贴到目标目录。');
       }
 
-      function setTranscodeVisualState(encodedName, state) {
-        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
-        const fill = statusBox.querySelector('[data-progress-fill="' + encodedName + '"]');
-        if (item) {
-          item.classList.remove('state-running', 'state-done', 'state-failed', 'state-cancelled');
-          if (state) {
-            item.classList.add('state-' + state);
-          }
-        }
-        if (fill) {
-          fill.classList.remove('state-done', 'state-failed', 'state-cancelled');
-          if (state === 'done' || state === 'failed' || state === 'cancelled') {
-            fill.classList.add('state-' + state);
-          }
-        }
-      }
-
-      function setTranscodeTaskId(encodedName, taskId) {
-        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
-        if (!item) {
+      function updateImagePreviewWindow(win, gallery, index) {
+        if (!win || !Array.isArray(gallery) || !gallery.length) {
           return;
         }
-        if (taskId) {
-          item.setAttribute('data-task-id', taskId);
-        } else {
-          item.removeAttribute('data-task-id');
+        const nextIndex = Math.max(0, Math.min(Number(index || 0), gallery.length - 1));
+        const item = gallery[nextIndex];
+        const titleEl = win.querySelector('.preview-title');
+        const imageEl = win.querySelector('.preview-image');
+        const prevBtn = win.querySelector('.preview-nav-btn[data-preview-nav="prev"]');
+        const nextBtn = win.querySelector('.preview-nav-btn[data-preview-nav="next"]');
+        win.__imageGallery = gallery;
+        win.__imageIndex = nextIndex;
+        if (titleEl) {
+          titleEl.textContent = '图片预览：' + String(item.name || item.file || '');
+        }
+        if (imageEl) {
+
+          imageEl.onload = function () {
+            if (!win.__imageBaseCanvas) {
+              capturePreviewBaseCanvas(win);
+            }
+            updatePreviewImageSizeLabel(win);
+          };
+          imageEl.alt = String(item.name || '图片预览');
+          imageEl.src = imagePreviewUrlForItem(item);
+        }
+        resetImageEditState(win);
+        if (prevBtn) {
+          prevBtn.disabled = nextIndex <= 0;
+          prevBtn.hidden = gallery.length <= 1;
+        }
+        if (nextBtn) {
+          nextBtn.disabled = nextIndex >= gallery.length - 1;
+          nextBtn.hidden = gallery.length <= 1;
         }
       }
 
-      function getTranscodeTaskId(encodedName) {
-        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
-        return item ? (item.getAttribute('data-task-id') || '') : '';
-      }
-
-      function setTranscodeButtons(encodedName, options) {
-        const opts = options || {};
-        const startBtns = statusBox.querySelectorAll('[data-transcode-file="' + encodedName + '"]');
-        const cancelBtn = statusBox.querySelector('[data-cancel-file="' + encodedName + '"]');
-        const confirmBtn = statusBox.querySelector('[data-confirm-transcode="' + encodedName + '"]');
-        if (typeof opts.startDisabled === 'boolean') {
-          startBtns.forEach(function (startBtn) {
-            startBtn.disabled = opts.startDisabled;
+      function getVisibleLocalDiskPathSet() {
+        const visible = new Set();
+        activeLocalDiskItems.forEach(function (item) {
+          if (item && item.path) {
+            visible.add(String(item.path));
+          }
+        });
+        if (activeLocalDiskTreeRootPath) {
+          visible.add(activeLocalDiskTreeRootPath);
+        }
+        localDiskTreeCache.forEach(function (dirs) {
+          dirs.forEach(function (item) {
+            if (item && item.path) {
+              visible.add(String(item.path));
+            }
           });
-        }
-        if (cancelBtn && typeof opts.cancelDisabled === 'boolean') {
-          cancelBtn.disabled = opts.cancelDisabled;
-        }
-        if (confirmBtn && typeof opts.confirmVisible === 'boolean') {
-          confirmBtn.hidden = !opts.confirmVisible;
-        }
-        if (cancelBtn) {
-          cancelBtn.textContent = getTranscodeTaskId(encodedName) ? t('取消转码') : t('不转换');
-        }
+        });
+        return visible;
       }
 
-      function dismissTranscodeItem(encodedName) {
-        stopTranscodePolling(encodedName);
-        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
-        if (item && item.parentNode) {
-          item.parentNode.removeChild(item);
+      function localizeAdminStorageMigrationMessage(message) {
+        const text = String(message || '');
+        const prefixes = ['正在处理同名文件(覆盖)：', '正在处理同名文件(跳过)：', '正在处理同名文件：', '正在拷贝：'];
+        for (let i = 0; i < prefixes.length; i += 1) {
+          if (text.indexOf(prefixes[i]) === 0) {
+            return t(prefixes[i]) + text.slice(prefixes[i].length);
+          }
         }
-        if (!statusBox.querySelector('[data-transcode-item]')) {
-          statusBox.className = 'status';
-          statusBox.textContent = '';
-        }
+        return t(text);
       }
 
-      function upsertTranscodeTaskItem(item) {
-        if (!item || !item.name) {
-          return;
+      function deleteUnlockedFilePassword(path, local) {
+        unlockedFilePasswords.delete(fileLockKey(path, local));
+        saveUnlockedFilePasswords();
+      }
+
+      async function moveFoldersToFolder(folderPaths, targetFolder) {
+        const selected = normalizeFolderMoveSources(folderPaths);
+        if (!selected.length) {
+          return { movedCount: 0, ignoredCount: 0 };
         }
 
-        const encoded = encodeURIComponent(String(item.name));
-        if (!statusBox.querySelector('.transcode-list')) {
-          statusBox.className = 'status show warn';
-          statusBox.innerHTML =
-            '<div>' + t('检测到以下视频为了兼容浏览器建议进行兼容处理，请选择是否处理：') + '</div>' +
-            '<div class="transcode-list"></div>';
+        const target = String(targetFolder || '');
+        const rawSelectedCount = Array.isArray(folderPaths) ? folderPaths.length : 0;
+        const ignoredCount = rawSelectedCount > selected.length ? (rawSelectedCount - selected.length) : 0;
+
+        let movedCount = 0;
+        for (let i = 0; i < selected.length; i += 1) {
+          const sourcePath = selected[i];
+          const result = await fetchJson(
+            withFolderPassword(
+              withFolderPassword(api.folderMove + '?path=' + encodeURIComponent(sourcePath) + '&folder=' + encodeURIComponent(target), sourcePath),
+              target,
+              'target_folder_password'
+            ),
+            { method: 'POST' }
+          );
+          const nextPath = String((result && result.path) || '');
+          activeFolderPath = relocatePathAfterFolderMove(activeFolderPath, sourcePath, nextPath);
+          movedCount += 1;
         }
 
-        const listEl = statusBox.querySelector('.transcode-list');
-        if (!listEl) {
-          return;
+        ensureFolderPathExpanded(activeFolderPath);
+        ensureFolderPathExpanded(target);
+        await loadFiles();
+        return { movedCount: movedCount, ignoredCount: ignoredCount };
+      }
+
+      function buildTagNodeHtml(node, level) {
+        const safeLevel = Math.max(1, Math.min(TAG_MAX_LEVEL, level || 1));
+        const indent = (safeLevel - 1) * 5;
+        const canExpand = safeLevel < TAG_MAX_LEVEL;
+        const hasChildren = hasTagChildren(node);
+        const expanded = expandedTagNodeIds.has(node.id);
+        const toggleSymbol = getTagNodeToggleSymbol(node, safeLevel);
+        const restrictedRootType = getRestrictedRootTagType(node, safeLevel);
+        const restrictedBadgeHtml = restrictedRootType
+          ? '<span class="tag-limit-badge ' + restrictedRootType + '">' + (restrictedRootType === 'video' ? t('仅视频') : (restrictedRootType === 'audio' ? t('仅音频') : t('仅图片'))) + '</span>'
+          : '';
+
+        let childHtml = '';
+        if (canExpand && hasChildren && expanded) {
+          childHtml = (Array.isArray(node.children) ? node.children : []).map(function (child) {
+            return buildTagNodeHtml(child, safeLevel + 1);
+          }).join('');
         }
 
-        let row = statusBox.querySelector('[data-transcode-item="' + encoded + '"]');
-        if (!row) {
-          row = document.createElement('div');
-          row.className = 'transcode-item state-running';
-          row.setAttribute('data-transcode-item', encoded);
-          row.innerHTML =
-            '<div class="transcode-item-head">' +
-              '<div>' +
-                '<div class="transcode-item-name"></div>' +
-                '<div class="transcode-item-reason"></div>' +
+        const nameInlineStyle = 'cursor:pointer;';
+        const toggleBtn = hasChildren
+          ? '<button type="button" class="tag-node-toggle" data-tag-id="' + node.id + '">' + toggleSymbol + '</button>'
+          : '<span class="tag-node-toggle placeholder"></span>';
+
+        const nodeClass = activeFilterTagId === node.id ? 'tag-node active' : 'tag-node';
+        const canDeleteTag = !isProtectedRestrictedRootTag(node, safeLevel);
+        const canLockTag = canDeleteTag;
+        const isRenaming = activeTagRenameId === node.id && canRenameTagNode(node, safeLevel);
+        const tagNameHtml = isRenaming
+          ? '<input class="tag-rename-input" data-tag-rename-input="' + escapeHtml(node.id) + '" value="' + escapeHtml(node.name) + '" maxlength="60">'
+          : '<span class="tag-node-name" data-tag-id="' + node.id + '">' + escapeHtml(node.name) + '</span>';
+        const tagUnlocked = !!getTagPassword(node.id);
+        const tagLockHtml = (canLockTag && node.locked)
+          ? '<span class="folder-lock-icon file-lock-inline tag-lock-inline' + (tagUnlocked ? ' unlocked' : '') + '" data-tag-lock-toggle="' + escapeHtml(node.id) + '" title="' + escapeHtml(t(tagUnlocked ? '点击重新加锁' : '点击解锁')) + '" aria-label="' + escapeHtml(t(tagUnlocked ? '点击重新加锁' : '点击解锁')) + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
+          : '';
+        const actionHtml =
+          '<div class="tag-actions">' +
+            (canExpand
+              ? '<button type="button" class="tag-inline-btn" data-tag-create="' + node.id + '" data-tag-level="' + safeLevel + '" title="' + escapeHtml(t('新增子标签')) + '">+</button>'
+              : '') +
+            (canDeleteTag
+              ? '<button type="button" class="tag-inline-btn danger" data-tag-delete="' + node.id + '" title="' + escapeHtml(t('删除标签')) + '">-</button>'
+              : '') +
+          '</div>';
+
+        return (
+          '<div class="' + nodeClass + '" data-tag-id="' + node.id + '" data-tag-locked="' + (node.locked ? '1' : '0') + '" data-tag-lockable="' + (canLockTag ? '1' : '0') + '">' +
+            '<div class="tag-line">' +
+              '<div class="tag-line-main" style="padding-left:' + indent + 'px;">' +
+                toggleBtn +
+                '<span class="tag-node-name-wrap" style="' + nameInlineStyle + '">' +
+                  tagNameHtml +
+                  restrictedBadgeHtml +
+                  tagLockHtml +
+                '</span>' +
               '</div>' +
-              '<div class="transcode-actions">' +
-                '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '" data-transcode-mode="auto" disabled>' + t('确认转码') + '</button>' +
-                '<button type="button" class="transcode-cancel-btn" data-cancel-file="' + encoded + '">' + t('取消转码') + '</button>' +
-                '<button type="button" class="transcode-confirm-btn" data-confirm-transcode="' + encoded + '" hidden>' + t('确认') + '</button>' +
-                '<div class="transcode-progress"><div class="transcode-progress-fill" data-progress-fill="' + encoded + '"></div></div>' +
-                '<span class="transcode-progress-text" data-progress-text="' + encoded + '"></span>' +
-              '</div>' +
-            '</div>';
-          listEl.appendChild(row);
-        }
-
-        const title = row.querySelector('.transcode-item-name');
-        if (title) {
-          title.textContent = String(item.name);
-        }
-
-        const reason = row.querySelector('.transcode-item-reason');
-        if (reason) {
-          reason.textContent = t('状态：') + String(item.message || t('后台转码中'));
-        }
-
-        setTranscodeTaskId(encoded, String(item.task_id || ''));
-        setTranscodeButtons(encoded, { startDisabled: true, cancelDisabled: !!item.cancel_requested });
-        setTranscodeVisualState(encoded, item.cancel_requested ? 'cancelled' : 'running');
-        updateTranscodeProgress(encoded, Number(item.progress || 0), String(item.message || '转码中'));
+              actionHtml +
+            '</div>' +
+            childHtml +
+          '</div>'
+        );
       }
 
       async function recoverRunningTranscodeTasks() {
@@ -274,216 +1010,91 @@
         }
       }
 
-      function setTranscodeReason(encodedName, text) {
-        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
-        if (!item) {
+      function renderLocalImportProgressFiles(files) {
+        if (!localImportProgressFiles) {
           return;
         }
-        const reason = item.querySelector('.transcode-item-reason');
-        if (reason) {
-          reason.textContent = text || '';
+        const list = Array.isArray(files) ? files : [];
+        if (!list.length) {
+          localImportProgressFiles.innerHTML = '';
+          return;
         }
+        localImportProgressFiles.innerHTML = list.map(function (file) {
+          const name = String((file && file.name) || '');
+          const state = String((file && file.state) || 'pending');
+          const progress = Math.max(0, Math.min(100, Number((file && file.progress) || 0)));
+          const size = Number((file && file.size) || 0);
+          const copied = Number((file && file.copied) || 0);
+          return '<div class="local-import-progress-file state-' + escapeHtml(state) + '">' +
+            '<div class="local-import-progress-file-main">' +
+              '<span class="local-import-progress-file-name">' + escapeHtml(name) + '</span>' +
+              '<span class="local-import-progress-file-state">' + localImportFileStateText(state) + '</span>' +
+            '</div>' +
+            '<div class="local-import-progress-file-track"><div class="local-import-progress-file-fill" style="width:' + progress + '%"></div></div>' +
+            '<div class="local-import-progress-file-meta">' + formatNumber(copied) + ' / ' + formatNumber(size) + t(' 字节') + '</div>' +
+          '</div>';
+        }).join('');
       }
 
-      function stopTranscodePolling(encodedName) {
-        const timer = transcodeProgressTimers.get(encodedName);
-        if (timer) {
-          clearInterval(timer);
-          transcodeProgressTimers.delete(encodedName);
+      function resolveSplitVideoAudioUrl(filePath, local) {
+        const candidates = splitAudioSidecarCandidates(filePath);
+        if (!candidates.length) {
+          return '';
         }
-      }
-
-      async function pollTranscodeProgress(encodedName, taskId) {
-        try {
-          const data = await fetchJson(api.convertProgress + '?task_id=' + encodeURIComponent(taskId));
-          const progress = Number(data.progress || 0);
-          updateTranscodeProgress(encodedName, progress, (data.message || t('转码中')) + ' ' + Math.max(0, Math.min(100, Math.round(progress))) + '%');
-
-          if (data.done) {
-            stopTranscodePolling(encodedName);
-            setTranscodeTaskId(encodedName, '');
-            if (data.success) {
-              setTranscodeVisualState(encodedName, 'done');
-              updateTranscodeProgress(encodedName, 100, t('已完成'));
-              const outputs = [String(data.name || decodeURIComponent(encodedName))];
-              if (data.secondary_name) {
-                outputs.push(String(data.secondary_name));
-              }
-              setTranscodeReason(encodedName, t('状态：已完成，输出文件 ') + outputs.join(' , '));
-              setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true, confirmVisible: true });
-              if (data.local) {
-                await loadLocalDisk(activeLocalDiskPath || localDiskParentPath(String(data.name || '')) || '');
-              } else {
-                await loadFiles();
-              }
-            } else {
-              const cancelled = data.cancel_requested || String(data.message || '').indexOf('取消') >= 0;
-              setTranscodeVisualState(encodedName, cancelled ? 'cancelled' : 'failed');
-              updateTranscodeProgress(encodedName, progress, cancelled ? t('已取消') : t('失败'));
-              setTranscodeReason(encodedName, cancelled
-                ? t('状态：已取消')
-                : t('状态：失败，') + String(data.error || data.message || t('未知错误')));
-              setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
+        for (let i = 0; i < candidates.length; i += 1) {
+          const sidecar = candidates[i];
+          if (local) {
+            if (listHasFilePath(activeLocalDiskItems, sidecar, true)) {
+              return localDiskDownloadUrl(sidecar) + '&v=' + Date.now();
             }
+            continue;
           }
-        } catch (err) {
-          stopTranscodePolling(encodedName);
-          setTranscodeTaskId(encodedName, '');
-          setTranscodeVisualState(encodedName, 'failed');
-          updateTranscodeProgress(encodedName, 0, t('进度查询失败'));
-          setTranscodeReason(encodedName, t('状态：进度查询失败，') + err.message);
-          setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
+          const exists = listHasFilePath(currentFiles, sidecar, false)
+            || listHasFilePath(activeSourceFiles, sidecar, false)
+            || listHasFilePath(allFiles, sidecar, false);
+          if (exists) {
+            return downloadUrlForFile(sidecar, true) + '&v=' + Date.now();
+          }
         }
+        return '';
       }
 
-      async function cancelManualTranscode(encodedName) {
-        const taskId = getTranscodeTaskId(encodedName);
-        if (!taskId) {
-          dismissTranscodeItem(encodedName);
-          return;
-        }
-
-        try {
-          setTranscodeButtons(encodedName, { cancelDisabled: true });
-          await fetchJson(api.convertCancel + '?task_id=' + encodeURIComponent(taskId), {
-            method: 'POST'
-          });
-          setTranscodeVisualState(encodedName, 'cancelled');
-          updateTranscodeProgress(encodedName, 0, t('取消中'));
-          setTranscodeReason(encodedName, t('状态：已发送取消请求，等待后台停止'));
-        } catch (err) {
-          setTranscodeVisualState(encodedName, 'failed');
-          setTranscodeReason(encodedName, t('状态：取消失败，') + err.message);
-          setTranscodeButtons(encodedName, { cancelDisabled: false });
-        }
-      }
-
-      async function startManualTranscode(encodedName, mode) {
-        setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true });
-
-        const fileName = decodeURIComponent(encodedName);
-        const requestedMode = mode === 'audio_only' || mode === 'audio_split' || mode === 'full_mp4' ? mode : 'auto';
-        try {
-          setTranscodeVisualState(encodedName, 'running');
-          updateTranscodeProgress(encodedName, 0, t('任务创建中...'));
-          setTranscodeReason(encodedName, requestedMode === 'audio_split'
-            ? t('状态：正在请求后台启动转码任务（拆分视频并转音频）')
-            : (requestedMode === 'audio_only'
-              ? t('状态：正在请求后台启动转码任务（只转音频）')
-            : (requestedMode === 'full_mp4'
-              ? t('状态：正在请求后台启动转码任务（音视频都转）')
-              : t('状态：正在请求后台启动转码任务'))));
-          let url = api.convertVideo + '?file=' + encodeURIComponent(fileName);
-          if (requestedMode !== 'auto') {
-            url += '&mode=' + encodeURIComponent(requestedMode);
+      function setVisibleLocalDiskFilesSelected(checked) {
+        getVisibleLocalDiskFilePaths().forEach(function (path) {
+          if (checked) {
+            selectedLocalDiskPaths.add(path);
+          } else {
+            selectedLocalDiskPaths.delete(path);
           }
-          const data = await fetchJson(url, {
-            method: 'POST'
-          });
-
-          if (data.completed) {
-            setTranscodeVisualState(encodedName, 'done');
-            updateTranscodeProgress(encodedName, 100, t('无需转码'));
-            setTranscodeReason(encodedName, t('状态：文件已经可直接播放'));
-            setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true, confirmVisible: true });
-            return;
-          }
-
-          if (!data.task_id) {
-            throw new Error('missing task id');
-          }
-
-          setTranscodeTaskId(encodedName, String(data.task_id));
-          setTranscodeReason(encodedName, t('状态：后台任务已启动，任务号 ') + String(data.task_id));
-          updateTranscodeProgress(encodedName, Number(data.progress || 0), t('已启动'));
-          setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: false });
-          stopTranscodePolling(encodedName);
-          const timer = setInterval(function () {
-            pollTranscodeProgress(encodedName, data.task_id);
-          }, 1000);
-          transcodeProgressTimers.set(encodedName, timer);
-          await pollTranscodeProgress(encodedName, data.task_id);
-        } catch (err) {
-          stopTranscodePolling(encodedName);
-          setTranscodeTaskId(encodedName, '');
-          setTranscodeVisualState(encodedName, 'failed');
-          updateTranscodeProgress(encodedName, 0, t('失败：') + err.message);
-          setTranscodeReason(encodedName, t('状态：失败，') + err.message);
-          setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
-        }
-      }
-
-      async function startLocalVideoTranscode(encodedName) {
-        setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true });
-        const fileName = decodeURIComponent(encodedName);
-        try {
-          setTranscodeVisualState(encodedName, 'running');
-          updateTranscodeProgress(encodedName, 0, t('任务创建中...'));
-          setTranscodeReason(encodedName, t('状态：正在请求后台启动转码任务'));
-          let url = api.localDiskVideoConvert + '?path=' + encodeURIComponent(fileName);
-          url = appendLocalDirPassword(appendFilePassword(url, fileName, true), localDiskParentPath(fileName));
-          const data = await fetchJson(url, { method: 'POST' });
-          if (!data.task_id) {
-            throw new Error('missing task id');
-          }
-          setTranscodeTaskId(encodedName, String(data.task_id));
-          setTranscodeReason(encodedName, t('状态：后台任务已启动，任务号 ') + String(data.task_id));
-          updateTranscodeProgress(encodedName, Number(data.progress || 0), t('已启动'));
-          setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: false });
-          stopTranscodePolling(encodedName);
-          const timer = setInterval(function () {
-            pollTranscodeProgress(encodedName, data.task_id);
-          }, 1000);
-          transcodeProgressTimers.set(encodedName, timer);
-          await pollTranscodeProgress(encodedName, data.task_id);
-        } catch (err) {
-          stopTranscodePolling(encodedName);
-          setTranscodeTaskId(encodedName, '');
-          setTranscodeVisualState(encodedName, 'failed');
-          updateTranscodeProgress(encodedName, 0, t('失败：') + err.message);
-          setTranscodeReason(encodedName, t('状态：失败，') + err.message);
-          setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
-        }
-      }
-
-      function resetStatus() {
-        transcodeProgressTimers.forEach(function (timer) {
-          clearInterval(timer);
         });
-        transcodeProgressTimers.clear();
-        statusBox.className = 'status';
-        statusBox.textContent = '';
+        renderLocalDiskItems(activeLocalDiskItems);
       }
 
-      function setUploadProgress(percent, text) {
-        const p = Math.max(0, Math.min(100, Number(percent) || 0));
-        uploadProgress.style.display = 'block';
-        uploadProgressFill.style.width = p + '%';
-        uploadProgressText.textContent = text || (t('上传中 ') + p + '%');
+      function renderAdminStoragePickerNode(path, level, itemMeta) {
+        const textPath = String(path || '/');
+        const encodedPath = encodeURIComponent(textPath);
+        const dirs = adminStoragePickerCache.get(textPath) || [];
+        const isExpanded = adminStoragePickerExpandedPaths.has(textPath);
+        const hasCache = adminStoragePickerCache.has(textPath);
+        const isActive = adminStoragePickerSelectedPath === textPath;
+        const name = itemMeta && itemMeta.name ? String(itemMeta.name) : (textPath === '/' ? t('根目录') : localDiskBaseName(textPath));
+        let html = '<div class="admin-storage-picker-node" data-admin-storage-picker-node="' + escapeHtml(textPath) + '">' +
+          '<div class="admin-storage-picker-line' + (isActive ? ' active' : '') + '" style="padding-left:' + (8 + level * 18) + 'px;">' +
+            '<button type="button" class="admin-storage-picker-toggle' + (hasCache && !dirs.length ? ' placeholder' : '') + '" data-admin-storage-picker-toggle="' + encodedPath + '" title="展开或收起目录" aria-label="展开或收起目录">' +
+              (isExpanded && dirs.length ? '▾' : (hasCache && !dirs.length ? '•' : '▸')) +
+            '</button>' +
+            '<button type="button" class="admin-storage-picker-entry" data-admin-storage-picker-select="' + encodedPath + '" title="' + escapeHtml(textPath) + '">' +
+              '<span class="local-folder-icon">📁</span>' +
+              '<span class="admin-storage-picker-name">' + escapeHtml(name) + '</span>' +
+            '</button>' +
+          '</div>';
+        if (isExpanded && dirs.length) {
+          html += '<div class="admin-storage-picker-children">';
+          html += dirs.map(function (item) {
+            return renderAdminStoragePickerNode(String(item.path || ''), level + 1, item);
+          }).join('');
+          html += '</div>';
+        }
+        html += '</div>';
+        return html;
       }
-
-      function hideUploadProgress() {
-        uploadProgress.style.display = 'none';
-        uploadProgressFill.style.width = '0%';
-        uploadProgressText.textContent = t('准备上传...');
-      }
-
-      function safeTime(file) {
-        const n = Number(file.uploaded_at || 0);
-        return Number.isFinite(n) ? n : 0;
-      }
-
-      function safeSize(file) {
-        const n = Number(file.size || 0);
-        return Number.isFinite(n) ? n : 0;
-      }
-
-      function formatNumber(num) {
-        return String(Number(num) || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-      }
-
-      function normalizeFolderNode(node) {
-        const item = node && typeof node === 'object' ? node : {};
-        const children = Array.isArray(item.children) ? item.children.map(normalizeFolderNode) : [];
-        return {
-          name: String(item.name || ''),

@@ -1,159 +1,29 @@
+function folderNameFromPath(path) {
+        const text = String(path || '');
+        const index = text.lastIndexOf('/');
+        return index >= 0 ? text.slice(index + 1) : text;
+      }
+
+      function closeFileTagMenu() {
+        if (activeFileTagMenu && activeFileTagMenu.parentNode) {
+          activeFileTagMenu.parentNode.removeChild(activeFileTagMenu);
         }
-        try {
-          resetStatus();
-          const title = document.getElementById('local-import-progress-title');
-          const desc = document.getElementById('local-import-progress-desc');
-          setLocalImportProgressWindowMode('local-import');
-          if (localImportProgressDialog) { localImportProgressDialog.classList.remove('non-modal-progress'); }
-          if (title) { title.textContent = t('上传中'); }
-          if (desc) { desc.textContent = t('正在上传本地文件到虚拟磁盘。'); }
-          if (localImportProgressCancel) { localImportProgressCancel.hidden = true; localImportProgressCancel.disabled = false; localImportProgressCancel.textContent = t('取消'); }
-          const started = await fetchJson(url, { method: 'POST' });
-          closeLocalImportDialog();
-          setLocalImportProgress(0, t('准备上传...'));
-          const data = await pollLocalImportProgress(String(started.task_id || ''));
-          clearLocalDiskSelection();
-          await loadFiles();
-          showStatus(t('已上传 ') + Number(data.saved_count || 0) + t(' 个本地文件到虚拟磁盘'), 'ok');
-          const videoProbeFails = await verifyUploadedVideos(data.files);
-          if (videoProbeFails.length) {
-            await promptUploadedTranscodes(videoProbeFails);
-          }
-        } catch (err) {
-          failLocalImportProgress(t('上传失败：') + err.message);
-          showStatus(t('上传本地文件失败：') + err.message, 'err');
-        } finally {
-          localImportOverridePaths = null;
-          if (localImportConfirmBtn) {
-            localImportConfirmBtn.disabled = false;
-          }
-        }
+        activeFileTagMenu = null;
       }
 
-      async function showFilesForTag(tagId) {
-        activeFilterTagId = tagId;
-        tagFileViewMode = 'list';
-        setActivePanel('panel-files');
-        const data = await fetchJson(appendTagPassword(api.tagFiles + '?tag_id=' + encodeURIComponent(tagId), tagId));
-        renderFiles(Array.isArray(data.files) ? data.files.map(normalizeFileRecord) : []);
-        renderTagTree();
+      function isProtectedRestrictedRootTag(node, level) {
+        return !!getRestrictedRootTagType(node, level);
       }
 
-      function clearTagFileFilter() {
-        activeFilterTagId = '';
-        renderFiles(allFiles);
-        renderTagTree();
-      }
-
-      function updateFileViewContext() {
-        if (!fileViewContext) {
+      function syncFolderDropHighlight() {
+        if (!folderTree) {
           return;
         }
-
-        if (activeFilterTagId) {
-          const meta = findTagMetaById(activeFilterTagId);
-          const tagName = meta && meta.node && meta.node.name
-            ? String(meta.node.name)
-            : t('当前标签');
-          fileViewContext.textContent = t('当前视图：标签：') + tagName + t(' / 范围：标签内全部文件');
-        } else {
-          fileViewContext.textContent = t('当前视图：目录：') + getFolderLabel(activeFolderPath) + t(' / 范围：全部文件');
-        }
-      }
-
-      function updateExplorerLayout() {
-        const isTagFilterMode = !!activeFilterTagId;
-        const isPreviewEnabledTag = isTagFilterMode && isActiveTagPreviewEnabled();
-        if (fileListTitle) {
-          fileListTitle.textContent = isTagFilterMode ? t('当前标签文件') : t('当前目录文件');
-        }
-        if (tagViewModeBtns) {
-          tagViewModeBtns.hidden = !isPreviewEnabledTag;
-        }
-        if (!isPreviewEnabledTag) {
-          tagFileViewMode = 'list';
-          if (tagViewListBtn) tagViewListBtn.classList.add('active');
-          if (tagViewPreviewBtn) tagViewPreviewBtn.classList.remove('active');
-          if (tagImagePreviewWrap) tagImagePreviewWrap.hidden = true;
-        }
-        if (explorerShell) {
-          explorerShell.classList.toggle('tag-filter-mode', isTagFilterMode);
-        }
-        if (folderBrowser) {
-          folderBrowser.hidden = isTagFilterMode;
-        }
-      }
-
-      function compareFiles(a, b, key, order) {
-        let res = 0;
-        if (key === 'size') {
-          res = safeSize(a) - safeSize(b);
-        } else if (key === 'uploaded_at') {
-          res = safeTime(a) - safeTime(b);
-        } else {
-          const an = String(a.name || '');
-          const bn = String(b.name || '');
-          res = an.localeCompare(bn, 'zh-CN');
-        }
-        return order === 'desc' ? -res : res;
-      }
-
-      function syncSelectedFilesByCurrentView() {
-        const visibleNames = new Set((Array.isArray(currentFiles) ? currentFiles : []).map(function (file) {
-          return getFilePath(file);
-        }).filter(Boolean));
-
-        Array.from(selectedFileNames).forEach(function (name) {
-          if (!visibleNames.has(name)) {
-            selectedFileNames.delete(name);
-          }
+        const nodes = folderTree.querySelectorAll('.folder-tree-node[data-folder-path]');
+        nodes.forEach(function (node) {
+          const path = node.getAttribute('data-folder-path');
+          node.classList.toggle('drop-target', path === activeDropFolderPath);
         });
-      }
-
-      function getSelectedVisibleFileNames() {
-        const names = [];
-        (Array.isArray(currentFiles) ? currentFiles : []).forEach(function (file) {
-          const name = getFilePath(file);
-          if (name && selectedFileNames.has(name)) {
-            names.push(name);
-          }
-        });
-        return names;
-      }
-
-      function getFileRecordByPath(fileName) {
-        const target = String(fileName || '');
-        return (Array.isArray(currentFiles) ? currentFiles : []).find(function (file) {
-          return getFilePath(file) === target;
-        }) || null;
-      }
-
-      function summarizeSelectedFileTypes(fileNames) {
-        const names = Array.isArray(fileNames) ? fileNames : [];
-        let folderCount = 0;
-        let fileCount = 0;
-        names.forEach(function (name) {
-          const item = getFileRecordByPath(name);
-          if (item && item.directory) {
-            folderCount += 1;
-          } else {
-            fileCount += 1;
-          }
-        });
-        const label = folderCount > 0 && fileCount > 0
-          ? t('文件/文件夹')
-          : (folderCount > 0 ? t('文件夹') : t('文件'));
-        return {
-          fileCount: fileCount,
-          folderCount: folderCount,
-          label: label
-        };
-      }
-
-      function isCurrentFileLocal(fileName) {
-        const target = String(fileName || '');
-        const found = getFileRecordByPath(target);
-        return !!(found && found.local);
       }
 
       function updateFileSelectAllState() {
@@ -167,141 +37,612 @@
         fileSelectAll.indeterminate = selectedCount > 0 && selectedCount < visibleCount;
       }
 
-      function updateFileBulkActionButton() {
-        if (!fileBulkAction && !fileBulkDeleteAction && !fileBulkTagAction) {
+      function applyPreviewImageCrop(win) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        const rect = win && win.__imageCropRect;
+        if (!img || !rect || rect.width < 2 || rect.height < 2) {
+          setImageEditHint(win, '请先拖拽选择一个剪切区域。', true);
           return;
         }
-
-        const selectedCount = getSelectedVisibleFileNames().length;
-        const isTagFilterMode = !!activeFilterTagId;
-        const isRecycleMode = !isTagFilterMode && isRecycleFolderPath(activeFolderPath);
-        if (fileBulkAction) {
-          const label = isTagFilterMode ? t('移除') : (isRecycleMode ? t('恢复') : t('删除'));
-          const title = isTagFilterMode
-            ? t('批量从当前标签移除')
-            : (isRecycleMode ? t('批量恢复文件到原路径') : t('批量删除文件（移入回收站）'));
-          fileBulkAction.textContent = label;
-          fileBulkAction.title = title;
-          fileBulkAction.setAttribute('aria-label', title);
-          fileBulkAction.disabled = selectedCount === 0;
-        }
-
-        if (fileBulkDeleteAction) {
-          const title = t('批量彻底删除文件/文件夹（仅回收站）');
-          fileBulkDeleteAction.textContent = t('彻底删除');
-          fileBulkDeleteAction.title = title;
-          fileBulkDeleteAction.setAttribute('aria-label', title);
-          fileBulkDeleteAction.disabled = !isRecycleMode || selectedCount === 0;
-        }
-
-        if (fileBulkTagAction) {
-          fileBulkTagAction.disabled = selectedCount === 0;
-          fileBulkTagAction.title = selectedCount > 0 ? (t('给选中的 ') + selectedCount + t(' 个文件加标签')) : t('给选中文件加标签');
-          fileBulkTagAction.setAttribute('aria-label', fileBulkTagAction.title);
-        }
-      }
-
-      async function bindFilesToTag(tagId, fileNames, options) {
-        const names = Array.isArray(fileNames) ? fileNames : [];
-        const opts = options || {};
-        let boundCount = 0;
-        for (let i = 0; i < names.length; i += 1) {
-          const fileName = String(names[i] || '');
-          if (!fileName) {
-            continue;
-          }
-          const result = await bindFileToTag(tagId, fileName, opts);
-          if (!result.ok) {
-            return {
-              ok: false,
-              message: result.message,
-              boundCount: boundCount
-            };
-          }
-          boundCount += 1;
-        }
-        return { ok: true, boundCount: boundCount };
-      }
-
-      function canRenameFileRecord(file) {
-        if (!file || file.directory || file.local) {
-          return false;
-        }
-        return !isRecycleFolderPath(activeFolderPath);
-      }
-
-      function clearFileRenameClickTimer() {
-        if (fileRenameClickTimer) {
-          clearTimeout(fileRenameClickTimer);
-          fileRenameClickTimer = null;
-        }
-      }
-
-      function startFileRename(filePath) {
-        const record = getFileRecordByPath(filePath);
-        if (!record || !canRenameFileRecord(record)) {
-          return;
-        }
-        clearFileRenameClickTimer();
-        activeFileRenamePath = filePath;
-        fileRenameRequestPath = filePath;
-        renderFiles(activeSourceFiles);
-        window.setTimeout(function () {
-          const input = fileList && fileList.querySelector('.file-rename-input[data-file-rename-path="' + encodeURIComponent(filePath) + '"]');
-          if (input) {
-            selectRenameInputText(input);
-          }
-        }, 0);
-      }
-
-      function cancelFileRename() {
-        activeFileRenamePath = '';
-        fileRenameRequestPath = '';
-        clearFileRenameClickTimer();
-        renderFiles(activeSourceFiles);
-      }
-
-      async function submitFileRename(input) {
-        if (!input || input.disabled) {
-          return;
-        }
-        const oldPath = decodeURIComponent(input.getAttribute('data-file-rename-path') || '');
-        const nextName = String(input.value || '').trim();
-        const record = getFileRecordByPath(oldPath);
-        if (!oldPath || !record || !canRenameFileRecord(record)) {
-          cancelFileRename();
-          return;
-        }
-        const currentName = String(record.name || oldPath.split('/').pop() || '');
-        if (!nextName || nextName === currentName) {
-          cancelFileRename();
-          return;
-        }
-        input.disabled = true;
-        resetStatus();
         try {
-          let url = api.fileRename + '?file=' + encodeURIComponent(oldPath) + '&name=' + encodeURIComponent(nextName);
-          url = withFolderPassword(url, parentFolderPathFromFilePath(oldPath));
-          url = appendFilePassword(url, oldPath, false);
-          const result = await fetchJson(url, { method: 'POST' });
-          const newPath = String((result && result.path) || '');
-          selectedFileNames.delete(oldPath);
-          if (newPath) {
-            selectedFileNames.add(newPath);
-          }
-          activeFileRenamePath = '';
-          fileRenameRequestPath = '';
-          if (activeFilterTagId) {
-            await showFilesForTag(activeFilterTagId);
-          } else {
-            await loadFiles();
-          }
-          showStatus(t('文件已改名：') + currentName + ' -> ' + nextName, 'ok');
+          const source = drawImageElementToCanvas(img);
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(rect.width));
+          canvas.height = Math.max(1, Math.round(rect.height));
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(
+            source,
+            Math.round(rect.x), Math.round(rect.y), canvas.width, canvas.height,
+            0, 0, canvas.width, canvas.height
+          );
+          replacePreviewImageWithCanvas(win, canvas);
+          setPreviewCropMode(win, false);
+          setImageEditHint(win, '已应用剪切，点击“保存到服务”写入文件。');
         } catch (err) {
-          input.disabled = false;
-          showStatus(t('文件改名失败：') + err.message, 'err');
-          selectRenameInputText(input);
+          setImageEditHint(win, '剪切失败：' + err.message, true);
         }
+      }
+
+      function openPreview(kind, file, name, options) {
+        const opts = options || {};
+        const previewKey = (opts.previewKey || file);
+        const existed = openedPreviewWindows.get(previewKey);
+        if (existed && existed.isConnected) {
+          bringToFront(existed);
+          if (kind === 'image' && Array.isArray(opts.gallery) && opts.gallery.length) {
+            updateImagePreviewWindow(existed, opts.gallery, Number(opts.galleryIndex || 0));
+          }
+          const video = existed.querySelector('video');
+          if (video) {
+            video.play().catch(function () {});
+          }
+          return;
+        }
+
+        const rawFileForUrl = decodeURIComponent(String(file || ''));
+        const url = (opts.url || downloadUrlForFile(rawFileForUrl, true)) + '&v=' + Date.now();
+        const win = document.createElement('div');
+        win.className = 'floating-preview';
+        win.classList.add('preview-kind-' + kind);
+        previewZ += 1;
+        win.style.zIndex = String(previewZ);
+
+        const titleText = kind === 'video' ? '视频播放：'
+          : (kind === 'audio' ? '音频播放：'
+            : (kind === 'pdf' ? 'PDF预览：'
+              : (kind === 'text' ? '文本查看：' : '图片预览：')));
+        const escapedTitle = escapeHtml(name || '');
+
+        let mediaHtml = '';
+        let bodyClass = 'preview-body';
+        if (kind === 'video') {
+          const rawName = decodeURIComponent(String(file || '')) || String(name || '');
+          const subtitleName = toVttSidecarName(rawName);
+          const subtitleUrl = (opts.local ? localDiskDownloadUrl(subtitleName) : downloadUrlForFile(subtitleName, true)) + '&v=' + Date.now();
+          const sidecarAudioUrl = resolveSplitVideoAudioUrl(rawName, opts.local);
+          const sidecarAudioHint = sidecarAudioUrl
+            ? '<div class="preview-sidecar-audio-hint">' +
+                escapeHtml(t('当前声音由拆分出的独立音频文件同步播放。由于视频文件本身没有音轨，播放器里的音量图标可能显示为禁用，但不影响实际出声。')) +
+              '</div>'
+            : '';
+          bodyClass += ' preview-body-video';
+          mediaHtml = '<div class="preview-video-stack">' +
+              '<video class="preview-video" controls preload="metadata">' +
+                '<track kind="subtitles" srclang="zh-CN" label="中文字幕" default src="' + subtitleUrl + '">' +
+              '</video>' +
+              (sidecarAudioUrl ? ('<audio class="preview-video-sidecar-audio" preload="metadata" hidden src="' + escapeHtml(sidecarAudioUrl) + '"></audio>') : '') +
+              sidecarAudioHint +
+              (((opts.local && isLocalDiskConvertibleVideoName(rawName)) || (!opts.local && isRealMediaVideoName(rawName)))
+                ? '<div class="preview-video-tools">' +
+                    (opts.local ? '<button class="preview-convert-btn" type="button" data-preview-stream-video="' + encodeURIComponent(rawName) + '">' + t('边转边看') + '</button>' : '') +
+                    '<button class="preview-convert-btn" type="button" data-preview-convert-video="' + encodeURIComponent(rawName) + '" data-preview-convert-local="' + (opts.local ? '1' : '0') + '">' + t('转换为MP4') + '</button><span>' + (opts.local ? t('本地磁盘RM/RMVB/AVI格式可转换为MP4，输出文件会保存在源文件相同目录。') : t('RM/RMVB格式浏览器兼容性较差，可转换为MP4后播放。')) + '</span></div>' +
+                    (opts.local ? '<div class="preview-stream-progress" data-preview-stream-progress hidden><div class="preview-stream-progress-fill" data-preview-stream-progress-fill></div><span data-preview-stream-progress-text>' + t('等待边转边看') + '</span></div>' : '')
+                : '') +
+            '</div>';
+        } else if (kind === 'audio') {
+          mediaHtml = '<audio class="preview-audio" controls preload="metadata" src="' + url + '"></audio>';
+        } else if (kind === 'pdf') {
+          mediaHtml = '<iframe class="preview-pdf" src="' + escapeHtml(url) + '" title="' + escapedTitle + '"></iframe>';
+        } else if (kind === 'text') {
+          mediaHtml = '<pre class="preview-text">加载中...</pre>';
+        } else {
+          bodyClass += ' preview-body-image';
+          const showNav = Array.isArray(opts.gallery) && opts.gallery.length > 1;
+          mediaHtml = '<div class="preview-image-toolbar">' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="rotate-left" title="向左旋转90度" aria-label="向左旋转90度">' +
+                '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+                  '<rect x="8" y="9.5" width="9" height="9" rx="1.8"></rect><path d="M6 4.8v4.4h4.4"></path><path d="M6 9.2a6.5 6.5 0 0 1 10.5-3.8"></path>' +
+                '</svg>' +
+              '</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="rotate-right" title="向右旋转90度" aria-label="向右旋转90度">' +
+                '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+                  '<rect x="7" y="9.5" width="9" height="9" rx="1.8"></rect><path d="M18 4.8v4.4h-4.4"></path><path d="M18 9.2A6.5 6.5 0 0 0 7.5 5.4"></path>' +
+                '</svg>' +
+              '</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="crop" title="剪切" aria-label="剪切">✂</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="apply-crop" title="应用剪切" aria-label="应用剪切">✓</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="cancel-crop" title="取消剪切" aria-label="取消剪切">×</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="zoom-in" title="等比例放大" aria-label="等比例放大">＋</button>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="zoom-out" title="等比例缩小" aria-label="等比例缩小">－</button>' +
+              '<span class="preview-image-size" title="当前图像尺寸">' +
+                '<input class="preview-size-input" data-image-size="width" type="number" min="1" step="1" aria-label="图片宽度">' +
+                '<span>x</span>' +
+                '<input class="preview-size-input" data-image-size="height" type="number" min="1" step="1" aria-label="图片高度">' +
+              '</span>' +
+              '<button class="preview-edit-btn" type="button" data-image-edit="download" title="下载到本地" aria-label="下载到本地">' +
+                '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">' +
+                  '<path d="M12 3v12"></path><path d="M6.5 9.5 12 15l5.5-5.5"></path><path d="M5 17v2.2c0 .9.7 1.6 1.6 1.6h10.8c.9 0 1.6-.7 1.6-1.6V17"></path>' +
+                '</svg>' +
+              '</button>' +
+              '<button class="preview-edit-btn primary" type="button" data-image-edit="save" title="保存到服务" aria-label="保存到服务">💾</button>' +
+              '<div class="preview-edit-hint" aria-live="polite"></div>' +
+            '</div>' +
+            '<div class="preview-image-shell">'
+            + '<button class="preview-nav-btn preview-nav-prev" type="button" data-preview-nav="prev" aria-label="上一张"' + (showNav ? '' : ' hidden') + '>‹</button>'
+            + '<img class="preview-image" alt="图片预览" src="' + url + '">'
+            + '<div class="preview-crop-rect" hidden></div>'
+            + '<button class="preview-nav-btn preview-nav-next" type="button" data-preview-nav="next" aria-label="下一张"' + (showNav ? '' : ' hidden') + '>›</button>'
+            + '</div>';
+        }
+
+        win.innerHTML =
+          '<div class="preview-head">' +
+            '<div class="preview-title">' + titleText + escapedTitle + '</div>' +
+            '<div class="preview-head-actions">' +
+              '<button class="preview-window-btn" type="button" data-preview-window-action="minimize" title="' + escapeHtml(t('最小化')) + '" aria-label="' + escapeHtml(t('最小化')) + '">−</button>' +
+              '<button class="preview-window-btn" type="button" data-preview-window-action="maximize" title="' + escapeHtml(t('最大化')) + '" aria-label="' + escapeHtml(t('最大化')) + '">□</button>' +
+              '<button class="preview-close" type="button" title="' + escapeHtml(t('关闭')) + '" aria-label="' + escapeHtml(t('关闭')) + '">×</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="' + bodyClass + '">' + mediaHtml + '</div>';
+
+        previewLayer.appendChild(win);
+        centerPreviewWindow(win);
+        openedPreviewWindows.set(previewKey, win);
+
+        const mediaVideo = win.querySelector('video');
+        if (mediaVideo) {
+          const rawVideoFile = decodeURIComponent(String(file || ''));
+          const mediaSidecarAudio = win.querySelector('.preview-video-sidecar-audio');
+          bindVideoResume(mediaVideo, opts.local ? ('local:' + rawVideoFile) : rawVideoFile);
+          mediaVideo.src = url;
+          if (mediaSidecarAudio) {
+            bindSplitVideoAudio(mediaVideo, mediaSidecarAudio);
+          }
+          mediaVideo.play().catch(function () {});
+          const streamBtn = win.querySelector('[data-preview-stream-video]');
+          if (streamBtn) {
+            streamBtn.addEventListener('click', async function () {
+              const rawStreamFile = decodeURIComponent(streamBtn.getAttribute('data-preview-stream-video') || '');
+              if (!rawStreamFile) {
+                return;
+              }
+              let stateUrl = api.localDiskVideoStreamState + '?path=' + encodeURIComponent(rawStreamFile);
+              stateUrl = appendLocalDirPassword(appendFilePassword(stateUrl, rawStreamFile, true), localDiskParentPath(rawStreamFile));
+              let savedStreamOffsetMs = 0;
+              try {
+                const stateData = await fetchJson(stateUrl);
+                savedStreamOffsetMs = Math.max(0, Number(stateData.position_ms || 0));
+              } catch (_) {
+                savedStreamOffsetMs = 0;
+              }
+              let streamUrl = api.localDiskVideoStream + '?path=' + encodeURIComponent(rawStreamFile);
+              streamUrl = appendLocalDirPassword(appendFilePassword(streamUrl, rawStreamFile, true), localDiskParentPath(rawStreamFile));
+              const streamTaskId = 'local-stream-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);
+              streamUrl += '&stream_task_id=' + encodeURIComponent(streamTaskId);
+              streamBtn.disabled = true;
+              streamBtn.textContent = t('边转边看中');
+              const progressBox = win.querySelector('[data-preview-stream-progress]');
+              const progressFill = win.querySelector('[data-preview-stream-progress-fill]');
+              const progressText = win.querySelector('[data-preview-stream-progress-text]');
+              if (progressBox) {
+                progressBox.hidden = false;
+              }
+              if (progressFill) {
+                progressFill.style.width = '0%';
+              }
+              if (progressText) {
+                progressText.textContent = t('边转边看准备中...');
+              }
+              if (win.__streamProgressTimer) {
+                clearInterval(win.__streamProgressTimer);
+              }
+              if (win.__streamStateTimer) {
+                clearInterval(win.__streamStateTimer);
+              }
+              win.__streamProgressTimer = setInterval(async function () {
+                try {
+                  const data = await fetchJson(api.convertProgress + '?task_id=' + encodeURIComponent(streamTaskId));
+                  const percent = Math.max(0, Math.min(data.done ? 100 : 99, Math.round(Number(data.progress || 0))));
+                  if (progressFill) {
+                    progressFill.style.width = percent + '%';
+                  }
+                  if (progressText) {
+                    progressText.textContent = data.done
+                      ? (data.success ? t('边转边看完成 100%') : t('边转边看失败'))
+                      : ((data.message || t('边转边看中...')) + ' ' + percent + '%');
+                  }
+                  if (data.done) {
+                    clearInterval(win.__streamProgressTimer);
+                    win.__streamProgressTimer = null;
+                  }
+                } catch (_) {
+                  if (progressText) {
+                    progressText.textContent = t('边转边看准备中...');
+                  }
+                }
+              }, 800);
+              mediaVideo.pause();
+              mediaVideo.src = streamUrl + '&v=' + Date.now();
+              mediaVideo.load();
+              const saveStreamState = function () {
+                const absoluteMs = Math.max(0, Math.round(savedStreamOffsetMs + ((Number(mediaVideo.currentTime) || 0) * 1000)));
+                fetch(stateUrl + '&position_ms=' + encodeURIComponent(String(absoluteMs)), { method: 'POST' }).catch(function () {});
+              };
+              win.__saveStreamState = saveStreamState;
+              win.__streamStateTimer = setInterval(saveStreamState, 5000);
+              mediaVideo.addEventListener('pause', saveStreamState);
+              mediaVideo.addEventListener('ended', function refreshLocalAfterStreamConvert() {
+                mediaVideo.removeEventListener('ended', refreshLocalAfterStreamConvert);
+                if (win.__streamProgressTimer) {
+                  clearInterval(win.__streamProgressTimer);
+                  win.__streamProgressTimer = null;
+                }
+                if (typeof win.__saveStreamState === 'function') {
+                  win.__saveStreamState();
+                }
+                if (win.__streamStateTimer) {
+                  clearInterval(win.__streamStateTimer);
+                  win.__streamStateTimer = null;
+                }
+                if (progressFill) {
+                  progressFill.style.width = '100%';
+                }
+                if (progressText) {
+                  progressText.textContent = t('边转边看完成 100%');
+                }
+                loadLocalDisk(activeLocalDiskPath || localDiskParentPath(rawStreamFile) || '');
+              });
+              mediaVideo.play().catch(function () {});
+            });
+          }
+          const convertBtn = win.querySelector('[data-preview-convert-video]');
+          if (convertBtn) {
+            convertBtn.addEventListener('click', async function () {
+              const rawConvertFile = decodeURIComponent(convertBtn.getAttribute('data-preview-convert-video') || '');
+              if (!rawConvertFile) {
+                return;
+              }
+              convertBtn.disabled = true;
+              convertBtn.textContent = t('转换任务已启动');
+              mediaVideo.pause();
+              const encoded = encodeURIComponent(rawConvertFile);
+              const isLocalConvert = convertBtn.getAttribute('data-preview-convert-local') === '1';
+              showManualTranscodePrompt([{ name: rawConvertFile, reason: isLocalConvert ? t('本地磁盘RM/RMVB/AVI格式可转换为MP4，输出文件会保存在源文件相同目录。') : t('RM/RMVB格式浏览器兼容性较差，可转换为MP4后播放。') }]);
+              if (isLocalConvert) {
+                await startLocalVideoTranscode(encoded);
+              } else {
+                await startManualTranscode(encoded);
+              }
+            });
+          }
+
+          // Check if video has audio track
+          if (!opts.local) {
+          checkVideoAudio(rawVideoFile).then(function (probeResult) {
+            const hasSidecarAudio = !!mediaSidecarAudio;
+            if (probeResult && probeResult.ok && ((!probeResult.has_audio && !hasSidecarAudio) || probeResult.browser_audio_supported === false)) {
+              // No audio or unsupported browser audio codec
+              var message = '此视频文件不含音频轨道，音量按钮将不可用。';
+              if (probeResult && probeResult.has_audio && probeResult.browser_audio_supported === false) {
+                message = '此视频音频编码为 ' + (probeResult.audio_codec || 'unknown') + '，浏览器通常不支持播放声音。';
+              }
+              const warning = document.createElement('div');
+              warning.style.cssText = 'margin-top: 8px; padding: 8px 10px; background: #fff7e8; border: 1px solid #e3c89d; border-radius: 6px; font-size: 12px; color: #8a5a00; display: flex; align-items: flex-start; gap: 8px;';
+              warning.innerHTML = '<span style="flex-shrink: 0; font-weight: 700;">!</span><span>' + escapeHtml(message) + ' 请在页面提示中手动确认是否转码。</span>';
+              const body = win.querySelector('.preview-body');
+              if (body && body.querySelector('video')) {
+                body.insertBefore(warning, body.querySelector('video').nextSibling);
+              }
+            }
+          });
+          }
+        }
+
+        const mediaAudio = win.querySelector('audio');
+        if (mediaAudio) {
+          const rawAudioFile = decodeURIComponent(String(file || ''));
+          if (!opts.local) {
+            bindVideoResume(mediaAudio, rawAudioFile);
+          }
+          mediaAudio.play().catch(function () {});
+        }
+
+        const mediaText = win.querySelector('.preview-text');
+        if (mediaText) {
+          const lang = detectCodeLang(name);
+          if (lang) {
+            mediaText.classList.add('code');
+          }
+          fetch(url)
+            .then(function (res) {
+              if (!res.ok) {
+                throw new Error('http ' + res.status);
+              }
+              return res.text();
+            })
+            .then(function (text) {
+              if (lang) {
+                mediaText.innerHTML = highlightCodeText(text, lang);
+              } else {
+                mediaText.textContent = text;
+              }
+            })
+            .catch(function (err) {
+              mediaText.textContent = '文本加载失败: ' + err.message;
+            });
+        }
+
+        const closeBtn = win.querySelector('.preview-close');
+        const head = win.querySelector('.preview-head');
+        const minimizeBtn = win.querySelector('[data-preview-window-action="minimize"]');
+        const maximizeBtn = win.querySelector('[data-preview-window-action="maximize"]');
+
+        closeBtn.addEventListener('click', function () {
+          closePreviewWindow(win, previewKey);
+        });
+
+        if (minimizeBtn) {
+          minimizeBtn.addEventListener('click', function () {
+            minimizePreviewWindow(win);
+          });
+        }
+
+        if (maximizeBtn) {
+          maximizeBtn.addEventListener('click', function () {
+            togglePreviewWindowMaximize(win);
+          });
+        }
+        syncPreviewWindowButtons(win);
+
+        const prevNavBtn = win.querySelector('.preview-nav-btn[data-preview-nav="prev"]');
+        const nextNavBtn = win.querySelector('.preview-nav-btn[data-preview-nav="next"]');
+        if (prevNavBtn) {
+          prevNavBtn.addEventListener('click', function () {
+            stepImagePreviewWindow(win, -1);
+          });
+        }
+        if (nextNavBtn) {
+          nextNavBtn.addEventListener('click', function () {
+            stepImagePreviewWindow(win, 1);
+          });
+        }
+
+        if (kind === 'image' && Array.isArray(opts.gallery) && opts.gallery.length) {
+          updateImagePreviewWindow(win, opts.gallery, Number(opts.galleryIndex || 0));
+        } else if (kind === 'image') {
+          updateImagePreviewWindow(win, [{
+            file: rawFileForUrl,
+            name: String(name || rawFileForUrl || ''),
+            local: !!opts.local
+          }], 0);
+        }
+        if (kind === 'image') {
+          initPreviewImageEditing(win);
+        }
+
+        win.addEventListener('mousedown', function () {
+          bringToFront(win);
+        });
+
+        head.addEventListener('mousedown', function (e) {
+          if (e.target.closest('.preview-close') || e.target.closest('.preview-window-btn') || win.classList.contains('is-maximized')) {
+            return;
+          }
+          snapshotPreviewWindowRect(win);
+          const rect = win.getBoundingClientRect();
+          bringToFront(win);
+          activeDrag = {
+            win: win,
+            startX: e.clientX,
+            startY: e.clientY,
+            left: rect.left,
+            top: rect.top
+          };
+          win.style.transform = 'none';
+          e.preventDefault();
+        });
+
+        head.addEventListener('dblclick', function (e) {
+          if (e.target.closest('.preview-close') || e.target.closest('.preview-window-btn')) {
+            return;
+          }
+          e.preventDefault();
+          bringToFront(win);
+          togglePreviewWindowMaximize(win);
+        });
+      }
+
+      function handleLocalDiskClickEvent(e) {
+        const renameInput = e.target.closest('.local-disk-rename-input');
+        if (renameInput) {
+          return;
+        }
+        const fileNameClick = e.target.closest('.local-disk-file-name-action[data-local-disk-file-name-click]');
+        if (fileNameClick) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleLocalDiskFileNameClick(decodeURIComponent(fileNameClick.getAttribute('data-local-disk-file-name-click') || ''));
+          return;
+        }
+        const localDirLockIcon = e.target.closest('.local-dir-lock-inline');
+        if (localDirLockIcon) {
+          const row = localDirLockIcon.closest('[data-local-dir-context]');
+          if (!row) {
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          const path = decodeURIComponent(row.getAttribute('data-local-dir-context') || '');
+          const action = getLocalDirPassword(path) ? 'session-lock' : 'session-unlock';
+          handleLocalDirContextAction(action, path).catch(function (err) {
+            showStatus(t('本地目录锁操作失败：') + err.message, 'err');
+          });
+          return;
+        }
+        const localLockIcon = e.target.closest('.file-lock-inline');
+        if (localLockIcon) {
+          const row = localLockIcon.closest('[data-local-file-context]');
+          if (!row) {
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          const path = decodeURIComponent(row.getAttribute('data-local-file-context') || '');
+          const action = getFilePassword(path, true) ? 'session-lock' : 'session-unlock';
+          handleFileContextAction(action, path, true).catch(function (err) {
+            showStatus(t('文件锁操作失败：') + err.message, 'err');
+          });
+          return;
+        }
+        const toggleBtn = e.target.closest('.local-disk-tree-caret[data-local-toggle]');
+        if (toggleBtn) {
+          e.stopPropagation();
+          const path = decodeURIComponent(toggleBtn.getAttribute('data-local-toggle') || '');
+          const row = toggleBtn.closest('[data-local-dir-context]');
+          if (row && row.getAttribute('data-local-dir-locked') === '1' && !getLocalDirPassword(path)) {
+            ensureLocalDirUnlocked(path).then(function (ok) {
+              if (ok) {
+                toggleLocalDiskTreePath(path);
+              }
+            }).catch(function (err) {
+              showStatus(t('解锁本地目录失败：') + err.message, 'err');
+            });
+            return;
+          }
+          toggleLocalDiskTreePath(path);
+          return;
+        }
+        const selectInput = e.target.closest('.local-disk-select[data-local-select]');
+        if (selectInput) {
+          const path = decodeURIComponent(selectInput.getAttribute('data-local-select') || '');
+          updateLocalDiskSelection(path, selectInput.checked);
+          return;
+        }
+        const localTagBtn = e.target.closest('.local-file-tag-btn[data-local-tag-file]');
+        if (localTagBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const path = decodeURIComponent(localTagBtn.getAttribute('data-local-tag-file') || '');
+          if (!path) {
+            return;
+          }
+          openFilesTagMenu(localTagBtn, [path], { local: true }).catch(function (err) {
+            showStatus(t('打开标签选择失败：') + err.message, 'err');
+          });
+          return;
+        }
+        const folderBtn = e.target.closest('[data-local-folder]');
+        if (folderBtn && !e.target.closest('.local-delete-btn') && !e.target.closest('.local-disk-select') && !e.target.closest('.local-file-tag-btn')) {
+          const path = decodeURIComponent(folderBtn.getAttribute('data-local-folder') || '/');
+          const row = folderBtn.closest('[data-local-dir-context], tr[data-local-dir-context]');
+          if (row && row.getAttribute('data-local-dir-locked') === '1' && !getLocalDirPassword(path)) {
+            ensureLocalDirUnlocked(path).then(function (ok) {
+              if (ok) {
+                loadLocalDisk(path, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, path) });
+              }
+            }).catch(function (err) {
+              showStatus(t('解锁本地目录失败：') + err.message, 'err');
+            });
+            return;
+          }
+          loadLocalDisk(path, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, path) });
+          return;
+        }
+        const mkdirBtn = e.target.closest('.local-mkdir-btn[data-local-mkdir]');
+        if (mkdirBtn) {
+          e.stopPropagation();
+          const path = decodeURIComponent(mkdirBtn.getAttribute('data-local-mkdir') || '');
+          if (!path) { return; }
+          const name = window.prompt(t('请输入新建子目录名称'));
+          if (name === null) { return; }
+          const cleanName = String(name || '').trim();
+          if (!cleanName) {
+            showStatus(t('子目录名称不能为空'), 'err');
+            return;
+          }
+          fetchJson(appendLocalDirPassword(api.localDiskMkdir + '?path=' + encodeURIComponent(path) + '&name=' + encodeURIComponent(cleanName), path), { method: 'POST' })
+            .then(function () {
+              showStatus(t('子目录已创建：') + cleanName, 'ok');
+              loadLocalDisk(path, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, path) });
+            })
+            .catch(function (err) {
+              showStatus(t('创建子目录失败：') + err.message, 'err');
+            });
+          return;
+        }
+        const deleteBtn = e.target.closest('.local-delete-btn[data-local-delete]');
+        if (deleteBtn) {
+          e.stopPropagation();
+          const path = decodeURIComponent(deleteBtn.getAttribute('data-local-delete') || '');
+          if (!path) { return; }
+          const parentRow = deleteBtn.closest('tr');
+          const isDir = parentRow
+            ? (parentRow.querySelector('td:nth-child(2)') && parentRow.querySelector('td:nth-child(2)').textContent === '文件夹')
+            : deleteBtn.closest('.local-disk-dir-item') !== null;
+          const confirmMsg = isDir
+            ? t('确认将本地目录移至回收站：') + path + t(' ？')
+            : t('确认删除本地文件：') + path + t(' ？');
+          if (!confirm(confirmMsg)) { return; }
+          const deleteLockPath = isDir && getLocalDirPassword(path) ? path : localDiskParentPath(path);
+          fetchJson(appendLocalDirPassword(appendFilePassword(api.localDiskDelete + '?path=' + encodeURIComponent(path), path, true), deleteLockPath), { method: 'POST' })
+            .then(function () {
+              showStatus((isDir ? t('本地目录已移至回收站：') : t('本地文件已删除：')) + path, 'warn');
+              const nextPath = isDir ? localDiskParentPath(path) : (activeLocalDiskPath || '');
+              if (isDir) {
+                localDiskTreeCache.delete(path);
+                expandedLocalDiskTreePaths.delete(path);
+              }
+              loadLocalDisk(nextPath, { resetTreeRoot: !localDiskPathContains(activeLocalDiskTreeRootPath, nextPath) });
+            })
+            .catch(function (err) {
+              showStatus(t('删除失败：') + err.message, 'err');
+            });
+          return;
+        }
+        const previewBtn = e.target.closest('.local-preview-btn[data-local-file][data-kind]');
+        if (!previewBtn) { return; }
+        const path = decodeURIComponent(previewBtn.getAttribute('data-local-file') || '');
+        const kind = previewBtn.getAttribute('data-kind') || 'image';
+        if (!path) { return; }
+        if (kind === 'image') {
+          openLocalDiskImagePreview(path, previewBtn.getAttribute('data-local-name') || path);
+          return;
+        }
+        openPreview(kind, encodeURIComponent(path), path, {
+          local: true,
+          url: localDiskDownloadUrl(path),
+          previewKey: 'local:' + path
+        });
+      }
+
+      function localDiskDownloadUrl(path) {
+        const filePath = String(path || '/');
+        return appendLocalDirPassword(
+          appendFilePassword(api.localDiskDownload + '?path=' + encodeURIComponent(filePath), filePath, true),
+          localDiskParentPath(filePath)
+        );
+      }
+
+      function renderAudioPlaylistItems(container, files, activeFileName) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = files.map(function (file, index) {
+          const name = String((file && file.name) || getFilePath(file) || '');
+          const itemClass = getFilePath(file) === activeFileName ? 'audio-playlist-item active' : 'audio-playlist-item';
+          return '<button type="button" class="' + itemClass + '" data-playlist-index="' + index + '">' +
+            '<span class="audio-playlist-item-index">' + String(index + 1) + '</span>' +
+            '<span class="audio-playlist-item-name">' + escapeHtml(name) + '</span>' +
+          '</button>';
+        }).join('');
+      }
+
+      async function migrateLegacyTagTree(legacyNodes) {
+        for (let i = 0; i < legacyNodes.length; i += 1) {
+          await migrateLegacyTagNode(legacyNodes[i], '');
+        }
+        try {
+          localStorage.removeItem(TAG_TREE_STORAGE_KEY);
+        } catch (_) {
+        }
+      }
+
+      async function loadFolderTreeState() {
+        const data = await fetchJson(folderListUrl());
+        folderTreeData = Array.isArray(data.folders) ? data.folders.map(normalizeFolderNode) : [];
+        ensureFolderPathExpanded(activeFolderPath);
+        renderFolderTree();
       }
 
       function refreshRenderedFileSelection() {
@@ -320,6 +661,115 @@
         updateFileBulkActionButton();
       }
 
+      function isLocalDiskDirectoryPath(path) {
+        const item = getLocalDiskItemByPath(path) || getLocalDiskTreeItemByPath(path);
+        return !!(item && item.directory);
+      }
+
+      function centerPreviewWindow(win) {
+        if (!win) {
+          return;
+        }
+
+        win.style.transform = 'none';
+        const count = previewLayer.querySelectorAll('.floating-preview').length;
+        const w = win.offsetWidth || 760;
+        const h = win.offsetHeight || 520;
+        const offset = (count - 1) * 24;
+        const left = Math.max(8, Math.round((window.innerWidth - w) / 2));
+        const top = Math.max(8, Math.round((window.innerHeight - h) / 2));
+        win.style.left = (left + offset) + 'px';
+        win.style.top = (top + offset) + 'px';
+        clampWindowPosition(win);
+      }
+
+      function handleLocalDiskDragEnd() {
+        activeLocalDiskDragPaths = [];
+        clearLocalDiskDropTarget();
+        if (!localDiskExplorer) {
+          return;
+        }
+        localDiskExplorer.querySelectorAll('.local-disk-dragging').forEach(function (node) {
+          node.classList.remove('local-disk-dragging');
+        });
+      }
+
+      async function ensureFolderUnlocked(path) {
+        const lockedPath = getFolderLockAncestorPath(path);
+        if (!lockedPath) {
+          return true;
+        }
+        if (unlockedFolderPasswords.has(lockedPath)) {
+          return true;
+        }
+        const password = await askLockPassword({
+          title: t('解锁目录'),
+          description: t('请输入目录「') + lockedPath + t('」的锁密码。'),
+          onSubmit: async function (passwordText) {
+            await fetchJson(
+              api.folderLockVerify + '?path=' + encodeURIComponent(path) + '&password=' + encodeURIComponent(passwordText),
+              { method: 'POST' }
+            );
+          }
+        });
+        if (password === null) {
+          return false;
+        }
+        setUnlockedFolderPassword(lockedPath, password);
+        return true;
+      }
+
+      function renderAudioPlayModeButtons(activeMode) {
+        return ['random', 'sequential', 'loop'].map(function (modeKey) {
+          const activeClass = modeKey === activeMode ? 'audio-mode-btn active' : 'audio-mode-btn';
+          const label = AUDIO_PLAY_MODE_LABELS[modeKey] || t('播放方式');
+          const icon = AUDIO_PLAY_MODE_ICONS[modeKey] || '?';
+          return '<button type="button" class="' + activeClass + '" data-audio-mode="' + modeKey + '" title="' + escapeHtml(label) + '" aria-label="' + escapeHtml(label) + '">' +
+            '<span class="audio-mode-btn-icon">' + icon + '</span>' +
+          '</button>';
+        }).join('');
+      }
+
+      async function removeTagNode(tagId) {
+        try {
+          return await fetchJson(api.tagDelete + '?id=' + encodeURIComponent(tagId), {
+            method: 'POST'
+          });
+        } catch (_) {
+          return null;
+        }
+      }
+
+      async function createFolderAtCurrentPath() {
+        if (!(await ensureFolderUnlocked(activeFolderPath))) {
+          return;
+        }
+        const name = await askTagName({
+          title: t('新建子目录'),
+          description: t('请输入要创建在「') + getFolderLabel(activeFolderPath) + t('」下的子目录名称。'),
+          label: t('目录名称'),
+          placeholder: t('请输入目录名称')
+        });
+        if (name === null) {
+          return;
+        }
+        const cleanName = String(name || '').trim();
+        if (!cleanName) {
+          showStatus(t('文件夹名称不能为空'), 'err');
+          return;
+        }
+        await fetchJson(
+          withFolderPassword(
+            api.folderCreate + '?parent=' + encodeURIComponent(activeFolderPath || '') + '&name=' + encodeURIComponent(cleanName),
+            activeFolderPath
+          ),
+          { method: 'POST' }
+        );
+        ensureFolderPathExpanded(activeFolderPath);
+        await loadFolderTreeState();
+        showStatus(t('已创建文件夹：') + cleanName, 'ok');
+      }
+
       function downloadRemoteListFile(filePath, local) {
         const file = String(filePath || '');
         if (!file) {
@@ -333,267 +783,109 @@
         document.body.removeChild(link);
       }
 
-      function inferFileTypeLabel(file) {
-        if (!file) {
-          return t('文件');
-        }
-        if (file.directory) {
-          return t('文件夹');
-        }
-        const name = String(file.name || getFilePath(file) || '');
-        if (isVideoName(name)) return t('视频');
-        if (isAudioName(name)) return t('音频');
-        if (isImageName(name)) return t('图片');
-        if (isPdfName(name)) return 'PDF';
-        if (isTextName(name)) return t('文本');
-        const dot = name.lastIndexOf('.');
-        return dot >= 0 && dot < name.length - 1 ? name.slice(dot + 1).toUpperCase() : t('文件');
+      function localBaseName(path) {
+        const text = String(path || '').replace(/\/+$/, '');
+        const index = text.lastIndexOf('/');
+        return index >= 0 ? text.slice(index + 1) : text;
       }
 
-      function getFileTimeText(file, keys) {
-        for (let i = 0; i < keys.length; i += 1) {
-          const value = file && file[keys[i]];
-          if (value !== undefined && value !== null && String(value) !== '') {
-            return String(value);
-          }
-        }
-        return '-';
-      }
-
-      function showFileSummaryDialog(filePath) {
-        const file = getFileRecordByPath(filePath);
-        if (!file) {
-          showStatus(t('文件摘要失败：未找到文件'), 'err');
+      function clampWindowPosition(win) {
+        if (!win) {
           return;
         }
-        const oldDialog = document.getElementById('file-summary-dialog');
-        if (oldDialog && oldDialog.parentNode) {
-          oldDialog.parentNode.removeChild(oldDialog);
-        }
-        const path = getFilePath(file);
-        const name = String(file.name || path || '');
-        const sizeText = file.directory ? t('文件夹') : (formatNumber(safeSize(file)) + t(' 字节'));
-        const createdText = getFileTimeText(file, ['created_time', 'created_at', 'uploaded_time']);
-        const modifiedText = getFileTimeText(file, ['modified_time', 'modified_at', 'uploaded_time']);
-        const rows = [
-          [t('文件名'), name],
-          [t('文件大小'), sizeText],
-          [t('文件类型'), inferFileTypeLabel(file)],
-          [t('创建时间'), createdText],
-          [t('修改时间'), modifiedText]
-        ];
-        const dialog = document.createElement('div');
-        dialog.className = 'tag-dialog file-summary-dialog';
-        dialog.id = 'file-summary-dialog';
-        dialog.innerHTML =
-          '<div class="tag-dialog-backdrop" data-file-summary-close="1"></div>' +
-          '<div class="tag-dialog-card file-summary-card" role="dialog" aria-modal="true" aria-labelledby="file-summary-title">' +
-            '<div class="tag-dialog-head">' +
-              '<h2 id="file-summary-title">' + escapeHtml(t('文件摘要')) + '</h2>' +
-              '<p>' + escapeHtml(path) + '</p>' +
-            '</div>' +
-            '<dl class="file-summary-list">' + rows.map(function (row) {
-              return '<div class="file-summary-row"><dt>' + escapeHtml(row[0]) + '</dt><dd>' + escapeHtml(row[1]) + '</dd></div>';
-            }).join('') + '</dl>' +
-            '<div class="tag-dialog-actions">' +
-              '<button type="button" class="tag-dialog-btn" data-file-summary-close="1">' + escapeHtml(t('确定')) + '</button>' +
-            '</div>' +
-          '</div>';
-        document.body.appendChild(dialog);
+
+        const rect = win.getBoundingClientRect();
+        const maxLeft = Math.max(8, window.innerWidth - rect.width - 8);
+        const maxTop = Math.max(8, window.innerHeight - 42);
+        let left = rect.left;
+        let top = rect.top;
+
+        if (left < 8) left = 8;
+        if (left > maxLeft) left = maxLeft;
+
+        if (top < 8) top = 8;
+        if (top > maxTop) top = maxTop;
+
+        win.style.left = Math.round(left) + 'px';
+        win.style.top = Math.round(top) + 'px';
       }
 
-      async function handleFileDeleteOrRemove(filePath, local) {
-        const name = String(filePath || '');
-        if (!name) {
-          return;
-        }
-        const activeTagId = activeFilterTagId;
-        if (activeTagId) {
-          if (!confirm(t('确认将文件『') + name + t('』从当前标签中移除？此操作只解除标签引用，不会删除文件。'))) {
+function loadUnlockedFolderPasswords() {
+        try {
+          const raw = sessionStorage.getItem(FOLDER_UNLOCK_SESSION_STORAGE_KEY);
+          const entries = raw ? JSON.parse(raw) : [];
+          if (!Array.isArray(entries)) {
             return;
           }
-          resetStatus();
-          const ok = await unbindFileFromTag(activeTagId, name, { local: !!local });
-          if (!ok) {
-            showStatus(t('移除引用失败：关联不存在'), 'err');
-            return;
-          }
-          await showFilesForTag(activeTagId);
-          showStatus(t('已移除标签引用：') + name, 'warn');
-          return;
-        }
-
-        const isRecycleMode = isRecycleFolderPath(activeFolderPath);
-        const itemRecord = getFileRecordByPath(name);
-        const itemLabel = itemRecord && itemRecord.directory ? t('文件夹') : t('文件');
-        const confirmText = isRecycleMode
-          ? (t('确认彻底删除') + itemLabel + t('：') + name + t(' ？此操作不可恢复。'))
-          : (t('确认删除文件：') + name + t(' ？将先移入回收站。'));
-        if (!confirm(confirmText)) {
-          return;
-        }
-
-        resetStatus();
-        await fetchJson(appendFilePassword(withFolderPassword(api.del + '?file=' + encodeURIComponent(name), parentFolderPathFromFilePath(name)), name, false));
-        showStatus(isRecycleMode ? (t('已彻底删除') + itemLabel + t('：') + name) : (t('已移入回收站：') + name), 'warn');
-        await loadFiles();
-      }
-
-      function handleFileNameClick(filePath, local) {
-        const file = String(filePath || '');
-        if (!file) {
-          return;
-        }
-        const alreadySelected = selectedFileNames.has(file);
-        if (!alreadySelected) {
-          clearFileRenameClickTimer();
-          selectedFileNames.clear();
-          selectedFileNames.add(file);
-          activeFileRenamePath = '';
-          fileRenameRequestPath = '';
-          refreshRenderedFileSelection();
-          return;
-        }
-        clearFileRenameClickTimer();
-        fileRenameClickTimer = window.setTimeout(function () {
-          fileRenameClickTimer = null;
-          startFileRename(file);
-        }, 230);
-      }
-
-      function handleFileNameDoubleClick(filePath, local) {
-        clearFileRenameClickTimer();
-        activeFileRenamePath = '';
-        fileRenameRequestPath = '';
-        const file = String(filePath || '');
-        if (file) {
-          selectedFileNames.clear();
-          selectedFileNames.add(file);
-          refreshRenderedFileSelection();
-          downloadRemoteListFile(file, !!local);
-        }
-      }
-
-      function renderFiles(files) {
-        activeSourceFiles = (Array.isArray(files) ? files : []).map(normalizeFileRecord);
-        if (activeFilterTagId) {
-          currentFiles = activeSourceFiles.slice();
-        } else {
-          currentFiles = activeSourceFiles.filter(function (file) {
-            return String(file.folder_path || '') === String(activeFolderPath || '');
+          entries.forEach(function (entry) {
+            if (Array.isArray(entry) && entry[0] && entry[1]) {
+              unlockedFolderPasswords.set(String(entry[0]), String(entry[1]));
+            }
           });
-        }
-        syncSelectedFilesByCurrentView();
-        updateExplorerLayout();
-        updateFileViewContext();
-        updateFileSelectAllState();
-        updateFileBulkActionButton();
-        fileCounter.textContent = currentFiles.length + t(' 个文件');
+        } catch (_) {}
+      }
 
-        if (!currentFiles.length) {
-          fileList.innerHTML = '';
-          fileTable.style.display = 'none';
-          if (tagImagePreviewWrap) tagImagePreviewWrap.hidden = true;
-          fileEmpty.textContent = activeFilterTagId ? t('当前标签下没有文件。') : t('当前目录没有文件。');
-          fileEmpty.style.display = 'block';
+      async function relockFolderInSession(path) {
+        const target = String(path || '');
+        if (!target || !unlockedFolderPasswords.has(target)) {
           return;
         }
+        deleteUnlockedFolderPassword(target);
+        await loadFolderTreeState();
+        if (isSameOrChildFolderPath(target, activeFolderPath)) {
+          renderFiles([]);
+        } else {
+          renderFiles(activeSourceFiles);
+        }
+        showStatus(t('目录已重新加锁：') + target, 'ok');
+      }
 
-        const key = sortKey.value || 'name';
-        const order = sortOrder.value || 'asc';
-        const isTagFilterMode = !!activeFilterTagId;
-        const sorted = currentFiles.slice().sort((a, b) => compareFiles(a, b, key, order));
-        updateSortIndicator();
-        const isRecycleMode = !isTagFilterMode && isRecycleFolderPath(activeFolderPath);
-        if (fileTable && fileTable.classList) {
-          fileTable.classList.toggle('recycle-mode', isRecycleMode);
+      function askLockPassword(options) {
+        if (!lockDialog || !lockDialogTitle || !lockDialogDesc || !lockDialogInput) {
+          return Promise.resolve(null);
+        }
+        if (activeLockDialogState) {
+          closeLockDialog(null);
         }
 
-        fileEmpty.style.display = 'none';
+        const opts = options || {};
+        lockDialogTitle.textContent = String(opts.title || t('解锁目录'));
+        lockDialogDesc.textContent = String(opts.description || t('请输入目录锁密码。'));
+        lockDialogInput.value = '';
+        lockDialogInput.placeholder = String(opts.placeholder || t('请输入锁密码'));
+        setLockDialogError('');
+        lockDialog.hidden = false;
+        document.body.style.overflow = 'hidden';
 
-        if (tagFileViewMode === 'preview' && isActiveTagPreviewEnabled()) {
-          fileTable.style.display = 'none';
-          renderTagImagePreview(sorted);
-          updateFileSelectAllState();
-          updateFileBulkActionButton();
-          return;
+        requestAnimationFrame(function () {
+          lockDialogInput.focus();
+          lockDialogInput.select();
+        });
+
+        return new Promise(function (resolve) {
+          activeLockDialogState = {
+            resolve: resolve,
+            onSubmit: typeof opts.onSubmit === 'function' ? opts.onSubmit : null,
+            errorMessage: String(opts.errorMessage || t('密码错误或验证失败，请重新输入。')),
+            statusErrorMessage: String(opts.statusErrorMessage || t('解锁失败：密码错误或验证失败'))
+          };
+        });
+      }
+
+      function buildTranscodeActionButtons(encoded, item) {
+        if (isAudioSplitChoiceCandidate(item)) {
+          return '' +
+            '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '" data-transcode-mode="audio_split">' + t('拆分视频并转音频') + '</button>' +
+            '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '" data-transcode-mode="full_mp4">' + t('音视频都转') + '</button>';
         }
+        return '<button type="button" class="transcode-btn" data-transcode-file="' + encoded + '" data-transcode-mode="auto">' + t('确认转码') + '</button>';
+      }
 
-        if (tagImagePreviewWrap) tagImagePreviewWrap.hidden = true;
-        fileTable.style.display = 'table';
-        fileList.innerHTML = sorted.map(file => {
-          const name = escapeHtml(file.name || '');
-          const rawName = getFilePath(file);
-          const encodedPath = encodeURIComponent(rawName);
-          const isLocalTaggedFile = !!file.local;
-          const isDir = !!file.directory;
-          const fileLocked = !!file.locked;
-          const lockIcon = fileLocked
-            ? '<span class="folder-lock-icon file-lock-inline' + (getFilePassword(rawName, isLocalTaggedFile) ? ' unlocked' : '') + '" title="' + escapeHtml(t(getFilePassword(rawName, isLocalTaggedFile) ? '点击重新加锁' : '点击解锁')) + '" aria-label="' + escapeHtml(t(getFilePassword(rawName, isLocalTaggedFile) ? '点击重新加锁' : '点击解锁')) + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
-            : '';
-          const pathMeta = file.folder_path
-            ? '<div class="file-path-meta">' + escapeHtml(file.folder_path) + '</div>'
-            : '';
-          const size = safeSize(file);
-          const uploaded = escapeHtml(file.uploaded_time || '-');
-          const checked = selectedFileNames.has(rawName) ? ' checked' : '';
-          const selectedClass = selectedFileNames.has(rawName) ? ' selected-file-row' : '';
-          const previewBtn = !isDir && isImageName(file.name)
-            ? (isLocalTaggedFile
-              ? '<button class="local-preview-btn preview-btn" data-kind="image" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('预览') + '</button>'
-              : '<button class="preview-btn" data-preview-file="' + encodedPath + '" data-preview-name="' + escapeHtml(rawName) + '">' + t('预览') + '</button>')
-            : '';
-          const videoBtn = !isDir && isVideoName(file.name)
-            ? (isLocalTaggedFile
-              ? '<button class="local-preview-btn video-btn" data-kind="video" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('观影') + '</button>'
-              : '<button class="video-btn" data-video-file="' + encodedPath + '" data-video-name="' + escapeHtml(rawName) + '">' + t('观影') + '</button>')
-            : '';
-          const audioBtn = !isDir && isAudioName(file.name)
-            ? (isLocalTaggedFile
-              ? '<button class="local-preview-btn audio-btn" data-kind="audio" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('听音') + '</button>'
-              : '<button class="audio-btn" data-audio-file="' + encodedPath + '" data-audio-name="' + escapeHtml(rawName) + '">' + t('听音') + '</button>')
-            : '';
-          const textBtn = !isDir && isTextName(file.name)
-            ? (isLocalTaggedFile
-              ? '<button class="local-preview-btn text-btn" data-kind="text" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('查看') + '</button>'
-              : '<button class="text-btn" data-text-file="' + encodedPath + '" data-text-name="' + escapeHtml(rawName) + '">' + t('查看') + '</button>')
-            : '';
-          const pdfBtn = !isDir && isPdfName(file.name)
-            ? (isLocalTaggedFile
-              ? '<button class="local-preview-btn preview-btn" data-kind="pdf" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(rawName) + '">' + t('预览') + '</button>'
-              : '<button class="pdf-btn preview-btn" data-pdf-file="' + encodedPath + '" data-pdf-name="' + escapeHtml(rawName) + '">' + t('预览') + '</button>')
-            : '';
-          const primaryActionBtn = isTagFilterMode
-            ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '"' + (isLocalTaggedFile ? ' data-local-tag-file="1"' : '') + '>' + t('移除') + '</button>'
-            : (isRecycleMode
-              ? ('<button class="restore-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">' + t('恢复') + '</button>')
-              : '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">' + t('删除') + '</button>');
-          const permanentDeleteBtn = isRecycleMode
-            ? '<button class="delete-btn" data-file="' + encodedPath + '" data-name="' + escapeHtml(rawName) + '">' + t('彻底删除') + '</button>'
-            : '';
-          const renameInput = !isDir && activeFileRenamePath === rawName
-            ? '<input class="file-rename-input" type="text" value="' + escapeHtml(file.name || '') + '" data-file-rename-path="' + encodedPath + '" aria-label="' + escapeHtml(t('改名文件')) + '">'
-            : '';
-          const nameContent = isDir
-            ? '<span class="file-name local-folder-link"><span class="local-folder-icon">📁</span>' + name + '</span>'
-            : (renameInput || '<button type="button" class="file-name file-name-action" draggable="false" data-file-name-click="' + encodedPath + '" data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '">' + name + '</button>');
-          const tagQuickBtn = isDir
-            ? ''
-            : '<button class="file-tag-quick-btn" type="button" data-tag-file="' + encodedPath + '" title="' + escapeHtml(t('加入标签')) + '" aria-label="' + escapeHtml(t('加入标签')) + '">🏷</button>';
-          return (
-            '<tr class="draggable-file-row' + selectedClass + '" draggable="' + (isDir ? 'false' : 'true') + '" data-drag-file="' + encodedPath + '"' + (isDir ? '' : ' data-file-context="' + encodedPath + '"') + ' data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (!isDir && isVideoName(file.name) ? '1' : '0') + '">' +
-              '<td class="file-select-cell"><div class="file-select-tools"><input class="file-select-input" type="checkbox" data-select-file="' + encodedPath + '" aria-label="' + escapeHtml(t('选择') + (isDir ? t('目录 ') : t('文件 ')) + rawName) + '"' + checked + '>' + tagQuickBtn + '</div></td>' +
-              '<td' + (isDir ? '' : ' data-file-context="' + encodedPath + '"') + ' data-file-local="' + (isLocalTaggedFile ? '1' : '0') + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (!isDir && isVideoName(file.name) ? '1' : '0') + '">' + nameContent + lockIcon + pathMeta + '</td>' +
-              '<td>' + (isDir ? t('文件夹') : (formatNumber(size) + t(' 字节'))) + '</td>' +
-              '<td>' + uploaded + '</td>' +
-              '<td class="actions-cell"><div class="actions">' + previewBtn + videoBtn + audioBtn + textBtn + pdfBtn + '</div></td>' +
-              '<td class="row-danger-action"><div class="danger-actions">' + primaryActionBtn + '</div></td>' +
-              '<td class="row-permanent-action"><div class="permanent-actions">' + permanentDeleteBtn + '</div></td>' +
-            '</tr>'
-          );
-        }).join('');
-        updateFileSelectAllState();
-        updateFileBulkActionButton();
+      function closeLocalImportDialog() {
+        if (localImportDialog) {
+          localImportDialog.hidden = true;
+        }
+        localImportOverridePaths = null;
       }
 
       function renderTagImagePreview(files) {
@@ -629,27 +921,446 @@
         tagImagePreviewWrap.hidden = false;
       }
 
-      function imagePreviewUrlForItem(item) {
-        if (!item || !item.file) {
-          return '';
+      function showLocalDiskFileSummaryDialog(path) {
+        const filePath = String(path || '');
+        const item = getLocalDiskItemByPath(filePath) || { path: filePath, name: localBaseName(filePath), size: 0 };
+        const oldDialog = document.getElementById('file-summary-dialog');
+        if (oldDialog && oldDialog.parentNode) {
+          oldDialog.parentNode.removeChild(oldDialog);
         }
-        const url = item.local ? localDiskDownloadUrl(item.file) : downloadUrlForFile(item.file, true);
-        return url + '&v=' + Date.now();
+        const rows = [
+          [t('文件名'), String(item.name || localBaseName(filePath) || '')],
+          [t('文件大小'), formatNumber(Number(item.size || 0)) + t(' 字节')],
+          [t('文件类型'), inferFileTypeLabel({ name: item.name || filePath, directory: false })],
+          [t('创建时间'), String(item.created_time || '-')],
+          [t('修改时间'), String(item.modified_time || '-')]
+        ];
+        const dialog = document.createElement('div');
+        dialog.className = 'tag-dialog file-summary-dialog';
+        dialog.id = 'file-summary-dialog';
+        dialog.innerHTML =
+          '<div class="tag-dialog-backdrop" data-file-summary-close="1"></div>' +
+          '<div class="tag-dialog-card file-summary-card" role="dialog" aria-modal="true" aria-labelledby="file-summary-title">' +
+            '<div class="tag-dialog-head">' +
+              '<h2 id="file-summary-title">' + escapeHtml(t('文件摘要')) + '</h2>' +
+              '<p>' + escapeHtml(filePath) + '</p>' +
+            '</div>' +
+            '<dl class="file-summary-list">' + rows.map(function (row) {
+              return '<div class="file-summary-row"><dt>' + escapeHtml(row[0]) + '</dt><dd>' + escapeHtml(row[1]) + '</dd></div>';
+            }).join('') + '</dl>' +
+            '<div class="tag-dialog-actions">' +
+              '<button type="button" class="tag-dialog-btn" data-file-summary-close="1">' + escapeHtml(t('确定')) + '</button>' +
+            '</div>' +
+          '</div>';
+        document.body.appendChild(dialog);
       }
 
-      function updateImagePreviewWindow(win, gallery, index) {
-        if (!win || !Array.isArray(gallery) || !gallery.length) {
+      function setAdminStorageProgressControls(state) {
+        const running = state === 'running' || state === 'conflict' || state === 'queued';
+        const paused = state === 'paused';
+        const active = running || paused;
+        if (adminStorageProgressPauseBtn) {
+          adminStorageProgressPauseBtn.hidden = !running;
+          adminStorageProgressPauseBtn.disabled = !running;
+        }
+        if (adminStorageProgressResumeBtn) {
+          adminStorageProgressResumeBtn.hidden = !paused;
+          adminStorageProgressResumeBtn.disabled = !paused;
+        }
+        if (adminStorageProgressCancelBtn) {
+          adminStorageProgressCancelBtn.hidden = !active;
+          adminStorageProgressCancelBtn.disabled = !active;
+        }
+      }
+
+      function getFilePassword(path, local) {
+        return unlockedFilePasswords.get(fileLockKey(path, local)) || '';
+      }
+
+      function selectFolderPath(path, shiftKey) {
+        const target = String(path || '');
+        if (!target || isRecycleRootFolderPath(target)) {
+          clearSelectedFolders();
           return;
         }
-        const nextIndex = Math.max(0, Math.min(Number(index || 0), gallery.length - 1));
-        const item = gallery[nextIndex];
-        const titleEl = win.querySelector('.preview-title');
-        const imageEl = win.querySelector('.preview-image');
-        const prevBtn = win.querySelector('.preview-nav-btn[data-preview-nav="prev"]');
-        const nextBtn = win.querySelector('.preview-nav-btn[data-preview-nav="next"]');
-        win.__imageGallery = gallery;
-        win.__imageIndex = nextIndex;
-        if (titleEl) {
-          titleEl.textContent = '图片预览：' + String(item.name || item.file || '');
+        const targetInRecycle = isRecycleFolderPath(target);
+        if (shiftKey && lastSelectedFolderPath) {
+          const visiblePaths = getVisibleFolderPathsInOrder().filter(function (item) {
+            if (!item || isRecycleRootFolderPath(item)) {
+              return false;
+            }
+            return targetInRecycle ? isRecycleFolderPath(item) : !isRecycleFolderPath(item);
+          });
+          const start = visiblePaths.indexOf(lastSelectedFolderPath);
+          const end = visiblePaths.indexOf(target);
+          selectedFolderPaths.clear();
+          if (start >= 0 && end >= 0) {
+            const min = Math.min(start, end);
+            const max = Math.max(start, end);
+            for (let i = min; i <= max; i += 1) {
+              selectedFolderPaths.add(visiblePaths[i]);
+            }
+          } else {
+            selectedFolderPaths.add(target);
+          }
+        } else {
+          selectedFolderPaths.clear();
+          selectedFolderPaths.add(target);
+          lastSelectedFolderPath = target;
         }
-        if (imageEl) {
+      }
+
+      function hasTagChildren(node) {
+        return !!(node && Array.isArray(node.children) && node.children.length > 0);
+      }
+
+      function dismissTranscodeItem(encodedName) {
+        stopTranscodePolling(encodedName);
+        const item = statusBox.querySelector('[data-transcode-item="' + encodedName + '"]');
+        if (item && item.parentNode) {
+          item.parentNode.removeChild(item);
+        }
+        if (!statusBox.querySelector('[data-transcode-item]')) {
+          statusBox.className = 'status';
+          statusBox.textContent = '';
+        }
+      }
+
+      function setLocalImportProgress(percent, text) {
+        const p = Math.max(0, Math.min(100, Number(percent) || 0));
+        if (localImportProgressDialog) {
+          localImportProgressDialog.hidden = false;
+        }
+        if (localImportProgressFill) {
+          localImportProgressFill.style.width = p + '%';
+        }
+        if (localImportProgressText) {
+          localImportProgressText.textContent = text || (t('上传中 ') + Math.round(p) + '%');
+        }
+        updateLocalImportProgressSummary(localImportProgressText ? localImportProgressText.textContent : text);
+        if (localImportProgressClose) {
+          localImportProgressClose.hidden = true;
+        }
+      }
+
+      function splitAudioSidecarCandidates(filePath) {
+        const text = String(filePath || '');
+        const match = text.match(/^(.*)_web_video(_\d+)?\.mp4$/i);
+        if (!match) {
+          return [];
+        }
+        const base = match[1];
+        const suffix = match[2] || '';
+        return [base + '_web_audio' + suffix + '.m4a', base + '_web_audio' + suffix + '.aac'];
+      }
+
+      function updateLocalDiskSelectAllState() {
+        const filePaths = getVisibleLocalDiskFilePaths();
+        const selectedCount = filePaths.filter(function (path) {
+          return selectedLocalDiskPaths.has(path);
+        }).length;
+        [localDiskSelectAll, localDiskTableSelectAll].forEach(function (selectAll) {
+          if (!selectAll) {
+            return;
+          }
+          selectAll.checked = filePaths.length > 0 && selectedCount === filePaths.length;
+          selectAll.indeterminate = selectedCount > 0 && selectedCount < filePaths.length;
+          selectAll.disabled = filePaths.length === 0;
+        });
+      }
+
+      function adminStoragePickerUrl(path) {
+        const target = String(path || '');
+        return target
+          ? (api.localDiskList + '?path=' + encodeURIComponent(target))
+          : api.localDiskList;
+      }
+
+      function setUnlockedTagPassword(tagId, password) {
+        const id = String(tagId || '');
+        if (!id) {
+          return;
+        }
+        unlockedFilePasswords.set(tagLockKey(id), String(password || ''));
+        saveUnlockedFilePasswords();
+      }
+
+      function isImageName(name) {
+        return /\.(png|jpg|jpeg|gif)$/i.test(String(name || ''));
+      }
+
+      async function openFilesTagMenu(button, fileNames, options) {
+        closeFileTagMenu();
+        const opts = options || {};
+        const targetFiles = (Array.isArray(fileNames) ? fileNames : [])
+          .map(function (name) { return String(name || ''); })
+          .filter(Boolean);
+        if (!button || !targetFiles.length) {
+          return;
+        }
+        if (!tagTree.length) {
+          await loadTagTreeState();
+        }
+        const menu = document.createElement('div');
+        menu.className = 'quick-tag-menu';
+        menu.setAttribute('data-quick-tag-files', targetFiles.join('\n'));
+        menu.setAttribute('data-quick-tag-local', opts.local ? '1' : '0');
+        menu.innerHTML = tagTree.length
+          ? '<div class="quick-tag-title">' + (targetFiles.length > 1 ? (t('给 ') + targetFiles.length + t(' 个文件加入标签')) : t('加入标签')) + '</div>' + buildQuickTagTreeHtml(tagTree, targetFiles, 1)
+          : '<div class="quick-tag-empty">' + t('当前没有标签') + '</div>';
+        document.body.appendChild(menu);
+        const rect = button.getBoundingClientRect();
+        menu.style.left = Math.round(rect.left) + 'px';
+        menu.style.top = Math.round(rect.bottom + 6) + 'px';
+        clampFloatingMenuPosition(menu, rect.left, rect.bottom + 6);
+        activeFileTagMenu = menu;
+      }
+
+      async function startLocalVideoTranscode(encodedName) {
+        setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: true });
+        const fileName = decodeURIComponent(encodedName);
+        try {
+          setTranscodeVisualState(encodedName, 'running');
+          updateTranscodeProgress(encodedName, 0, t('任务创建中...'));
+          setTranscodeReason(encodedName, t('状态：正在请求后台启动转码任务'));
+          let url = api.localDiskVideoConvert + '?path=' + encodeURIComponent(fileName);
+          url = appendLocalDirPassword(appendFilePassword(url, fileName, true), localDiskParentPath(fileName));
+          const data = await fetchJson(url, { method: 'POST' });
+          if (!data.task_id) {
+            throw new Error('missing task id');
+          }
+          setTranscodeTaskId(encodedName, String(data.task_id));
+          setTranscodeReason(encodedName, t('状态：后台任务已启动，任务号 ') + String(data.task_id));
+          updateTranscodeProgress(encodedName, Number(data.progress || 0), t('已启动'));
+          setTranscodeButtons(encodedName, { startDisabled: true, cancelDisabled: false });
+          stopTranscodePolling(encodedName);
+          const timer = setInterval(function () {
+            pollTranscodeProgress(encodedName, data.task_id);
+          }, 1000);
+          transcodeProgressTimers.set(encodedName, timer);
+          await pollTranscodeProgress(encodedName, data.task_id);
+        } catch (err) {
+          stopTranscodePolling(encodedName);
+          setTranscodeTaskId(encodedName, '');
+          setTranscodeVisualState(encodedName, 'failed');
+          updateTranscodeProgress(encodedName, 0, t('失败：') + err.message);
+          setTranscodeReason(encodedName, t('状态：失败，') + err.message);
+          setTranscodeButtons(encodedName, { startDisabled: false, cancelDisabled: true });
+        }
+      }
+
+      async function cancelRemoteCopyTask() {
+        const taskId = String(activeRemoteCopyTaskId || '');
+        if (!taskId) {
+          return;
+        }
+        activeRemoteCopyCancelRequested = true;
+        if (localImportProgressCancel) {
+          localImportProgressCancel.disabled = true;
+          localImportProgressCancel.textContent = t('取消中...');
+        }
+        await fetchJson(api.remoteCopyCancel + '?task_id=' + encodeURIComponent(taskId), { method: 'POST' });
+        showStatus(t('正在取消粘贴...'), 'warn');
+      }
+
+      function imageEditMimeForFile(filePath) {
+        const text = String(filePath || '').toLowerCase();
+        if (/\.(jpg|jpeg)$/.test(text)) {
+          return 'image/jpeg';
+        }
+        if (/\.png$/.test(text)) {
+          return 'image/png';
+        }
+        return '';
+      }
+
+      function setFileLockedState(path, local, locked) {
+        const target = String(path || '');
+        const isLocal = !!local;
+        if (!target) {
+          return;
+        }
+
+        function updateList(list) {
+          (Array.isArray(list) ? list : []).forEach(function (item) {
+            if (!item) {
+              return;
+            }
+            if (!!item.local === isLocal && getFilePath(item) === target) {
+              item.locked = !!locked;
+            }
+          });
+        }
+
+        updateList(allFiles);
+        updateList(activeSourceFiles);
+        activeLocalDiskItems.forEach(function (item) {
+          if (!item || item.directory) {
+            return;
+          }
+          if (String(item.path || '') === target) {
+            item.locked = !!locked;
+          }
+        });
+      }
+
+      function closeAdminStoragePickerDialog() {
+        if (adminStoragePickerDialog) {
+          adminStoragePickerDialog.hidden = true;
+          document.body.style.overflow = '';
+        }
+      }
+
+      function getFolderLabel(path) {
+        return path ? path : t('根目录');
+      }
+
+      function isTextName(name) {
+        return /\.(txt|md|log|csv|json|xml|yaml|yml|ini|conf|c|h|cpp|hpp|cc|java|py|js|ts|sh|go|sql|proto)$/i.test(String(name || ''));
+      }
+
+      function findTagMetaById(tagId) {
+        let found = null;
+        walkTagNodes(tagTree, function (node, level, parent, parentList, index) {
+          if (node.id === tagId) {
+            found = {
+              node: node,
+              level: level,
+              parent: parent,
+              parentList: parentList,
+              index: index
+            };
+            return true;
+          }
+          return false;
+        }, 1, null, tagTree);
+        return found;
+      }
+
+      function ensureFolderPathExpanded(path) {
+        const text = String(path || '');
+        expandedFolderPaths.add('');
+        if (!text) {
+          return;
+        }
+        const parts = text.split('/');
+        let current = '';
+        parts.forEach(function (part) {
+          current = current ? (current + '/' + part) : part;
+          expandedFolderPaths.add(current);
+        });
+      }
+
+      function updateFileViewContext() {
+        if (!fileViewContext) {
+          return;
+        }
+
+        if (activeFilterTagId) {
+          const meta = findTagMetaById(activeFilterTagId);
+          const tagName = meta && meta.node && meta.node.name
+            ? String(meta.node.name)
+            : t('当前标签');
+          fileViewContext.textContent = t('当前视图：标签：') + tagName + t(' / 范围：标签内全部文件');
+        } else {
+          fileViewContext.textContent = t('当前视图：目录：') + getFolderLabel(activeFolderPath) + t(' / 范围：全部文件');
+        }
+      }
+
+      function capturePreviewBaseCanvas(win) {
+        const img = win ? win.querySelector('.preview-image') : null;
+        if (!win || !img || !img.complete || !img.naturalWidth || !img.naturalHeight) {
+          return null;
+        }
+        win.__imageBaseCanvas = drawImageElementToCanvas(img);
+        win.__imageScale = 1;
+        win.__imageCurrentWidth = win.__imageBaseCanvas.width;
+        win.__imageCurrentHeight = win.__imageBaseCanvas.height;
+        updatePreviewImageSizeLabel(win);
+        return win.__imageBaseCanvas;
+      }
+
+      function renderLocalDiskTreeNode(path, level, itemMeta) {
+        const textPath = String(path || '/');
+        const encodedPath = encodeURIComponent(textPath);
+        const name = localDiskBaseName(textPath);
+        const checked = selectedLocalDiskPaths.has(textPath) ? ' checked' : '';
+        const isActive = textPath === activeLocalDiskPath;
+        const isExpanded = expandedLocalDiskTreePaths.has(textPath);
+        const hasCache = localDiskTreeCache.has(textPath);
+        const dirs = localDiskTreeCache.get(textPath) || [];
+        const canMove = level > 0;
+        const dirLocked = !!(itemMeta && itemMeta.locked);
+        const dirLockIcon = localDirLockIconHtml(textPath, dirLocked);
+        const createBtn = '<button type="button" class="local-mkdir-btn local-disk-dir-create-inline" data-local-mkdir="' + encodedPath + '" data-local-name="' + escapeHtml(textPath) + '" title="新建子目录" aria-label="新建子目录">+</button>';
+        const deleteBtn = level > 0 && itemMeta && itemMeta.empty_directory
+          ? '<button type="button" class="local-delete-btn local-disk-dir-delete-inline" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(textPath) + '" title="删除空目录" aria-label="删除空目录">-</button>'
+          : '';
+        const selectBox = canMove
+          ? '<input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '>'
+          : '<span class="local-disk-select-placeholder"></span>';
+        let html = '<div class="local-disk-tree-row local-disk-dir-item' + (canMove ? ' local-disk-draggable' : '') + (isActive ? ' active' : '') + '" ' + (canMove ? 'draggable="true" data-local-drag="' + encodedPath + '" ' : '') + 'data-local-drop-target="' + encodedPath + '" data-local-dir-context="' + encodedPath + '" data-local-dir-locked="' + (dirLocked ? '1' : '0') + '" style="--tree-level:' + level + '">' +
+          '<button type="button" class="local-disk-tree-caret" data-local-toggle="' + encodedPath + '" title="展开或收起目录" aria-label="展开或收起目录">' + (isExpanded && dirs.length ? '▾' : (hasCache && !dirs.length ? '' : '▸')) + '</button>' +
+          selectBox +
+          '<button type="button" class="local-disk-dir-link" data-local-folder="' + encodedPath + '">' +
+            '<span class="local-folder-icon">📁</span>' +
+            '<span class="local-disk-dir-item-name">' + escapeHtml(name) + '</span>' +
+          '</button>' +
+          dirLockIcon +
+          createBtn +
+          deleteBtn +
+          '</div>';
+        if (isExpanded && dirs.length) {
+          html += '<div class="local-disk-tree-children">';
+          html += dirs.map(function (item) {
+            return renderLocalDiskTreeNode(String(item.path || ''), level + 1, item);
+          }).join('');
+          html += '</div>';
+        }
+        return html;
+      }
+
+      function uploadWithProgress(formData) {
+        return new Promise(function (resolve, reject) {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', api.upload, true);
+          xhr.responseType = 'json';
+
+          xhr.upload.onprogress = function (e) {
+            if (e.lengthComputable && e.total > 0) {
+              const percent = Math.round((e.loaded * 100) / e.total);
+              setUploadProgress(percent, '上传中 ' + percent + '%');
+            } else {
+              setUploadProgress(0, '上传中...');
+            }
+          };
+
+          xhr.onerror = function () {
+            reject(new Error('network error'));
+          };
+
+          xhr.onabort = function () {
+            reject(new Error('upload aborted'));
+          };
+
+          xhr.onload = function () {
+            let data = xhr.response;
+            if (!data || typeof data !== 'object') {
+              try {
+                data = JSON.parse(xhr.responseText || '{}');
+              } catch (_) {
+                data = { ok: false, error: 'invalid json response' };
+              }
+            }
+
+            if (xhr.status < 200 || xhr.status >= 300 || !data.ok) {
+              reject(new Error(data.error || ('http ' + xhr.status)));
+              return;
+            }
+
+            resolve(data);
+          };
+
+          xhr.send(formData);
+        });
+      }
