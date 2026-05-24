@@ -273,6 +273,8 @@
     "      let localDiskClipboardDirectoryFlags = [];",
     "      let remoteDiskClipboardPath = '';",
     "      let remoteDiskClipboardDirectory = false;",
+    "      let remoteDiskClipboardPaths = [];",
+    "      let remoteDiskClipboardDirectoryFlags = [];",
     "      let activeLocalDiskTreeRootPath = '';",
     "      let localImportTargetFolderPath = '';",
     "      let localImportOverridePaths = null;",

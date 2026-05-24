@@ -434,6 +434,7 @@
     ,'已拷贝 ': 'Copied '
     ,' 个本地文件': ' local files'
     ,' 个本地目录': ' local folders'
+    ,' 个虚拟磁盘文件': ' virtual disk files'
     ,'打开上传目标选择失败：': 'Failed to open upload target picker: '
     ,'已拷贝本地文件路径：': 'Copied local file path: '
     ,'已拷贝本地目录路径：': 'Copied local folder path: '

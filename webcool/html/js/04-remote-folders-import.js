@@ -790,6 +790,8 @@
     "          onDone: async function () {",
     "            remoteDiskClipboardPath = '';",
     "            remoteDiskClipboardDirectory = false;",
+    "            remoteDiskClipboardPaths = [];",
+    "            remoteDiskClipboardDirectoryFlags = [];",
     "            activeFolderPath = targetPath;",
     "            ensureFolderPathExpanded(targetPath);",
     "            if (copiedDirectory && copiedPath) { ensureFolderPathExpanded(copiedPath); }",
