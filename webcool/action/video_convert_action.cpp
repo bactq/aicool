@@ -656,19 +656,120 @@ static void finish_task(const std::shared_ptr<transcode_task_t>& task,
 	}
 }
 
+struct ffmpeg_process_t {
+#ifdef _WIN32
+	HANDLE process;
+	HANDLE thread;
+	HANDLE read_pipe;
+	DWORD pid;
+	std::string pending;
+	ffmpeg_process_t() : process(NULL), thread(NULL), read_pipe(NULL), pid(0) {}
+#else
+	ACL_VSTREAM* stream;
+	ffmpeg_process_t() : stream(NULL) {}
+#endif
+};
+
+#ifdef _WIN32
+static std::string quote_windows_arg(const char* arg)
+{
+	std::string text = arg ? arg : "";
+	bool needs_quotes = text.empty();
+	for (size_t i = 0; i < text.size(); ++i) {
+		if (text[i] == ' ' || text[i] == '\t' || text[i] == '"') {
+			needs_quotes = true;
+			break;
+		}
+	}
+	if (!needs_quotes) {
+		return text;
+	}
+
+	std::string out;
+	out.push_back('"');
+	size_t backslashes = 0;
+	for (size_t i = 0; i < text.size(); ++i) {
+		const char c = text[i];
+		if (c == '\\') {
+			++backslashes;
+			continue;
+		}
+		if (c == '"') {
+			out.append(backslashes * 2 + 1, '\\');
+			out.push_back('"');
+		} else {
+			out.append(backslashes, '\\');
+			out.push_back(c);
+		}
+		backslashes = 0;
+	}
+	out.append(backslashes * 2, '\\');
+	out.push_back('"');
+	return out;
+}
+
+static bool read_ffmpeg_line(ffmpeg_process_t* proc, char* buf, size_t size)
+{
+	if (proc == NULL || proc->read_pipe == NULL || buf == NULL || size == 0) {
+		return false;
+	}
+
+	while (true) {
+		size_t pos = proc->pending.find('\n');
+		if (pos != std::string::npos) {
+			std::string line = proc->pending.substr(0, pos);
+			proc->pending.erase(0, pos + 1);
+			if (!line.empty() && line[line.size() - 1] == '\r') {
+				line.erase(line.size() - 1);
+			}
+			const size_t n = line.size() < size - 1 ? line.size() : size - 1;
+			memcpy(buf, line.data(), n);
+			buf[n] = '\0';
+			return true;
+		}
+
+		char tmp[4096];
+		DWORD n = 0;
+		if (!ReadFile(proc->read_pipe, tmp, sizeof(tmp), &n, NULL) || n == 0) {
+			if (!proc->pending.empty()) {
+				std::string line;
+				line.swap(proc->pending);
+				if (!line.empty() && line[line.size() - 1] == '\r') {
+					line.erase(line.size() - 1);
+				}
+				const size_t len = line.size() < size - 1 ? line.size() : size - 1;
+				memcpy(buf, line.data(), len);
+				buf[len] = '\0';
+				return true;
+			}
+			return false;
+		}
+		proc->pending.append(tmp, tmp + n);
+	}
+}
+#endif
+
 static int wait_transcode_progress(const std::shared_ptr<transcode_task_t>& task,
-	ACL_VSTREAM* stream, long long duration_ms,
+	ffmpeg_process_t* proc, long long duration_ms,
 	double start_percent, double progress_span,
 	const char* progress_msg, double end_percent,
 	const char* end_msg)
 {
-	set_task_process_pid(task, (long) stream->pid);
+#ifdef _WIN32
+	set_task_process_pid(task, proc ? (long) proc->pid : -1);
+#else
+	set_task_process_pid(task, proc && proc->stream ? (long) proc->stream->pid : -1);
+#endif
 	update_task_progress(task, start_percent, progress_msg);
 
 	char buf[4096];
+#ifdef _WIN32
+	while (read_ffmpeg_line(proc, buf, sizeof(buf))) {
+#else
 	int ret;
-	while ((ret = acl_vstream_gets_nonl(stream, buf, sizeof(buf) - 1)) != ACL_VSTREAM_EOF) {
+	while ((ret = acl_vstream_gets_nonl(proc->stream, buf, sizeof(buf) - 1)) != ACL_VSTREAM_EOF) {
 		buf[ret] = '\0';
+#endif
 		std::string line(buf);
 		long long current_ms = parse_progress_ms_line(line);
 		if (current_ms >= 0 && duration_ms > 0) {
@@ -679,21 +780,114 @@ static int wait_transcode_progress(const std::shared_ptr<transcode_task_t>& task
 			update_task_progress(task, end_percent, end_msg);
 		}
 
-		if (is_task_cancel_requested(task) && stream->pid > 0) {
-			kill((pid_t) stream->pid, SIGTERM);
+		if (is_task_cancel_requested(task)) {
+#ifdef _WIN32
+			if (proc != NULL && proc->process != NULL) {
+				TerminateProcess(proc->process, 1);
+			}
+#else
+			if (proc->stream->pid > 0) {
+				kill((pid_t) proc->stream->pid, SIGTERM);
+			}
+#endif
 		}
 	}
 
-	return acl_vstream_pclose(stream);
+#ifdef _WIN32
+	DWORD exit_code = 1;
+	if (proc != NULL && proc->process != NULL) {
+		WaitForSingleObject(proc->process, INFINITE);
+		GetExitCodeProcess(proc->process, &exit_code);
+	}
+	if (proc != NULL) {
+		if (proc->read_pipe != NULL) {
+			CloseHandle(proc->read_pipe);
+		}
+		if (proc->thread != NULL) {
+			CloseHandle(proc->thread);
+		}
+		if (proc->process != NULL) {
+			CloseHandle(proc->process);
+		}
+		delete proc;
+	}
+	return (int) exit_code;
+#else
+	int code = acl_vstream_pclose(proc->stream);
+	delete proc;
+	return code;
+#endif
 }
 
-static ACL_VSTREAM* start_ffmpeg_process(ACL_ARGV* args)
+static ffmpeg_process_t* start_ffmpeg_process(ACL_ARGV* args)
 {
+#ifdef _WIN32
+	SECURITY_ATTRIBUTES sa;
+	memset(&sa, 0, sizeof(sa));
+	sa.nLength = sizeof(sa);
+	sa.bInheritHandle = TRUE;
+
+	HANDLE read_pipe = NULL;
+	HANDLE write_pipe = NULL;
+	if (!CreatePipe(&read_pipe, &write_pipe, &sa, 0)) {
+		acl_argv_free(args);
+		return NULL;
+	}
+	SetHandleInformation(read_pipe, HANDLE_FLAG_INHERIT, 0);
+
+	std::string command;
+	for (int i = 0; args->argv[i] != NULL; ++i) {
+		if (!command.empty()) {
+			command.push_back(' ');
+		}
+		command += quote_windows_arg(args->argv[i]);
+	}
+
+	std::wstring wcmd;
+	if (!webcool_utf8_to_wide(command.c_str(), wcmd)) {
+		CloseHandle(read_pipe);
+		CloseHandle(write_pipe);
+		acl_argv_free(args);
+		return NULL;
+	}
+
+	STARTUPINFOW si;
+	PROCESS_INFORMATION pi;
+	memset(&si, 0, sizeof(si));
+	memset(&pi, 0, sizeof(pi));
+	si.cb = sizeof(si);
+	si.dwFlags = STARTF_USESTDHANDLES;
+	si.hStdOutput = write_pipe;
+	si.hStdError = write_pipe;
+	si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+
+	BOOL ok = CreateProcessW(NULL, &wcmd[0], NULL, NULL, TRUE,
+		CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+	CloseHandle(write_pipe);
+	acl_argv_free(args);
+	if (!ok) {
+		CloseHandle(read_pipe);
+		return NULL;
+	}
+
+	ffmpeg_process_t* proc = new ffmpeg_process_t;
+	proc->process = pi.hProcess;
+	proc->thread = pi.hThread;
+	proc->read_pipe = read_pipe;
+	proc->pid = pi.dwProcessId;
+	return proc;
+#else
 	ACL_VSTREAM* stream = acl_vstream_popen(O_RDWR,
 		ACL_VSTREAM_POPEN_ARGV, args->argv,
 		ACL_VSTREAM_POPEN_END);
 	acl_argv_free(args);
-	return stream;
+	if (stream == NULL) {
+		return NULL;
+	}
+	ffmpeg_process_t* proc = new ffmpeg_process_t;
+	proc->stream = stream;
+	return proc;
+#endif
 }
 
 static void run_audio_only_transcode_task(const std::shared_ptr<transcode_task_t>& task,
@@ -727,7 +921,7 @@ static void run_audio_only_transcode_task(const std::shared_ptr<transcode_task_t
 		tmp_file.c_str(),
 		NULL);
 
-	ACL_VSTREAM* stream = start_ffmpeg_process(args);
+	ffmpeg_process_t* stream = start_ffmpeg_process(args);
 
 	if (stream == NULL) {
 		::unlink(tmp_file.c_str());
@@ -812,7 +1006,7 @@ static void run_audio_split_transcode_task(const std::shared_ptr<transcode_task_
 		audio_tmp_file.c_str(),
 		NULL);
 
-	ACL_VSTREAM* stream = start_ffmpeg_process(args);
+	ffmpeg_process_t* stream = start_ffmpeg_process(args);
 
 	if (stream == NULL) {
 		::unlink(tmp_file.c_str());
@@ -938,7 +1132,7 @@ static void run_video_transcode_task(const std::shared_ptr<transcode_task_t>& ta
 		tmp_file.c_str(),
 		NULL);
 
-	ACL_VSTREAM* stream = start_ffmpeg_process(args);
+	ffmpeg_process_t* stream = start_ffmpeg_process(args);
 
 	if (stream == NULL) {
 		::unlink(tmp_file.c_str());
