@@ -2899,7 +2899,25 @@
       gap: 10px;
     }
 
+    .preview-video-audio-warning {
+      flex: 0 0 auto;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 10px;
+      background: #fff7e8;
+      border: 1px solid #e3c89d;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #8a5a00;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      text-align: left;
+    }
+
     .floating-preview.is-maximized .preview-body.preview-body-video {
+      flex-direction: column;
+      align-items: stretch;
       justify-content: flex-start;
       overflow: hidden;
     }
@@ -2912,7 +2930,12 @@
     .floating-preview.is-maximized .preview-body.preview-body-video .preview-video-stack {
       flex: 1 1 auto;
       min-height: 0;
-      gap: 0;
+      gap: 8px;
+    }
+
+    .floating-preview.is-maximized .preview-body.preview-body-video > .preview-video-audio-warning {
+      flex: 0 0 auto;
+      margin-top: 8px;
     }
 
     .floating-preview.is-maximized .preview-body.preview-body-video .preview-video {

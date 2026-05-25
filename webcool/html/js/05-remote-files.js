@@ -317,12 +317,16 @@ function folderNameFromPath(path) {
               if (probeResult && probeResult.has_audio && probeResult.browser_audio_supported === false) {
                 message = '此视频音频编码为 ' + (probeResult.audio_codec || 'unknown') + '，浏览器通常不支持播放声音。';
               }
+              const existedWarning = win.querySelector('.preview-video-audio-warning');
+              if (existedWarning && existedWarning.parentNode) {
+                existedWarning.parentNode.removeChild(existedWarning);
+              }
               const warning = document.createElement('div');
-              warning.style.cssText = 'margin-top: 8px; padding: 8px 10px; background: #fff7e8; border: 1px solid #e3c89d; border-radius: 6px; font-size: 12px; color: #8a5a00; display: flex; align-items: flex-start; gap: 8px;';
+              warning.className = 'preview-video-audio-warning';
               warning.innerHTML = '<span style="flex-shrink: 0; font-weight: 700;">!</span><span>' + escapeHtml(message) + ' 请在页面提示中手动确认是否转码。</span>';
-              const body = win.querySelector('.preview-body');
-              if (body && body.querySelector('video')) {
-                body.insertBefore(warning, body.querySelector('video').nextSibling);
+              const videoStack = win.querySelector('.preview-video-stack');
+              if (videoStack) {
+                videoStack.appendChild(warning);
               }
             }
           });

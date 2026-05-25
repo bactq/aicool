@@ -28,6 +28,25 @@ static const char* g_video_resume_create_table_sql =
 	")";
 static const char* g_local_resume_prefix = "local:";
 
+static bool is_absolute_local_resume_path(const char* path)
+{
+	if (path == NULL || *path == '\0') {
+		return false;
+	}
+#ifdef _WIN32
+	return (strlen(path) >= 3
+			&& ((path[0] >= 'A' && path[0] <= 'Z')
+				|| (path[0] >= 'a' && path[0] <= 'z'))
+			&& path[1] == ':'
+			&& (path[2] == '/' || path[2] == '\\'))
+		|| (strlen(path) >= 2
+			&& (path[0] == '/' || path[0] == '\\')
+			&& (path[1] == '/' || path[1] == '\\'));
+#else
+	return path[0] == '/';
+#endif
+}
+
 static bool normalize_video_resume_file_key(const char* file,
 	std::string& key, std::string& err)
 {
@@ -40,7 +59,7 @@ static bool normalize_video_resume_file_key(const char* file,
 	const size_t prefix_len = strlen(g_local_resume_prefix);
 	if (strncmp(file, g_local_resume_prefix, prefix_len) == 0) {
 		const char* local_path = file + prefix_len;
-		if (*local_path != '/') {
+		if (!is_absolute_local_resume_path(local_path)) {
 			err = "absolute local path is required";
 			return false;
 		}

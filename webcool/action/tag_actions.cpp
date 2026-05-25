@@ -1236,10 +1236,8 @@ bool TagBindAction::run(request_t& req, response_t& res,
 		}
 
 		acl::query query;
-		query.create("INSERT INTO file_tag_rel(tag_id, file_name, updated_at)"
-			" VALUES(:tag_id, :file_name, strftime('%s','now'))"
-			" ON CONFLICT(tag_id, file_name) DO UPDATE SET"
-			" updated_at=excluded.updated_at")
+		query.create("INSERT OR REPLACE INTO file_tag_rel(tag_id, file_name, updated_at)"
+			" VALUES(:tag_id, :file_name, strftime('%s','now'))")
 			.set_parameter("tag_id", tag_id.c_str())
 			.set_parameter("file_name", stored_file_name.c_str());
 		if (!db.exec_update(query)) {
@@ -1523,12 +1521,7 @@ bool TagFilesAction::run(request_t& req, response_t& res,
 			continue;
 		}
 
-		long long fsize = -1;
-		acl::ifstream in;
-		if (in.open_read(full.c_str())) {
-			fsize = in.fsize();
-			in.close();
-		}
+		long long fsize = regular_file_size(full);
 
 		char uploaded_time[32];
 		uploaded_time[0] = '\0';
