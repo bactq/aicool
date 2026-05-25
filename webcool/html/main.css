@@ -213,6 +213,9 @@
     .tag-dialog-card {
       position: relative;
       width: min(420px, calc(100vw - 40px));
+      min-width: 0;
+      max-height: calc(100vh - 40px);
+      overflow: auto;
       border: 1px solid #d7e5f3;
       border-radius: 16px;
       background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(245,250,255,.95));
@@ -227,12 +230,14 @@
     .tag-dialog-form {
       display: grid;
       gap: 12px;
+      min-width: 0;
     }
 
     .tag-dialog-head h2 {
       margin: 0;
       font-size: 20px;
       color: #27476b;
+      overflow-wrap: anywhere;
     }
 
     .tag-dialog-head-with-actions {
@@ -252,6 +257,8 @@
       font-size: 13px;
       color: #647a94;
       line-height: 1.5;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     .tag-dialog-window-actions {
@@ -306,7 +313,7 @@
     }
 
     .lock-dialog-card {
-      width: min(440px, calc(100vw - 40px));
+      width: min(560px, calc(100vw - 40px));
     }
 
     .lock-dialog-error {

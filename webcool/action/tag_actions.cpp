@@ -116,10 +116,26 @@ static bool normalize_existing_local_file_path(const char* input,
 		err = "missing local file";
 		return false;
 	}
+#ifdef _WIN32
+	const size_t len = strlen(input);
+	const bool absolute = (len >= 3
+			&& ((input[0] >= 'A' && input[0] <= 'Z')
+				|| (input[0] >= 'a' && input[0] <= 'z'))
+			&& input[1] == ':'
+			&& (input[2] == '/' || input[2] == '\\'))
+		|| (len >= 2
+			&& (input[0] == '/' || input[0] == '\\')
+			&& (input[1] == '/' || input[1] == '\\'));
+	if (!absolute) {
+		err = "absolute path is required";
+		return false;
+	}
+#else
 	if (input[0] != '/') {
 		err = "absolute path is required";
 		return false;
 	}
+#endif
 	char resolved[PATH_MAX];
 	if (realpath(input, resolved) == NULL) {
 		err = strerror(errno);
@@ -136,7 +152,7 @@ static bool normalize_existing_local_file_path(const char* input,
 
 static std::string local_parent_path(const std::string& path)
 {
-	std::string::size_type pos = path.rfind('/');
+	std::string::size_type pos = path.find_last_of("/\\");
 	if (pos == std::string::npos || pos == 0) {
 		return "/";
 	}

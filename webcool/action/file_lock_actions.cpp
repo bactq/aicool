@@ -132,10 +132,26 @@ static bool normalize_local_path_for_lock(const char* input, bool directory,
 		err = "missing local file path";
 		return false;
 	}
+#ifdef _WIN32
+	const size_t len = strlen(input);
+	const bool absolute = (len >= 3
+			&& ((input[0] >= 'A' && input[0] <= 'Z')
+				|| (input[0] >= 'a' && input[0] <= 'z'))
+			&& input[1] == ':'
+			&& (input[2] == '/' || input[2] == '\\'))
+		|| (len >= 2
+			&& (input[0] == '/' || input[0] == '\\')
+			&& (input[1] == '/' || input[1] == '\\'));
+	if (!absolute) {
+		err = "absolute path is required";
+		return false;
+	}
+#else
 	if (*input != '/') {
 		err = "absolute path is required";
 		return false;
 	}
+#endif
 	char resolved[PATH_MAX];
 	if (realpath(input, resolved) == NULL) {
 		err = strerror(errno);
@@ -181,7 +197,7 @@ static bool is_same_or_child_path(const std::string& base,
 	}
 	return path.size() > base.size()
 		&& path.compare(0, base.size(), base) == 0
-		&& path[base.size()] == '/';
+		&& (path[base.size()] == '/' || path[base.size()] == '\\');
 }
 
 static bool request_file_lock_key(request_t& req, const std::string& upload_dir,
