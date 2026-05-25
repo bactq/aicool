@@ -157,6 +157,74 @@ static std::string current_home_path() {
 	return resolved;
 }
 
+#ifdef _WIN32
+static bool is_windows_virtual_root_request(const char* input)
+{
+	return input != NULL && strcmp(input, "/") == 0;
+}
+
+static bool is_windows_drive_root_path(const std::string& path)
+{
+	std::string text = path;
+	for (size_t i = 0; i < text.size(); ++i) {
+		if (text[i] == '\\') {
+			text[i] = '/';
+		}
+	}
+	while (text.size() > 3 && text[text.size() - 1] == '/') {
+		text.erase(text.size() - 1);
+	}
+	return text.size() >= 2 && text.size() <= 3
+		&& ((text[0] >= 'A' && text[0] <= 'Z')
+			|| (text[0] >= 'a' && text[0] <= 'z'))
+		&& text[1] == ':';
+}
+
+static void collect_windows_drive_entries(std::vector<local_entry_t>& entries)
+{
+	DWORD len = GetLogicalDriveStringsW(0, NULL);
+	if (len == 0) {
+		return;
+	}
+
+	std::vector<wchar_t> buffer((size_t) len + 1, L'\0');
+	DWORD written = GetLogicalDriveStringsW(len + 1, &buffer[0]);
+	if (written == 0 || written > len) {
+		return;
+	}
+
+	for (const wchar_t* drive = &buffer[0]; *drive != L'\0';
+		drive += lstrlenW(drive) + 1)
+	{
+		const UINT type = GetDriveTypeW(drive);
+		if (type == DRIVE_NO_ROOT_DIR) {
+			continue;
+		}
+		std::string drive_path;
+		if (!webcool_wide_to_utf8(drive, drive_path) || drive_path.empty()) {
+			continue;
+		}
+
+		local_entry_t item;
+		item.name = drive_path;
+		item.path = drive_path;
+		item.directory = true;
+		item.empty_directory = false;
+		item.size = 0;
+		item.created_at = 0;
+		item.created_time = "";
+		item.modified_at = 0;
+		item.modified_time = "";
+		entries.push_back(item);
+	}
+
+	std::sort(entries.begin(), entries.end(),
+		[](const local_entry_t& a, const local_entry_t& b) {
+			return a.path < b.path;
+		});
+}
+#endif
+
 static std::string parent_path(const std::string& path) {
 #ifdef _WIN32
 	if (path.empty()) {
@@ -171,8 +239,8 @@ static std::string parent_path(const std::string& path) {
 	while (text.size() > 3 && text[text.size() - 1] == '/') {
 		text.erase(text.size() - 1);
 	}
-	if (text.size() <= 3 && text.size() >= 2 && text[1] == ':') {
-		return text.substr(0, 3);
+	if (is_windows_drive_root_path(text)) {
+		return "/";
 	}
 	if (text.size() >= 2 && text[0] == '/' && text[1] == '/') {
 		std::string::size_type server_end = text.find('/', 2);
@@ -1363,100 +1431,112 @@ bool LocalDiskListAction::run(request_t& req, response_t& res,
 {
 	std::string path;
 	std::string err;
-	if (!normalize_local_path(req.getParameter("path"), path, err)) {
-		json_error(res, 400, err.c_str(), req.isKeepAlive());
-		return true;
-	}
-
-	struct stat st;
-	if (stat(path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
-		json_error(res, 404, "directory not found", req.isKeepAlive());
-		return true;
-	}
-	if (!ensure_local_dir_unlocked_for_request(upload_dir, req, res, path,
-		"directory is locked"))
+	std::vector<local_entry_t> entries;
+	bool virtual_root = false;
+#ifdef _WIN32
+	if (is_windows_virtual_root_request(req.getParameter("path"))) {
+		path = "/";
+		virtual_root = true;
+		collect_windows_drive_entries(entries);
+	} else
+#endif
 	{
-		return true;
-	}
-
-	DIR* dir = opendir(path.c_str());
-	if (dir == NULL) {
-#ifdef __APPLE__
-		if ((errno == EPERM || errno == EACCES)
-			&& is_current_trash_files_path(path))
-		{
-			json_error(res, 403,
-				"macOS blocked access to Trash. Please grant Full Disk Access to the program or terminal that starts webcool, then restart webcool.",
-				req.isKeepAlive());
+		if (!normalize_local_path(req.getParameter("path"), path, err)) {
+			json_error(res, 400, err.c_str(), req.isKeepAlive());
 			return true;
 		}
-#endif
-		json_error(res, 403, strerror(errno), req.isKeepAlive());
-		return true;
-	}
 
-	std::vector<local_entry_t> entries;
-	const char* show_hidden_text = req.getParameter("show_hidden");
-	const bool show_hidden = show_hidden_text != NULL
-		&& (strcmp(show_hidden_text, "1") == 0
-			|| strcasecmp(show_hidden_text, "true") == 0
-			|| strcasecmp(show_hidden_text, "yes") == 0);
-	struct dirent* entry = NULL;
-	while ((entry = readdir(dir)) != NULL) {
-		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-			continue;
+		struct stat st;
+		if (stat(path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
+			json_error(res, 404, "directory not found", req.isKeepAlive());
+			return true;
 		}
-		if (!show_hidden && entry->d_name[0] == '.') {
-			continue;
-		}
-		const std::string child_path = join_local_path(path, entry->d_name);
-		struct stat child_st;
-		if (stat(child_path.c_str(), &child_st) != 0) {
-			continue;
-		}
-		if (!S_ISDIR(child_st.st_mode) && !S_ISREG(child_st.st_mode)) {
-			continue;
+		if (!ensure_local_dir_unlocked_for_request(upload_dir, req, res, path,
+			"directory is locked"))
+		{
+			return true;
 		}
 
-		char modified_buf[32];
-		format_time(child_st.st_mtime, modified_buf, sizeof(modified_buf));
+		DIR* dir = opendir(path.c_str());
+		if (dir == NULL) {
 #ifdef __APPLE__
-		const time_t created_ts = child_st.st_birthtimespec.tv_sec > 0
-			? child_st.st_birthtimespec.tv_sec
-			: child_st.st_ctime;
-#else
-		const time_t created_ts = child_st.st_ctime;
-#endif
-		char created_buf[32];
-		format_time(created_ts, created_buf, sizeof(created_buf));
-		local_entry_t item;
-		item.name = entry->d_name;
-		item.path = child_path;
-		item.directory = S_ISDIR(child_st.st_mode);
-		item.empty_directory = item.directory && directory_is_empty(child_path);
-		item.size = item.directory ? 0 : regular_file_size(child_path);
-		item.created_at = (long long) created_ts;
-		item.created_time = created_buf;
-		item.modified_at = (long long) child_st.st_mtime;
-		item.modified_time = modified_buf;
-		entries.push_back(item);
-	}
-	closedir(dir);
-
-	std::sort(entries.begin(), entries.end(),
-		[](const local_entry_t& a, const local_entry_t& b) {
-			if (a.directory != b.directory) {
-				return a.directory > b.directory;
+			if ((errno == EPERM || errno == EACCES)
+				&& is_current_trash_files_path(path))
+			{
+				json_error(res, 403,
+					"macOS blocked access to Trash. Please grant Full Disk Access to the program or terminal that starts webcool, then restart webcool.",
+					req.isKeepAlive());
+				return true;
 			}
-			return a.name < b.name;
-		});
+#endif
+			json_error(res, 403, strerror(errno), req.isKeepAlive());
+			return true;
+		}
+
+		const char* show_hidden_text = req.getParameter("show_hidden");
+		const bool show_hidden = show_hidden_text != NULL
+			&& (strcmp(show_hidden_text, "1") == 0
+				|| strcasecmp(show_hidden_text, "true") == 0
+				|| strcasecmp(show_hidden_text, "yes") == 0);
+		struct dirent* entry = NULL;
+		while ((entry = readdir(dir)) != NULL) {
+			if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+				continue;
+			}
+			if (!show_hidden && entry->d_name[0] == '.') {
+				continue;
+			}
+			const std::string child_path = join_local_path(path, entry->d_name);
+			struct stat child_st;
+			if (stat(child_path.c_str(), &child_st) != 0) {
+				continue;
+			}
+			if (!S_ISDIR(child_st.st_mode) && !S_ISREG(child_st.st_mode)) {
+				continue;
+			}
+
+			char modified_buf[32];
+			format_time(child_st.st_mtime, modified_buf, sizeof(modified_buf));
+#ifdef __APPLE__
+			const time_t created_ts = child_st.st_birthtimespec.tv_sec > 0
+				? child_st.st_birthtimespec.tv_sec
+				: child_st.st_ctime;
+#else
+			const time_t created_ts = child_st.st_ctime;
+#endif
+			char created_buf[32];
+			format_time(created_ts, created_buf, sizeof(created_buf));
+			local_entry_t item;
+			item.name = entry->d_name;
+			item.path = child_path;
+			item.directory = S_ISDIR(child_st.st_mode);
+			item.empty_directory = item.directory && directory_is_empty(child_path);
+			item.size = item.directory ? 0 : regular_file_size(child_path);
+			item.created_at = (long long) created_ts;
+			item.created_time = created_buf;
+			item.modified_at = (long long) child_st.st_mtime;
+			item.modified_time = modified_buf;
+			entries.push_back(item);
+		}
+		closedir(dir);
+
+		std::sort(entries.begin(), entries.end(),
+			[](const local_entry_t& a, const local_entry_t& b) {
+				if (a.directory != b.directory) {
+					return a.directory > b.directory;
+				}
+				return a.name < b.name;
+			});
+	}
 
 	acl::json json;
 	acl::json_node& root = json.create_node();
 	root.add_bool("ok", true);
 	root.add_text("path", path.c_str());
-	root.add_text("parent_path", parent_path(path).c_str());
+	const std::string parent = virtual_root ? "/" : parent_path(path);
+	root.add_text("parent_path", parent.c_str());
 	root.add_text("home_path", current_home_path().c_str());
+	root.add_bool("virtual_root", virtual_root);
 	std::string trash_path;
 	if (current_trash_files_path(trash_path, err)) {
 		root.add_text("trash_path", trash_path.c_str());
@@ -1469,7 +1549,7 @@ bool LocalDiskListAction::run(request_t& req, response_t& res,
 		item.add_text("path", entries[i].path.c_str());
 		item.add_bool("directory", entries[i].directory);
 		item.add_bool("empty_directory", entries[i].empty_directory);
-		if (entries[i].directory) {
+		if (entries[i].directory && !virtual_root) {
 			bool locked = false;
 			std::string lock_err;
 			if (local_dir_lock_path_has_lock(upload_dir, entries[i].path, locked, lock_err)) {

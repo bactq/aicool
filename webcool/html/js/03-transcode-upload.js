@@ -199,8 +199,9 @@ function appendFilePassword(url, path, local) {
           const name = localDiskDisplayName(path, item && item.name);
           const encodedPath = encodeURIComponent(path);
           const isDir = !!(item && item.directory);
+          const isDriveRoot = /^[A-Za-z]:[\/\\]?$/.test(path);
           const dirLocked = isDir && !!(item && item.locked);
-          const dirLockIcon = isDir ? localDirLockIconHtml(path, dirLocked) : '';
+          const dirLockIcon = isDir && !isDriveRoot ? localDirLockIconHtml(path, dirLocked) : '';
           const fileLocked = !isDir && !!(item && item.locked);
           const lockIcon = fileLocked
             ? '<span class="folder-lock-icon file-lock-inline' + (getFilePassword(path, true) ? ' unlocked' : '') + '" title="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '" aria-label="' + (getFilePassword(path, true) ? '点击重新加锁' : '点击解锁') + '"><span class="folder-lock-shackle"></span><span class="folder-lock-body"></span></span>'
@@ -208,7 +209,7 @@ function appendFilePassword(url, path, local) {
           const checked = selectedLocalDiskPaths.has(path) ? ' checked' : '';
           const selectedClass = selectedLocalDiskPaths.has(path) ? ' selected-file-row' : '';
           const selectBox = isDir
-            ? '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '></span>'
+            ? (isDriveRoot ? '<span class="file-select-tools"><span class="local-disk-select-placeholder"></span></span>' : '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '></span>')
             : '<span class="file-select-tools"><input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '><button class="file-tag-quick-btn local-file-tag-btn" type="button" data-local-tag-file="' + encodedPath + '" title="' + escapeHtml(t('加入标签')) + '" aria-label="' + escapeHtml(t('加入标签')) + '">🏷</button></span>';
           const renameInput = !isDir && activeLocalDiskRenamePath === path
             ? '<input class="file-rename-input local-disk-rename-input" type="text" value="' + escapeHtml(name) + '" data-local-disk-rename-path="' + encodedPath + '" aria-label="' + escapeHtml(t('改名文件')) + '">'
@@ -233,12 +234,12 @@ function appendFilePassword(url, path, local) {
             ? '<button class="local-preview-btn preview-btn" data-kind="pdf" data-local-file="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">预览</button>'
             : '';
           const deleteBtn = isDir
-            ? (item.empty_directory
+            ? (!isDriveRoot && item.empty_directory
               ? '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '">删除</button>'
               : '')
             : '<button class="local-delete-btn delete-btn" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(path) + '" title="移至回收站" aria-label="移至回收站">移除</button>';
           return (
-            '<tr class="' + selectedClass.trim() + '"' + (!isDir ? (' data-local-file-context="' + encodedPath + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (isVideoName(name) ? '1' : '0') + '"') : (' data-local-dir-context="' + encodedPath + '" data-local-dir-locked="' + (dirLocked ? '1' : '0') + '"')) + '>' +
+            '<tr class="' + selectedClass.trim() + '"' + (!isDir ? (' data-local-file-context="' + encodedPath + '" data-file-locked="' + (fileLocked ? '1' : '0') + '" data-file-video="' + (isVideoName(name) ? '1' : '0') + '"') : (isDriveRoot ? '' : (' data-local-dir-context="' + encodedPath + '" data-local-dir-locked="' + (dirLocked ? '1' : '0') + '"'))) + '>' +
               '<td>' + displayName + '</td>' +
               '<td>' + (isDir ? '文件夹' : '文件') + '</td>' +
               '<td>' + (isDir ? '-' : (formatNumber(Number(item.size || 0)) + ' 字节')) + '</td>' +

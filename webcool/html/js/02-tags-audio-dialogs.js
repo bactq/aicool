@@ -439,7 +439,7 @@ function getLocalDirPassword(path) {
           return '/';
         }
         if (/^[A-Za-z]:$/.test(text)) {
-          return text + '\\';
+          return '/';
         }
         const pos = Math.max(text.lastIndexOf('/'), text.lastIndexOf('\\'));
         if (pos <= 0) {

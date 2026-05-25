@@ -1293,17 +1293,23 @@ function loadUnlockedFolderPasswords() {
         const isExpanded = expandedLocalDiskTreePaths.has(textPath);
         const hasCache = localDiskTreeCache.has(textPath);
         const dirs = localDiskTreeCache.get(textPath) || [];
-        const canMove = level > 0;
+        const isVirtualRoot = textPath === '/';
+        const isDriveRoot = /^[A-Za-z]:[\/\\]?$/.test(textPath);
+        const canMove = level > 0 && !isVirtualRoot && !isDriveRoot;
         const dirLocked = !!(itemMeta && itemMeta.locked);
-        const dirLockIcon = localDirLockIconHtml(textPath, dirLocked);
-        const createBtn = '<button type="button" class="local-mkdir-btn local-disk-dir-create-inline" data-local-mkdir="' + encodedPath + '" data-local-name="' + escapeHtml(textPath) + '" title="新建子目录" aria-label="新建子目录">+</button>';
-        const deleteBtn = level > 0 && itemMeta && itemMeta.empty_directory
+        const canLockDir = !isVirtualRoot && !isDriveRoot;
+        const dirLockIcon = canLockDir ? localDirLockIconHtml(textPath, dirLocked) : '';
+        const createBtn = isVirtualRoot ? '' : '<button type="button" class="local-mkdir-btn local-disk-dir-create-inline" data-local-mkdir="' + encodedPath + '" data-local-name="' + escapeHtml(textPath) + '" title="新建子目录" aria-label="新建子目录">+</button>';
+        const deleteBtn = level > 0 && !isDriveRoot && itemMeta && itemMeta.empty_directory
           ? '<button type="button" class="local-delete-btn local-disk-dir-delete-inline" data-local-delete="' + encodedPath + '" data-local-name="' + escapeHtml(textPath) + '" title="删除空目录" aria-label="删除空目录">-</button>'
           : '';
         const selectBox = canMove
           ? '<input class="local-disk-select" type="checkbox" data-local-select="' + encodedPath + '" aria-label="' + escapeHtml(t('选择 ') + name) + '"' + checked + '>'
           : '<span class="local-disk-select-placeholder"></span>';
-        let html = '<div class="local-disk-tree-row local-disk-dir-item' + (canMove ? ' local-disk-draggable' : '') + (isActive ? ' active' : '') + '" ' + (canMove ? 'draggable="true" data-local-drag="' + encodedPath + '" ' : '') + 'data-local-drop-target="' + encodedPath + '" data-local-dir-context="' + encodedPath + '" data-local-dir-locked="' + (dirLocked ? '1' : '0') + '" style="--tree-level:' + level + '">' +
+        const dirContextAttrs = canLockDir
+          ? ' data-local-dir-context="' + encodedPath + '" data-local-dir-locked="' + (dirLocked ? '1' : '0') + '"'
+          : '';
+        let html = '<div class="local-disk-tree-row local-disk-dir-item' + (canMove ? ' local-disk-draggable' : '') + (isActive ? ' active' : '') + '" ' + (canMove ? 'draggable="true" data-local-drag="' + encodedPath + '" ' : '') + 'data-local-drop-target="' + encodedPath + '"' + dirContextAttrs + ' style="--tree-level:' + level + '">' +
           '<button type="button" class="local-disk-tree-caret" data-local-toggle="' + encodedPath + '" title="展开或收起目录" aria-label="展开或收起目录">' + (isExpanded && dirs.length ? '▾' : (hasCache && !dirs.length ? '' : '▸')) + '</button>' +
           selectBox +
           '<button type="button" class="local-disk-dir-link" data-local-folder="' + encodedPath + '" title="' + escapeHtml(textPath) + '">' +
