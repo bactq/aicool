@@ -34,7 +34,12 @@ public:
 // ────────────────────────────────────────────────────────────────
 static size_t                g_stack_size    = 128000;
 static int                   g_rw_timeout    = 0;
+#ifdef _WIN32
+static acl::fiber_event_t    g_event_type    = acl::FIBER_EVENT_T_POLL;
+#else
 static acl::fiber_event_t    g_event_type    = acl::FIBER_EVENT_T_KERNEL;
+#endif
+
 static char                  g_upload_dir[256] = "./uploads";
 static char                  g_html_home[512] = "./html";
 static char                  g_sqlite_lib[512] = "";
@@ -241,7 +246,11 @@ static void usage(const char* prog) {
 		"  -R              每线程独立监听 (SO_REUSEPORT)\n"
 		"  -r rw_timeout   读写超时秒数 (默认 0=无超时)\n"
 		"  -z stack_size   协程栈大小 (默认 128000)\n"
+#ifdef _WIN32
+		"  -e event_type   事件引擎: kernel|poll|select (默认 poll)\n",
+#else
 		"  -e event_type   事件引擎: kernel|poll|select (默认 kernel)\n",
+#endif
 		prog);
 }
 
