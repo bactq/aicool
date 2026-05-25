@@ -1623,8 +1623,10 @@ bool LocalDiskDownloadAction::run(request_t& req, response_t& res,
 		fclose(in);
 		return sendText(res, 409, "file is empty\n", req.isKeepAlive());
 	}
-	const std::string name = path.substr(path.rfind('/') == std::string::npos ? 0 : path.rfind('/') + 1);
+	const std::string name = local_base_name(path);
 	const char* ctype = content_type_for_file(name);
+	acl::string dispo;
+	dispo.format("inline; filename=\"%s\"", name.c_str());
 	const char* range = req.getHeader("Range");
 	long long range_begin = 0;
 	long long range_end = 0;
@@ -1662,7 +1664,7 @@ bool LocalDiskDownloadAction::run(request_t& req, response_t& res,
 		res.setStatus(206)
 			.setKeepAlive(req.isKeepAlive())
 			.setContentType(ctype)
-			.setHeader("Content-Disposition", "inline")
+			.setHeader("Content-Disposition", dispo.c_str())
 			.setHeader("Accept-Ranges", "bytes")
 			.setHeader("Content-Range", content_range.c_str())
 			.setContentLength(send_size);
@@ -1670,10 +1672,13 @@ bool LocalDiskDownloadAction::run(request_t& req, response_t& res,
 		res.setStatus(200)
 			.setKeepAlive(req.isKeepAlive())
 			.setContentType(ctype)
-			.setHeader("Content-Disposition", "inline")
+			.setHeader("Content-Disposition", dispo.c_str())
 			.setHeader("Accept-Ranges", "bytes")
 			.setContentLength(fsize);
 	}
+
+	ctype = "application/octet-stream";
+	res.setContentType(ctype);
 
 	char buf[8192];
 	long long remain = send_size;
