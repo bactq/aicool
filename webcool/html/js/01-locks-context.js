@@ -614,8 +614,8 @@ function loadUnlockedFilePasswords() {
       }
 
       function buildLocalDiskFileRowHtml(item) {
-        const name = String((item && item.name) || '');
         const path = String((item && item.path) || '');
+        const name = localDiskDisplayName(path, item && item.name);
         const encodedPath = encodeURIComponent(path);
         const checked = selectedLocalDiskPaths.has(path) ? ' checked' : '';
         const selectedClass = selectedLocalDiskPaths.has(path) ? ' selected-file-row' : '';

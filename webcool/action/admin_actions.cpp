@@ -368,7 +368,7 @@ static bool collect_move_items(const std::string& source,
 			file_item.source = child_source;
 			file_item.target = child_target;
 			file_item.directory = false;
-			file_item.size = (long long) st.st_size;
+			file_item.size = regular_file_size(child_source);
 			items.push_back(file_item);
 		}
 	}

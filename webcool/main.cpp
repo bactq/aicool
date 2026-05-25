@@ -249,6 +249,35 @@ static void usage(const char* prog) {
 // main
 // ────────────────────────────────────────────────────────────────
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
+	SetConsoleCP(CP_UTF8);
+	SetConsoleOutputCP(CP_UTF8);
+
+	int utf8_argc = 0;
+	std::vector<std::string> utf8_args;
+	std::vector<char*> utf8_argv;
+	LPWSTR* wide_argv = CommandLineToArgvW(GetCommandLineW(), &utf8_argc);
+	if (wide_argv != NULL) {
+		utf8_args.reserve((size_t) utf8_argc);
+		utf8_argv.reserve((size_t) utf8_argc + 1);
+		for (int i = 0; i < utf8_argc; ++i) {
+			std::string text;
+			if (webcool_wide_to_utf8(wide_argv[i], text)) {
+				utf8_args.push_back(text);
+			} else {
+				utf8_args.push_back("");
+			}
+		}
+		LocalFree(wide_argv);
+		for (size_t i = 0; i < utf8_args.size(); ++i) {
+			utf8_argv.push_back(&utf8_args[i][0]);
+		}
+		utf8_argv.push_back(NULL);
+		argc = (int) utf8_args.size();
+		argv = utf8_argv.data();
+	}
+#endif
+
 	acl::string addr("0.0.0.0:8080");
 	int  nthreads    = 2;
 	bool reuse_port  = false;

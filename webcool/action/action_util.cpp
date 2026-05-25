@@ -10,6 +10,7 @@
 #include <errno.h>
 
 #include <cstdlib>
+#include <climits>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -122,7 +123,8 @@ static bool measure_copy_bytes(const std::string& path, const std::string& task_
 		return false;
 	}
 	if (S_ISREG(st.st_mode)) {
-		total += (long long) st.st_size;
+		long long size = regular_file_size(path);
+		total += size > 0 ? size : 0;
 		return true;
 	}
 	if (S_ISLNK(st.st_mode)) {
@@ -490,10 +492,17 @@ std::string choose_sqlite_lib_path() {
 	}
 
 	const std::vector<std::string> candidates = {
+#ifdef _WIN32
+		"sqlite.dll",
+		"sqlite3.dll",
+		"..\\tools\\windows\\sqlite.dll",
+		"tools\\windows\\sqlite.dll",
+#else
 		"/opt/webcool/lib/sqlite3.so",
 		"/usr/local/lib/sqlite3.so",
 		"../third-party/sqlite/lib/sqlite3.so",
 		"third-party/sqlite/lib/sqlite3.so",
+#endif
 	};
 
 	for (size_t i = 0; i < candidates.size(); ++i) {
@@ -557,7 +566,11 @@ bool make_dir(const char* path) {
 }
 
 bool make_dirs(const char* file, int line, const char* path) {
+#ifdef _WIN32
+	bool ret = webcool_make_dirs_utf8(path, 0755);
+#else
 	bool ret = acl_make_dirs(path, 0755) == 0;
+#endif
 #ifdef DEBUG
 	printf("%s(%d): path=%s, res=%s\r\n", file, line, path, ret ? "ok" : "error");
 #else
@@ -685,6 +698,110 @@ bool upload_directory_exists(const std::string& upload_dir,
 	struct stat st;
 	std::string full = join_upload_path(upload_dir, relative_path);
 	return stat(full.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+long long regular_file_size(const std::string& full_path)
+{
+#ifdef _WIN32
+	std::wstring wpath;
+	if (!webcool_utf8_to_wide(full_path.c_str(), wpath)) {
+		return -1;
+	}
+	WIN32_FILE_ATTRIBUTE_DATA data;
+	if (!GetFileAttributesExW(wpath.c_str(), GetFileExInfoStandard, &data)) {
+		return -1;
+	}
+	if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+		return -1;
+	}
+	ULARGE_INTEGER size;
+	size.HighPart = data.nFileSizeHigh;
+	size.LowPart = data.nFileSizeLow;
+	if (size.QuadPart > (ULONGLONG) LLONG_MAX) {
+		return -1;
+	}
+	return (long long) size.QuadPart;
+#else
+	struct stat st;
+	if (stat(full_path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+		return -1;
+	}
+	return (long long) st.st_size;
+#endif
+}
+
+#ifdef _WIN32
+static std::string utf8_bytes_as_ansi_mojibake(const std::string& text)
+{
+	if (text.empty()) {
+		return std::string();
+	}
+	const int wide_len = MultiByteToWideChar(CP_ACP, 0, text.c_str(),
+		(int) text.size(), NULL, 0);
+	if (wide_len <= 0) {
+		return std::string();
+	}
+	std::vector<wchar_t> wide((size_t) wide_len + 1);
+	if (MultiByteToWideChar(CP_ACP, 0, text.c_str(), (int) text.size(),
+		&wide[0], wide_len) <= 0) {
+		return std::string();
+	}
+	wide[(size_t) wide_len] = L'\0';
+	std::string out;
+	if (!webcool_wide_to_utf8(&wide[0], out)) {
+		return std::string();
+	}
+	return out;
+}
+#endif
+
+bool resolve_upload_regular_file_path(const std::string& upload_dir,
+	const std::string& requested_relative_path, std::string& resolved_relative_path)
+{
+	resolved_relative_path = requested_relative_path;
+	if (upload_regular_file_exists(upload_dir, requested_relative_path)) {
+		return true;
+	}
+
+	const std::string parent = parent_relative_path(requested_relative_path);
+	const std::string requested_base = base_name_from_relative_path(requested_relative_path);
+	if (requested_base.empty()) {
+		return false;
+	}
+
+	const std::string dir_path = join_upload_path(upload_dir, parent);
+	DIR* dir = opendir(dir_path.c_str());
+	if (dir == NULL) {
+		return false;
+	}
+
+	struct dirent* entry = NULL;
+	while ((entry = readdir(dir)) != NULL) {
+		const char* name = entry->d_name;
+		if (name == NULL || strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+			continue;
+		}
+		const std::string candidate = parent.empty()
+			? std::string(name) : (parent + "/" + name);
+		if (!upload_regular_file_exists(upload_dir, candidate)) {
+			continue;
+		}
+		if (requested_base == name) {
+			resolved_relative_path = candidate;
+			closedir(dir);
+			return true;
+		}
+#ifdef _WIN32
+		if (requested_base == utf8_bytes_as_ansi_mojibake(name)) {
+			resolved_relative_path = candidate;
+			closedir(dir);
+			return true;
+		}
+#endif
+	}
+
+	closedir(dir);
+	return false;
 }
 
 const char* recycle_folder_name() {

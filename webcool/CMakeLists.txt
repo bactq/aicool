@@ -49,7 +49,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
 endif()
 
 if(MSVC)
-	target_compile_options(webcool PRIVATE /W3 /MP)
+	target_compile_options(webcool PRIVATE /W3 /MP /utf-8)
 else()
 	target_compile_options(webcool PRIVATE
 		-g -W -Wall -Wcast-qual -Wcast-align -Wno-long-long

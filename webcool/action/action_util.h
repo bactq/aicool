@@ -34,6 +34,11 @@ bool upload_regular_file_exists(const std::string& upload_dir,
 bool upload_directory_exists(const std::string& upload_dir,
 	const std::string& relative_path);
 
+bool resolve_upload_regular_file_path(const std::string& upload_dir,
+	const std::string& requested_relative_path, std::string& resolved_relative_path);
+
+long long regular_file_size(const std::string& full_path);
+
 const char* recycle_folder_name();
 
 bool is_recycle_root_path(const std::string& relative_path);

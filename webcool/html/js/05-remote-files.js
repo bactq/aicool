@@ -1283,7 +1283,7 @@ function loadUnlockedFolderPasswords() {
       function renderLocalDiskTreeNode(path, level, itemMeta) {
         const textPath = String(path || '/');
         const encodedPath = encodeURIComponent(textPath);
-        const name = localDiskBaseName(textPath);
+        const name = localDiskDisplayName(textPath, itemMeta && itemMeta.name);
         const checked = selectedLocalDiskPaths.has(textPath) ? ' checked' : '';
         const isActive = textPath === activeLocalDiskPath;
         const isExpanded = expandedLocalDiskTreePaths.has(textPath);
@@ -1302,7 +1302,7 @@ function loadUnlockedFolderPasswords() {
         let html = '<div class="local-disk-tree-row local-disk-dir-item' + (canMove ? ' local-disk-draggable' : '') + (isActive ? ' active' : '') + '" ' + (canMove ? 'draggable="true" data-local-drag="' + encodedPath + '" ' : '') + 'data-local-drop-target="' + encodedPath + '" data-local-dir-context="' + encodedPath + '" data-local-dir-locked="' + (dirLocked ? '1' : '0') + '" style="--tree-level:' + level + '">' +
           '<button type="button" class="local-disk-tree-caret" data-local-toggle="' + encodedPath + '" title="展开或收起目录" aria-label="展开或收起目录">' + (isExpanded && dirs.length ? '▾' : (hasCache && !dirs.length ? '' : '▸')) + '</button>' +
           selectBox +
-          '<button type="button" class="local-disk-dir-link" data-local-folder="' + encodedPath + '">' +
+          '<button type="button" class="local-disk-dir-link" data-local-folder="' + encodedPath + '" title="' + escapeHtml(textPath) + '">' +
             '<span class="local-folder-icon">📁</span>' +
             '<span class="local-disk-dir-item-name">' + escapeHtml(name) + '</span>' +
           '</button>' +

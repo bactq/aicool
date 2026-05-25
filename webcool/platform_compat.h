@@ -23,6 +23,7 @@
 #include <sys/stat.h>
 
 #include <string>
+#include <vector>
 
 #ifndef PATH_MAX
 #define PATH_MAX MAX_PATH
@@ -56,21 +57,212 @@ typedef int pid_t;
 typedef int uid_t;
 typedef intptr_t ssize_t;
 
-//#define strcasecmp _stricmp
-//#define strncasecmp _strnicmp
-#define access _access
-#define chmod _chmod
-//#define close _close
 #define dup2 _dup2
 #define getpid _getpid
-#define lstat _stat
-#define mkdir(path, mode) _mkdir(path)
-//#define open _open
 #define pclose _pclose
 #define popen _popen
-#define rmdir _rmdir
-#define stat _stat
-#define unlink _unlink
+
+inline bool webcool_utf8_to_wide(const char* text, std::wstring& out)
+{
+	out.clear();
+	if (text == NULL) {
+		errno = EINVAL;
+		return false;
+	}
+	const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1,
+		NULL, 0);
+	if (n <= 0) {
+		errno = EINVAL;
+		return false;
+	}
+	std::vector<wchar_t> buf((size_t) n);
+	if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1,
+		&buf[0], n) <= 0) {
+		errno = EINVAL;
+		return false;
+	}
+	out.assign(&buf[0]);
+	return true;
+}
+
+inline bool webcool_wide_to_utf8(const wchar_t* text, std::string& out)
+{
+	out.clear();
+	if (text == NULL) {
+		errno = EINVAL;
+		return false;
+	}
+	const int n = WideCharToMultiByte(CP_UTF8, 0, text, -1, NULL, 0,
+		NULL, NULL);
+	if (n <= 0) {
+		errno = EINVAL;
+		return false;
+	}
+	std::vector<char> buf((size_t) n);
+	if (WideCharToMultiByte(CP_UTF8, 0, text, -1, &buf[0], n,
+		NULL, NULL) <= 0) {
+		errno = EINVAL;
+		return false;
+	}
+	out.assign(&buf[0]);
+	return true;
+}
+
+inline int webcool_mkdir(const char* path, int)
+{
+	std::wstring wpath;
+	return webcool_utf8_to_wide(path, wpath) ? _wmkdir(wpath.c_str()) : -1;
+}
+
+inline int webcool_rmdir(const char* path)
+{
+	std::wstring wpath;
+	return webcool_utf8_to_wide(path, wpath) ? _wrmdir(wpath.c_str()) : -1;
+}
+
+inline int webcool_unlink(const char* path)
+{
+	std::wstring wpath;
+	return webcool_utf8_to_wide(path, wpath) ? _wunlink(wpath.c_str()) : -1;
+}
+
+inline int webcool_rename(const char* old_path, const char* new_path)
+{
+	std::wstring wold_path;
+	std::wstring wnew_path;
+	if (!webcool_utf8_to_wide(old_path, wold_path)
+		|| !webcool_utf8_to_wide(new_path, wnew_path)) {
+		return -1;
+	}
+	return _wrename(wold_path.c_str(), wnew_path.c_str());
+}
+
+inline FILE* webcool_fopen(const char* path, const char* mode)
+{
+	std::wstring wpath;
+	std::wstring wmode;
+	if (!webcool_utf8_to_wide(path, wpath)
+		|| !webcool_utf8_to_wide(mode, wmode)) {
+		return NULL;
+	}
+	return _wfopen(wpath.c_str(), wmode.c_str());
+}
+
+inline int webcool_stat(const char* path, struct stat* st)
+{
+	std::wstring wpath;
+	if (st == NULL || !webcool_utf8_to_wide(path, wpath)) {
+		return -1;
+	}
+#ifdef _USE_32BIT_TIME_T
+	static_assert(sizeof(struct stat) == sizeof(struct _stat32),
+		"unexpected stat layout");
+	if (_wstat32(wpath.c_str(), reinterpret_cast<struct _stat32*>(st)) == 0) {
+		return 0;
+	}
+#else
+	static_assert(sizeof(struct stat) == sizeof(struct _stat64i32),
+		"unexpected stat layout");
+	if (_wstat64i32(wpath.c_str(), reinterpret_cast<struct _stat64i32*>(st)) == 0) {
+		return 0;
+	}
+#endif
+	const errno_t saved_errno = errno;
+	WIN32_FILE_ATTRIBUTE_DATA data;
+	if (!GetFileAttributesExW(wpath.c_str(), GetFileExInfoStandard, &data)) {
+		errno = saved_errno;
+		return -1;
+	}
+	memset(st, 0, sizeof(*st));
+	st->st_mode = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+		? (_S_IFDIR | 0755) : (_S_IFREG | 0644);
+	ULARGE_INTEGER size;
+	size.HighPart = data.nFileSizeHigh;
+	size.LowPart = data.nFileSizeLow;
+	st->st_size = size.QuadPart > 0x7fffffffULL
+		? (decltype(st->st_size)) 0x7fffffff
+		: (decltype(st->st_size)) size.QuadPart;
+	const ULONGLONG ticks_per_second = 10000000ULL;
+	const ULONGLONG unix_epoch = 11644473600ULL;
+	ULARGE_INTEGER write_time;
+	write_time.HighPart = data.ftLastWriteTime.dwHighDateTime;
+	write_time.LowPart = data.ftLastWriteTime.dwLowDateTime;
+	if (write_time.QuadPart / ticks_per_second > unix_epoch) {
+		st->st_mtime = (time_t) (write_time.QuadPart / ticks_per_second - unix_epoch);
+		st->st_ctime = st->st_mtime;
+		st->st_atime = st->st_mtime;
+	}
+	return 0;
+}
+
+inline int webcool_access(const char* path, int mode)
+{
+	std::wstring wpath;
+	return webcool_utf8_to_wide(path, wpath) ? _waccess(wpath.c_str(), mode) : -1;
+}
+
+inline int webcool_chmod(const char* path, int mode)
+{
+	std::wstring wpath;
+	return webcool_utf8_to_wide(path, wpath) ? _wchmod(wpath.c_str(), mode) : -1;
+}
+
+inline bool webcool_make_dirs_utf8(const char* path, int mode)
+{
+	if (path == NULL || *path == '\0') {
+		errno = EINVAL;
+		return false;
+	}
+
+	struct stat st;
+	if (webcool_stat(path, &st) == 0) {
+		return S_ISDIR(st.st_mode);
+	}
+
+	std::string text(path);
+	for (size_t i = 0; i < text.size(); ++i) {
+		if (text[i] == '\\') {
+			text[i] = '/';
+		}
+	}
+
+	size_t start = 0;
+	if (text.size() >= 2 && text[1] == ':') {
+		start = 2;
+	} else if (text.size() >= 2 && text[0] == '/' && text[1] == '/') {
+		size_t server_end = text.find('/', 2);
+		if (server_end == std::string::npos) {
+			errno = EINVAL;
+			return false;
+		}
+		size_t share_end = text.find('/', server_end + 1);
+		start = share_end == std::string::npos ? text.size() : share_end;
+	}
+
+	for (size_t pos = start; pos <= text.size(); ++pos) {
+		if (pos != text.size() && text[pos] != '/') {
+			continue;
+		}
+		if (pos == 0 || (pos == 2 && text.size() > 1 && text[1] == ':')) {
+			continue;
+		}
+		const std::string part = text.substr(0, pos);
+		if (part.empty()) {
+			continue;
+		}
+		if (webcool_stat(part.c_str(), &st) == 0) {
+			if (!S_ISDIR(st.st_mode)) {
+				errno = ENOTDIR;
+				return false;
+			}
+			continue;
+		}
+		if (webcool_mkdir(part.c_str(), mode) != 0 && errno != EEXIST) {
+			return false;
+		}
+	}
+	return true;
+}
 
 #ifndef SIGTERM
 #define SIGTERM 15
@@ -117,9 +309,23 @@ inline char* webcool_realpath(const char* path, char* resolved)
 		errno = EINVAL;
 		return NULL;
 	}
-	if (_fullpath(resolved, path, PATH_MAX) == NULL) {
+	std::wstring wpath;
+	if (!webcool_utf8_to_wide(path, wpath)) {
 		return NULL;
 	}
+	wchar_t wresolved[32768];
+	const DWORD n = GetFullPathNameW(wpath.c_str(),
+		(DWORD) (sizeof(wresolved) / sizeof(wresolved[0])), wresolved, NULL);
+	if (n == 0 || n >= sizeof(wresolved) / sizeof(wresolved[0])) {
+		errno = ENOENT;
+		return NULL;
+	}
+	std::string utf8;
+	if (!webcool_wide_to_utf8(wresolved, utf8) || utf8.size() >= PATH_MAX) {
+		errno = ENAMETOOLONG;
+		return NULL;
+	}
+	strcpy(resolved, utf8.c_str());
 	return resolved;
 }
 #define realpath webcool_realpath
@@ -141,20 +347,24 @@ struct dirent {
 };
 
 struct DIR {
-	intptr_t handle;
-	struct _finddata_t data;
+	HANDLE handle;
+	WIN32_FIND_DATAW data;
 	struct dirent entry;
 	bool first;
 };
 
-inline std::string webcool_dir_pattern(const char* path)
+inline std::wstring webcool_dir_pattern(const char* path)
 {
-	std::string pattern = path && *path ? path : ".";
-	const char tail = pattern.empty() ? '\0' : pattern[pattern.size() - 1];
-	if (tail != '/' && tail != '\\') {
-		pattern += "\\";
+	std::string text = path && *path ? path : ".";
+	std::wstring pattern;
+	if (!webcool_utf8_to_wide(text.c_str(), pattern)) {
+		return std::wstring();
 	}
-	pattern += "*";
+	const wchar_t tail = pattern.empty() ? L'\0' : pattern[pattern.size() - 1];
+	if (tail != L'/' && tail != L'\\') {
+		pattern += L"\\";
+	}
+	pattern += L"*";
 	return pattern;
 }
 
@@ -162,9 +372,13 @@ inline DIR* opendir(const char* path)
 {
 	DIR* dir = new DIR;
 	dir->first = true;
-	const std::string pattern = webcool_dir_pattern(path);
-	dir->handle = _findfirst(pattern.c_str(), &dir->data);
-	if (dir->handle == -1) {
+	const std::wstring pattern = webcool_dir_pattern(path);
+	if (pattern.empty()) {
+		delete dir;
+		return NULL;
+	}
+	dir->handle = FindFirstFileW(pattern.c_str(), &dir->data);
+	if (dir->handle == INVALID_HANDLE_VALUE) {
 		delete dir;
 		return NULL;
 	}
@@ -178,13 +392,17 @@ inline struct dirent* readdir(DIR* dir)
 		return NULL;
 	}
 	if (!dir->first) {
-		if (_findnext(dir->handle, &dir->data) != 0) {
+		if (!FindNextFileW(dir->handle, &dir->data)) {
 			return NULL;
 		}
 	} else {
 		dir->first = false;
 	}
-	strncpy(dir->entry.d_name, dir->data.name, sizeof(dir->entry.d_name) - 1);
+	std::string name;
+	if (!webcool_wide_to_utf8(dir->data.cFileName, name)) {
+		return NULL;
+	}
+	strncpy(dir->entry.d_name, name.c_str(), sizeof(dir->entry.d_name) - 1);
 	dir->entry.d_name[sizeof(dir->entry.d_name) - 1] = '\0';
 	return &dir->entry;
 }
@@ -195,7 +413,7 @@ inline int closedir(DIR* dir)
 		errno = EBADF;
 		return -1;
 	}
-	const int rc = _findclose(dir->handle);
+	const int rc = FindClose(dir->handle) ? 0 : -1;
 	delete dir;
 	return rc;
 }
@@ -252,7 +470,12 @@ inline int webcool_getopt(int argc, char* const argv[], const char* optstring)
 
 inline bool webcool_shell_open(const std::string& target, std::string& err)
 {
-	HINSTANCE rc = ShellExecuteA(NULL, "open", target.c_str(), NULL, NULL, SW_SHOWNORMAL);
+	std::wstring wtarget;
+	if (!webcool_utf8_to_wide(target.c_str(), wtarget)) {
+		err = "invalid UTF-8 path";
+		return false;
+	}
+	HINSTANCE rc = ShellExecuteW(NULL, L"open", wtarget.c_str(), NULL, NULL, SW_SHOWNORMAL);
 	if ((INT_PTR) rc <= 32) {
 		err = "ShellExecute failed";
 		return false;
@@ -264,5 +487,15 @@ inline bool webcool_shell_open_trash(std::string& err)
 {
 	return webcool_shell_open("shell:RecycleBinFolder", err);
 }
+
+#define access(path, mode) webcool_access(path, mode)
+#define chmod(path, mode) webcool_chmod(path, mode)
+#define fopen(path, mode) webcool_fopen(path, mode)
+#define lstat(path, st) webcool_stat(path, st)
+#define mkdir(path, mode) webcool_mkdir(path, mode)
+#define rename(old_path, new_path) webcool_rename(old_path, new_path)
+#define rmdir(path) webcool_rmdir(path)
+#define stat(path, st) webcool_stat(path, st)
+#define unlink(path) webcool_unlink(path)
 
 #endif // _WIN32

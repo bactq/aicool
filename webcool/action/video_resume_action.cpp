@@ -358,10 +358,9 @@ bool VideoResumeSetAction::run(request_t& req, response_t& res,
 
 		acl::query query;
 		query.create(
-			"INSERT INTO video_resume(file_name, position_ms, updated_at) "
+			"INSERT OR REPLACE INTO video_resume(file_name, position_ms, updated_at) "
 			"VALUES(:file, :position_ms, strftime('%s','now')) "
-			"ON CONFLICT(file_name) DO UPDATE SET "
-			"position_ms=excluded.position_ms, updated_at=excluded.updated_at")
+			)
 			.set_parameter("file", file_path.c_str())
 			.set_parameter("position_ms", position_ms);
 

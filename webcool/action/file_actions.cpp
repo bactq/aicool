@@ -11,6 +11,7 @@
 #include <unistd.h>
 #endif
 #include <errno.h>
+#include <stdio.h>
 #include <time.h>
 
 #include <algorithm>
@@ -62,6 +63,15 @@ struct recycle_record_t {
 
 static void format_upload_time(time_t ts, char* buf, size_t size);
 static bool should_skip_entry(const char* name, bool show_hidden);
+
+static bool seek_file64(FILE* fp, long long offset)
+{
+#ifdef _WIN32
+	return _fseeki64(fp, offset, SEEK_SET) == 0;
+#else
+	return fseeko(fp, (off_t) offset, SEEK_SET) == 0;
+#endif
+}
 
 static std::string remote_file_lock_key(const std::string& path) {
 	return std::string("remote:") + path;
@@ -854,7 +864,7 @@ static bool collect_files_recursive(const std::string& upload_dir,
 		item.name = name;
 		item.path = rel_path;
 		item.folder_path = relative_dir;
-		item.size = (long long) st.st_size;
+		item.size = regular_file_size(full_path);
 		item.uploaded_at = (long long) st.st_mtime;
 		item.uploaded_time = uploaded_time;
 		item.directory = false;
@@ -1649,6 +1659,9 @@ bool DownloadAction::run(request_t& req, response_t& res,
 	if (!normalize_relative_path(req.getParameter("file"), file_path, err, false)) {
 		return sendText(res, 400, "invalid file name\n", req.isKeepAlive());
 	}
+	if (!resolve_upload_regular_file_path(upload_dir, file_path, file_path)) {
+		return sendText(res, 404, "file not found\n", req.isKeepAlive());
+	}
 	bool lock_allowed = false;
 	std::string locked_path;
 	if (!folder_lock_path_allows(upload_dir, parent_relative_path(file_path),
@@ -1674,19 +1687,22 @@ bool DownloadAction::run(request_t& req, response_t& res,
 	const std::string fullpath = join_upload_path(upload_dir, file_path);
 	const std::string basename = base_name_from_relative_path(file_path);
 
-	acl::ifstream in;
-	if (!in.open_read(fullpath.c_str())) {
+	struct stat st;
+	if (stat(fullpath.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
 		return sendText(res, 404, "file not found\n", req.isKeepAlive());
 	}
 
-	long long fsize = in.fsize();
+	const long long fsize = regular_file_size(fullpath);
 	if (fsize < 0) {
-		in.close();
 		return sendText(res, 500, "cannot read file size\n", req.isKeepAlive());
 	}
 	if (fsize == 0) {
-		in.close();
 		return sendText(res, 409, "file is empty, please re-upload\n", req.isKeepAlive());
+	}
+
+	FILE* in = fopen(fullpath.c_str(), "rb");
+	if (in == NULL) {
+		return sendText(res, 403, "file cannot be read\n", req.isKeepAlive());
 	}
 
 	const bool is_image = is_image_file(basename.c_str());
@@ -1712,6 +1728,7 @@ bool DownloadAction::run(request_t& req, response_t& res,
 			.setContentType("text/plain; charset=utf-8");
 		const char* msg = "invalid range\n";
 		res.setContentLength((long long) strlen(msg));
+		fclose(in);
 		return res.write(msg, strlen(msg)) && res.write(NULL, 0);
 	}
 
@@ -1739,10 +1756,11 @@ bool DownloadAction::run(request_t& req, response_t& res,
 	long long send_end = has_range ? range_end : (fsize - 1);
 	long long send_size = send_end - send_begin + 1;
 	if (send_size < 0) {
+		fclose(in);
 		return sendText(res, 500, "invalid send size\n", req.isKeepAlive());
 	}
-	if (send_begin > 0 && in.fseek(send_begin, SEEK_SET) < 0) {
-		in.close();
+	if (send_begin > 0 && !seek_file64(in, send_begin)) {
+		fclose(in);
 		return sendText(res, 500, "seek file failed\n", req.isKeepAlive());
 	}
 
@@ -1775,26 +1793,23 @@ bool DownloadAction::run(request_t& req, response_t& res,
 
 	char buf[8192];
 	long long remain = send_size;
-	while (remain > 0 && !in.eof()) {
+	while (remain > 0) {
 		size_t want = sizeof(buf);
 		if ((long long) want > remain) {
 			want = (size_t) remain;
 		}
-		int n = in.read(buf, want, false);
-		if (n == -1) {
+		const size_t n = fread(buf, 1, want, in);
+		if (n == 0) {
 			break;
 		}
-		if (n == 0) {
-			continue;
-		}
 		if (!res.write(buf, (size_t) n)) {
-			in.close();
+			fclose(in);
 			return false;
 		}
-		remain -= n;
+		remain -= (long long) n;
 	}
 
-	in.close();
+	fclose(in);
 	return res.write(NULL, 0);
 }
 
@@ -1814,7 +1829,7 @@ bool init_recycle_bin_db(const std::string& upload_dir, std::string& err) {
 	}
 	const std::string recycle_dir = join_upload_path(upload_dir, recycle_folder_name());
 	if (!make_dir_recursive(recycle_dir.c_str())) {
-		err = "cannot access recycle folder: ";
+		err = "cannot access recycle folder(0): ";
 		err += recycle_dir;
 		return false;
 	}

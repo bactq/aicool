@@ -23,6 +23,7 @@ http_servlet::http_servlet(acl::socket_stream* stream,
 : acl::HttpServlet(stream, session)
 , upload_dir_(upload_dir)
 {
+	setLocalCharset("utf8");
 	action::runtime_upload_dir_init(upload_dir ? upload_dir : "");
 }
 

@@ -277,7 +277,7 @@ private:
 		acl::ofstream& fp, acl::http_mime& mime);
 
 	static bool saveFiles(acl::http_mime& mime, const std::string& upload_dir,
-		acl::json_node& files_array, int& saved_count,
+		const std::string& tmp_path, acl::json_node& files_array, int& saved_count,
 		const std::string& folder_path);
 };
 

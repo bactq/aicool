@@ -64,12 +64,21 @@ function appendFilePassword(url, path, local) {
       }
 
       function localDiskBaseName(path) {
-        const text = String(path || '/').replace(/\/+$/, '') || '/';
-        if (text === '/') {
-          return '/';
+        const raw = String(path || '/');
+        const text = raw.replace(/[\/\\]+$/, '') || raw || '/';
+        if (text === '/' || /^[A-Za-z]:$/.test(text)) {
+          return text === '/' ? '/' : text + '\\';
         }
-        const pos = text.lastIndexOf('/');
+        const pos = Math.max(text.lastIndexOf('/'), text.lastIndexOf('\\'));
         return pos >= 0 ? text.slice(pos + 1) : text;
+      }
+
+      function localDiskDisplayName(path, name) {
+        const label = String(name || '');
+        if (!label || /[\/\\]/.test(label)) {
+          return localDiskBaseName(label || path);
+        }
+        return label;
       }
 
       async function loadVideoResumePosition(fileName) {
@@ -186,8 +195,8 @@ function appendFilePassword(url, path, local) {
         localDiskEmpty.style.display = 'none';
         localDiskTable.style.display = 'table';
         localDiskList.innerHTML = list.map(function (item) {
-          const name = String((item && item.name) || '');
           const path = String((item && item.path) || '');
+          const name = localDiskDisplayName(path, item && item.name);
           const encodedPath = encodeURIComponent(path);
           const isDir = !!(item && item.directory);
           const dirLocked = isDir && !!(item && item.locked);
@@ -205,7 +214,7 @@ function appendFilePassword(url, path, local) {
             ? '<input class="file-rename-input local-disk-rename-input" type="text" value="' + escapeHtml(name) + '" data-local-disk-rename-path="' + encodedPath + '" aria-label="' + escapeHtml(t('改名文件')) + '">'
             : '';
           const nameHtml = isDir
-            ? '<button type="button" class="local-folder-link" data-local-folder="' + encodedPath + '"><span class="local-folder-icon">📁</span><span>' + escapeHtml(name) + '</span></button>' + dirLockIcon
+            ? '<button type="button" class="local-folder-link" data-local-folder="' + encodedPath + '" title="' + escapeHtml(path) + '"><span class="local-folder-icon">📁</span><span>' + escapeHtml(name) + '</span></button>' + dirLockIcon
             : (renameInput || '<button type="button" class="file-name file-name-action local-disk-file-name-action" data-local-disk-file-name-click="' + encodedPath + '">' + escapeHtml(name) + '</button>') + lockIcon;
           const displayName = '<span class="local-disk-table-name-cell">' + selectBox + nameHtml + '</span>';
           const previewBtn = !isDir && isImageName(name)
@@ -1085,7 +1094,7 @@ function deleteUnlockedFolderPassword(path) {
         const isExpanded = adminStoragePickerExpandedPaths.has(textPath);
         const hasCache = adminStoragePickerCache.has(textPath);
         const isActive = adminStoragePickerSelectedPath === textPath;
-        const name = itemMeta && itemMeta.name ? String(itemMeta.name) : (textPath === '/' ? t('根目录') : localDiskBaseName(textPath));
+        const name = textPath === '/' ? t('根目录') : localDiskDisplayName(textPath, itemMeta && itemMeta.name);
         let html = '<div class="admin-storage-picker-node" data-admin-storage-picker-node="' + escapeHtml(textPath) + '">' +
           '<div class="admin-storage-picker-line' + (isActive ? ' active' : '') + '" style="padding-left:' + (8 + level * 18) + 'px;">' +
             '<button type="button" class="admin-storage-picker-toggle' + (hasCache && !dirs.length ? ' placeholder' : '') + '" data-admin-storage-picker-toggle="' + encodedPath + '" title="展开或收起目录" aria-label="展开或收起目录">' +

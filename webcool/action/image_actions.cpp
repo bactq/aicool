@@ -187,8 +187,8 @@ static bool copy_mime_body_to_file(const std::string& tmp_path,
 		err = "image file part is missing";
 		return false;
 	}
-	const off_t begin = node->get_bodyBegin();
-	const off_t end = node->get_bodyEnd();
+	const long long begin = node->get_bodyBegin();
+	const long long end = node->get_bodyEnd();
 	if (end <= begin) {
 		err = "image body is empty";
 		return false;
@@ -209,7 +209,7 @@ static bool copy_mime_body_to_file(const std::string& tmp_path,
 		return false;
 	}
 #ifdef _WIN32
-	if (fseek(in, begin, SEEK_SET)) {
+	if (_fseeki64(in, begin, SEEK_SET)) {
 #else
 	if (fseeko(in, begin, SEEK_SET) != 0) {
 #endif
@@ -222,10 +222,10 @@ static bool copy_mime_body_to_file(const std::string& tmp_path,
 
 
 	char buf[8192];
-	off_t remain = end - begin;
+	long long remain = end - begin;
 	while (remain > 0) {
 		size_t want = sizeof(buf);
-		if ((off_t) want > remain) {
+		if ((long long)  want > remain) {
 			want = (size_t) remain;
 		}
 		size_t n = fread(buf, 1, want, in);

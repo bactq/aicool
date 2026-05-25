@@ -40,6 +40,15 @@ struct local_entry_t {
 	std::string modified_time;
 };
 
+static bool seek_file64(FILE* fp, long long offset)
+{
+#ifdef _WIN32
+	return _fseeki64(fp, offset, SEEK_SET) == 0;
+#else
+	return fseeko(fp, (off_t) offset, SEEK_SET) == 0;
+#endif
+}
+
 struct local_import_file_t {
 	std::string source;
 	std::string name;
@@ -80,12 +89,32 @@ static bool normalize_local_path(const char* input, std::string& out,
 	std::string& err)
 {
 	err.clear();
+#ifdef _WIN32
+	const bool has_input = input != NULL && *input != '\0';
+	std::string text = has_input ? input : ".";
+	if (text == "/") {
+		text = "\\";
+	}
+	const bool absolute = (text.size() >= 3
+			&& ((text[0] >= 'A' && text[0] <= 'Z')
+				|| (text[0] >= 'a' && text[0] <= 'z'))
+			&& text[1] == ':'
+			&& (text[2] == '/' || text[2] == '\\'))
+		|| (text.size() >= 2
+			&& (text[0] == '/' || text[0] == '\\')
+			&& (text[1] == '/' || text[1] == '\\'));
+	if (has_input && !absolute && text != "\\" && text != "/") {
+		err = "absolute path is required";
+		return false;
+	}
+#else
 	const char* home = getenv("HOME");
 	std::string text = input && *input ? input : (home && *home ? home : "/");
 	if (text[0] != '/') {
 		err = "absolute path is required";
 		return false;
 	}
+#endif
 
 	char resolved[PATH_MAX];
 	if (realpath(text.c_str(), resolved) == NULL) {
@@ -97,18 +126,69 @@ static bool normalize_local_path(const char* input, std::string& out,
 }
 
 static std::string current_home_path() {
+#ifdef _WIN32
+	const char* home = getenv("USERPROFILE");
+	if (home == NULL || *home == '\0') {
+		home = getenv("HOME");
+	}
+	if (home == NULL || *home == '\0') {
+		home = ".";
+	}
+#else
 	const char* home = getenv("HOME");
 	if (home == NULL || *home == '\0') {
 		return "/";
 	}
+#endif
 	char resolved[PATH_MAX];
 	if (realpath(home, resolved) == NULL) {
 		return home;
 	}
+#ifdef _WIN32
+	DIR* dir = opendir(resolved);
+	if (dir != NULL) {
+		closedir(dir);
+		return resolved;
+	}
+	if (realpath(".", resolved) == NULL) {
+		return ".";
+	}
+#endif
 	return resolved;
 }
 
 static std::string parent_path(const std::string& path) {
+#ifdef _WIN32
+	if (path.empty()) {
+		return current_home_path();
+	}
+	std::string text = path;
+	for (size_t i = 0; i < text.size(); ++i) {
+		if (text[i] == '\\') {
+			text[i] = '/';
+		}
+	}
+	while (text.size() > 3 && text[text.size() - 1] == '/') {
+		text.erase(text.size() - 1);
+	}
+	if (text.size() <= 3 && text.size() >= 2 && text[1] == ':') {
+		return text.substr(0, 3);
+	}
+	if (text.size() >= 2 && text[0] == '/' && text[1] == '/') {
+		std::string::size_type server_end = text.find('/', 2);
+		std::string::size_type share_end = server_end == std::string::npos
+			? std::string::npos
+			: text.find('/', server_end + 1);
+		if (share_end == std::string::npos || share_end == text.size() - 1) {
+			return text;
+		}
+	}
+	std::string::size_type pos = text.rfind('/');
+	if (pos == std::string::npos) {
+		return current_home_path();
+	}
+	return pos == 2 && text[1] == ':' ? text.substr(0, 3) : text.substr(0, pos);
+#else
 	if (path.empty() || path == "/") {
 		return "/";
 	}
@@ -121,18 +201,49 @@ static std::string parent_path(const std::string& path) {
 		return "/";
 	}
 	return text.substr(0, pos);
+#endif
 }
 
 static std::string join_local_path(const std::string& parent,
 	const char* name)
 {
+#ifdef _WIN32
+	if (parent.empty()) {
+		return name ? name : "";
+	}
+	const char tail = parent[parent.size() - 1];
+	if (tail == '/' || tail == '\\') {
+		return parent + name;
+	}
+	return parent + "\\" + name;
+#else
 	if (parent == "/") {
 		return std::string("/") + name;
 	}
 	return parent + "/" + name;
+#endif
 }
 
 static std::string local_base_name(const std::string& path) {
+#ifdef _WIN32
+	if (path.empty()) {
+		return "";
+	}
+	std::string text = path;
+	for (size_t i = 0; i < text.size(); ++i) {
+		if (text[i] == '\\') {
+			text[i] = '/';
+		}
+	}
+	while (text.size() > 3 && text[text.size() - 1] == '/') {
+		text.erase(text.size() - 1);
+	}
+	if (text.size() <= 3 && text.size() >= 2 && text[1] == ':') {
+		return text;
+	}
+	std::string::size_type pos = text.rfind('/');
+	return pos == std::string::npos ? text : text.substr(pos + 1);
+#else
 	if (path.empty() || path == "/") {
 		return "";
 	}
@@ -142,6 +253,7 @@ static std::string local_base_name(const std::string& path) {
 	}
 	std::string::size_type pos = text.rfind('/');
 	return pos == std::string::npos ? text : text.substr(pos + 1);
+#endif
 }
 
 static bool validate_local_name_segment(const std::string& name,
@@ -776,7 +888,7 @@ static bool collect_local_import_directory(const std::string& source_dir,
 		file.source = child_source;
 		file.name = child_remote;
 		file.relative_path = child_remote;
-		file.size = (long long) st.st_size;
+		file.size = regular_file_size(file.source);
 		files.push_back(file);
 	}
 	closedir(dir);
@@ -1322,7 +1434,7 @@ bool LocalDiskListAction::run(request_t& req, response_t& res,
 		item.path = child_path;
 		item.directory = S_ISDIR(child_st.st_mode);
 		item.empty_directory = item.directory && directory_is_empty(child_path);
-		item.size = item.directory ? 0 : (long long) child_st.st_size;
+		item.size = item.directory ? 0 : regular_file_size(child_path);
 		item.created_at = (long long) created_ts;
 		item.created_time = created_buf;
 		item.modified_at = (long long) child_st.st_mtime;
@@ -1417,18 +1529,18 @@ bool LocalDiskDownloadAction::run(request_t& req, response_t& res,
 		return sendText(res, 403, "file is locked\n", req.isKeepAlive());
 	}
 
-	acl::ifstream in;
-	if (!in.open_read(path.c_str())) {
+	FILE* in = fopen(path.c_str(), "rb");
+	if (in == NULL) {
 		return sendText(res, 403, "file cannot be read\n", req.isKeepAlive());
 	}
 
-	const long long fsize = in.fsize();
+	const long long fsize = regular_file_size(path);
 	if (fsize < 0) {
-		in.close();
+		fclose(in);
 		return sendText(res, 500, "cannot read file size\n", req.isKeepAlive());
 	}
 	if (fsize == 0) {
-		in.close();
+		fclose(in);
 		return sendText(res, 409, "file is empty\n", req.isKeepAlive());
 	}
 	const std::string name = path.substr(path.rfind('/') == std::string::npos ? 0 : path.rfind('/') + 1);
@@ -1448,7 +1560,7 @@ bool LocalDiskDownloadAction::run(request_t& req, response_t& res,
 			.setContentType("text/plain; charset=utf-8");
 		const char* msg = "invalid range\n";
 		res.setContentLength((long long) strlen(msg));
-		in.close();
+		fclose(in);
 		return res.write(msg, strlen(msg)) && res.write(NULL, 0);
 	}
 
@@ -1456,11 +1568,11 @@ bool LocalDiskDownloadAction::run(request_t& req, response_t& res,
 	const long long send_end = has_range ? range_end : (fsize - 1);
 	const long long send_size = send_end - send_begin + 1;
 	if (send_size < 0) {
-		in.close();
+		fclose(in);
 		return sendText(res, 500, "invalid send size\n", req.isKeepAlive());
 	}
-	if (send_begin > 0 && in.fseek(send_begin, SEEK_SET) < 0) {
-		in.close();
+	if (send_begin > 0 && !seek_file64(in, send_begin)) {
+		fclose(in);
 		return sendText(res, 500, "seek file failed\n", req.isKeepAlive());
 	}
 
@@ -1485,26 +1597,22 @@ bool LocalDiskDownloadAction::run(request_t& req, response_t& res,
 
 	char buf[8192];
 	long long remain = send_size;
-	while (remain > 0 && !in.eof()) {
+	while (remain > 0) {
 		size_t want = sizeof(buf);
 		if ((long long) want > remain) {
 			want = (size_t) remain;
 		}
-		int n = in.read(buf, want, false);
-		if (n < 0) {
-			in.close();
-			return false;
-		}
+		const size_t n = fread(buf, 1, want, in);
 		if (n == 0) {
-			continue;
+			break;
 		}
 		if (!res.write(buf, (size_t) n)) {
-			in.close();
+			fclose(in);
 			return false;
 		}
-		remain -= n;
+		remain -= (long long) n;
 	}
-	in.close();
+	fclose(in);
 	return res.write(NULL, 0);
 }
 
@@ -2308,7 +2416,7 @@ bool LocalDiskImportAction::run(request_t& req, response_t& res,
 		file.source = source;
 		file.name = local_base_name(source);
 		file.relative_path = relative_path;
-		file.size = (long long) st.st_size;
+		file.size = regular_file_size(file.source);
 		files.push_back(file);
 		used_relative_paths.insert(relative_path);
 	}

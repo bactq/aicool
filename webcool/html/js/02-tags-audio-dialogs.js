@@ -271,11 +271,19 @@ function getLocalDirPassword(path) {
       }
 
       function localDiskPathContains(base, path) {
-        const left = String(base || '/');
-        const right = String(path || '/');
-        return left === '/'
-          ? right.charAt(0) === '/'
-          : (right === left || right.indexOf(left + '/') === 0);
+        const normalize = function (value) {
+          return String(value || '/').replace(/[\/\\]+$/, '') || '/';
+        };
+        const left = normalize(base);
+        const right = normalize(path);
+        const rightLower = right.toLowerCase();
+        const leftLower = left.toLowerCase();
+        if (left === '/') {
+          return right.charAt(0) === '/' || /^[A-Za-z]:/.test(right) || right.indexOf('\\\\') === 0;
+        }
+        return rightLower === leftLower
+          || rightLower.indexOf(leftLower + '/') === 0
+          || rightLower.indexOf(leftLower + '\\') === 0;
       }
 
       async function saveVideoResumePosition(fileName, positionMs) {
@@ -425,12 +433,22 @@ function getLocalDirPassword(path) {
       }
 
       function localDiskParentPath(path) {
-        const text = String(path || '/').replace(/\/+$/, '') || '/';
+        const raw = String(path || '/');
+        const text = raw.replace(/[\/\\]+$/, '') || raw || '/';
         if (text === '/') {
           return '/';
         }
-        const pos = text.lastIndexOf('/');
-        return pos <= 0 ? '/' : text.slice(0, pos);
+        if (/^[A-Za-z]:$/.test(text)) {
+          return text + '\\';
+        }
+        const pos = Math.max(text.lastIndexOf('/'), text.lastIndexOf('\\'));
+        if (pos <= 0) {
+          return text.charAt(0) === '\\' ? '\\' : '/';
+        }
+        if (pos === 2 && /^[A-Za-z]:/.test(text)) {
+          return text.slice(0, 3);
+        }
+        return text.slice(0, pos);
       }
 
       function scheduleSaveVideoResumePosition(fileName, positionMs) {

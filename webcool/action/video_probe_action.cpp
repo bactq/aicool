@@ -38,18 +38,23 @@ static long long file_size_of(const char* path) {
 	if (path == NULL || *path == '\0') {
 		return -1;
 	}
-
-	struct stat st;
-	if (stat(path, &st) != 0) {
-		return -1;
-	}
-
-	return (long long) st.st_size;
+	return regular_file_size(path);
 }
 
 static std::string shell_quote(const std::string& s) {
 	std::string out;
 	out.reserve(s.size() + 8);
+#ifdef _WIN32
+	out.push_back('"');
+	for (size_t i = 0; i < s.size(); ++i) {
+		if (s[i] == '"') {
+			out += "\\\"";
+		} else {
+			out.push_back(s[i]);
+		}
+	}
+	out.push_back('"');
+#else
 	out.push_back('\'');
 	for (size_t i = 0; i < s.size(); ++i) {
 		if (s[i] == '\'') {
@@ -59,11 +64,64 @@ static std::string shell_quote(const std::string& s) {
 		}
 	}
 	out.push_back('\'');
+#endif
 	return out;
 }
 
 static int run_command_capture(const std::string& command, std::string& output) {
 	output.clear();
+#ifdef _WIN32
+	SECURITY_ATTRIBUTES sa;
+	memset(&sa, 0, sizeof(sa));
+	sa.nLength = sizeof(sa);
+	sa.bInheritHandle = TRUE;
+
+	HANDLE read_pipe = NULL;
+	HANDLE write_pipe = NULL;
+	if (!CreatePipe(&read_pipe, &write_pipe, &sa, 0)) {
+		return -1;
+	}
+	SetHandleInformation(read_pipe, HANDLE_FLAG_INHERIT, 0);
+
+	std::string full_command = std::string("cmd.exe /C ") + command;
+	std::wstring wcmd;
+	if (!webcool_utf8_to_wide(full_command.c_str(), wcmd)) {
+		CloseHandle(read_pipe);
+		CloseHandle(write_pipe);
+		return -1;
+	}
+
+	STARTUPINFOW si;
+	PROCESS_INFORMATION pi;
+	memset(&si, 0, sizeof(si));
+	memset(&pi, 0, sizeof(pi));
+	si.cb = sizeof(si);
+	si.dwFlags = STARTF_USESTDHANDLES;
+	si.hStdOutput = write_pipe;
+	si.hStdError = write_pipe;
+	si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+
+	BOOL ok = CreateProcessW(NULL, &wcmd[0], NULL, NULL, TRUE,
+		CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+	CloseHandle(write_pipe);
+	if (!ok) {
+		CloseHandle(read_pipe);
+		return -1;
+	}
+
+	char buf[4096];
+	DWORD n = 0;
+	while (ReadFile(read_pipe, buf, sizeof(buf), &n, NULL) && n > 0) {
+		output.append(buf, buf + n);
+	}
+	CloseHandle(read_pipe);
+	WaitForSingleObject(pi.hProcess, INFINITE);
+	DWORD exit_code = 1;
+	GetExitCodeProcess(pi.hProcess, &exit_code);
+	CloseHandle(pi.hThread);
+	CloseHandle(pi.hProcess);
+	return (int) exit_code;
+#else
 	FILE* fp = popen(command.c_str(), "r");
 	if (fp == NULL) {
 		return -1;
@@ -80,6 +138,7 @@ static int run_command_capture(const std::string& command, std::string& output) 
 	}
 
 	return WEXITSTATUS(code);
+#endif
 }
 
 struct probe_result_t {
@@ -171,6 +230,10 @@ bool VideoProbeAction::run(request_t& req, response_t& res,
 	std::string err;
 	if (!normalize_relative_path(file, file_path, err, false)) {
 		json_error(res, 400, err.c_str(), req.isKeepAlive());
+		return true;
+	}
+	if (!resolve_upload_regular_file_path(upload_dir, file_path, file_path)) {
+		json_error(res, 404, "source video not found", req.isKeepAlive());
 		return true;
 	}
 

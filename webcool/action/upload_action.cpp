@@ -11,11 +11,90 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 
 #include <string>
 
 namespace action {
+
+namespace {
+
+static bool seek_file64(FILE* fp, long long offset)
+{
+#ifdef _WIN32
+	return _fseeki64(fp, offset, SEEK_SET) == 0;
+#else
+	return fseeko(fp, (off_t) offset, SEEK_SET) == 0;
+#endif
+}
+
+static bool copy_mime_body_to_file(const std::string& tmp_path,
+	const std::string& dest, long long body_begin, long long body_end,
+	long long& written, std::string& err)
+{
+	written = 0;
+	err.clear();
+
+	if (body_begin < 0 || body_end <= body_begin) {
+		err = "invalid mime body range";
+		return false;
+	}
+
+	FILE* in = fopen(tmp_path.c_str(), "rb");
+	if (in == NULL) {
+		err = strerror(errno);
+		return false;
+	}
+
+	if (!seek_file64(in, body_begin)) {
+		err = strerror(errno);
+		fclose(in);
+		return false;
+	}
+
+	FILE* out = fopen(dest.c_str(), "wb");
+	if (out == NULL) {
+		err = strerror(errno);
+		fclose(in);
+		return false;
+	}
+
+	char buf[8192];
+	long long remaining = body_end - body_begin;
+	bool ok = true;
+	while (remaining > 0) {
+		const size_t want = remaining > (long long) sizeof(buf)
+			? sizeof(buf) : (size_t) remaining;
+		const size_t n = fread(buf, 1, want, in);
+		if (n == 0) {
+			err = ferror(in) ? strerror(errno) : "unexpected end of mime temp file";
+			ok = false;
+			break;
+		}
+		if (fwrite(buf, 1, n, out) != n) {
+			err = strerror(errno);
+			ok = false;
+			break;
+		}
+		written += (long long) n;
+		remaining -= (long long) n;
+	}
+
+	if (fclose(out) != 0 && ok) {
+		err = strerror(errno);
+		ok = false;
+	}
+	fclose(in);
+
+	if (!ok) {
+		::unlink(dest.c_str());
+		return false;
+	}
+	return true;
+}
+
+} // namespace
 
 bool UploadAction::run(request_t& req, response_t& res,
 	const std::string& upload_dir)
@@ -148,7 +227,7 @@ bool UploadAction::run(request_t& req, response_t& res,
 	}
 
 	int saved_count = 0;
-	bool ok = saveFiles(*mime, upload_dir, files, saved_count, folder_path);
+	bool ok = saveFiles(*mime, upload_dir, tmp_path.c_str(), files, saved_count, folder_path);
 
 	::unlink(tmp_path.c_str());
 
@@ -210,7 +289,8 @@ bool UploadAction::readBody(request_t& req, long long content_length,
 }
 
 bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir,
-	acl::json_node& files_array, int& saved_count, const std::string& folder_path)
+	const std::string& tmp_path, acl::json_node& files_array, int& saved_count,
+	const std::string& folder_path)
 {
 	saved_count = 0;
 
@@ -246,15 +326,15 @@ bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir
 		const std::string dest = join_upload_path(upload_dir, relative_path);
 		acl::json_node& item = files_array.add_child(false, true);
 
-		off_t body_begin = node->get_bodyBegin();
-		off_t body_end = node->get_bodyEnd();
-		item.add_number("mime_begin", (long long) body_begin);
-		item.add_number("mime_end", (long long) body_end);
-		item.add_number("mime_size", (long long) (body_end > body_begin ? body_end - body_begin : 0));
+		long long body_begin = node->get_bodyBegin();
+		long long body_end = node->get_bodyEnd();
+		item.add_number("mime_begin", body_begin);
+		item.add_number("mime_end", body_end);
+		item.add_number("mime_size", body_end > body_begin ? body_end - body_begin : 0);
 
 		fprintf(stderr, "[MIME-BODY] file=%s, begin=%lld, end=%lld, size=%lld\n",
-			basename, (long long) body_begin, (long long) body_end,
-			(long long) (body_end > body_begin ? body_end - body_begin : 0));
+			basename, body_begin, body_end,
+			body_end > body_begin ? body_end - body_begin : 0);
 
 		// Additional node state info
 		fprintf(stderr, "[NODE-STATE] name=%s\n",
@@ -262,7 +342,7 @@ bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir
 
 		if (body_begin < 0 || body_end <= body_begin) {
 			fprintf(stderr, "[MIME-ERROR] MIME parsed empty body for %s: begin=%lld end=%lld\n",
-				basename, (long long) body_begin, (long long) body_end);
+				basename, body_begin, body_end);
 			item.add_text("name", basename);
 			item.add_number("size", 0);
 			item.add_bool("saved", false);
@@ -270,19 +350,13 @@ bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir
 			continue;
 		}
 
-		fprintf(stderr, "[MIME-SAVE] Calling node->save(%s)...\n", dest.c_str());
-		if (node->save(dest.c_str())) {
-			fprintf(stderr, "[MIME-SAVE] node->save() returned true\n");
-
-			acl::ifstream fin;
-			long long fsize = -1;
-			if (fin.open_read(dest.c_str())) {
-				fsize = fin.fsize();
-				fprintf(stderr, "[FILE-CHECK] %s size=%lld\n", dest.c_str(), fsize);
-				fin.close();
-			} else {
-				fprintf(stderr, "[FILE-ERROR] Cannot open file %s: %s\n", dest.c_str(), acl::last_serror());
-			}
+		std::string save_err;
+		long long fsize = -1;
+		fprintf(stderr, "[MIME-SAVE] Extracting %s to %s...\n", basename, dest.c_str());
+		if (copy_mime_body_to_file(tmp_path.c_str(), dest, body_begin, body_end,
+			fsize, save_err))
+		{
+			fprintf(stderr, "[FILE-CHECK] %s size=%lld\n", dest.c_str(), fsize);
 
 			if (fsize <= 0) {
 				fprintf(stderr, "[SAVE-FAIL] Saved file is empty or invalid: %s (%lld bytes), body_begin=%lld body_end=%lld\n",
@@ -304,9 +378,10 @@ bool UploadAction::saveFiles(acl::http_mime& mime, const std::string& upload_dir
 			printf("Saved: %s (%lld bytes), body_begin=%lld body_end=%lld\n", dest.c_str(), fsize, (long long) body_begin, (long long) body_end);
 		} else {
 			fprintf(stderr, "[SAVE-ERROR] node->save() failed for %s: %s, body_begin=%lld body_end=%lld\n",
-				basename, acl::last_serror(), (long long) body_begin, (long long) body_end);
+				basename, save_err.c_str(), (long long) body_begin, (long long) body_end);
 			item.add_text("name", basename);
 			item.add_bool("saved", false);
+			item.add_text("error", save_err.c_str());
 		}
 	}
 	fprintf(stderr, "[MIME-DEBUG] saveFiles completed: saved_count=%d\n", saved_count);
