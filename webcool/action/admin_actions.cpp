@@ -148,10 +148,26 @@ static bool canonical_existing_path(const std::string& input,
 	return true;
 }
 
+static bool is_absolute_storage_path(const std::string& path)
+{
+#ifdef _WIN32
+	return (path.size() >= 3
+			&& ((path[0] >= 'A' && path[0] <= 'Z')
+				|| (path[0] >= 'a' && path[0] <= 'z'))
+			&& path[1] == ':'
+			&& (path[2] == '/' || path[2] == '\\'))
+		|| (path.size() >= 2
+			&& (path[0] == '/' || path[0] == '\\')
+			&& (path[1] == '/' || path[1] == '\\'));
+#else
+	return !path.empty() && path[0] == '/';
+#endif
+}
+
 static bool ensure_storage_target_path(const std::string& input,
 	std::string& out, std::string& err)
 {
-	if (input.empty() || input[0] != '/') {
+	if (!is_absolute_storage_path(input)) {
 		err = "target path must be absolute";
 		return false;
 	}
@@ -165,6 +181,36 @@ static bool ensure_storage_target_path(const std::string& input,
 static bool is_same_or_child_path(const std::string& base,
 	const std::string& candidate)
 {
+#ifdef _WIN32
+	std::string left = base;
+	std::string right = candidate;
+	for (size_t i = 0; i < left.size(); ++i) {
+		if (left[i] == '\\') {
+			left[i] = '/';
+		} else if (left[i] >= 'A' && left[i] <= 'Z') {
+			left[i] = (char) (left[i] - 'A' + 'a');
+		}
+	}
+	for (size_t i = 0; i < right.size(); ++i) {
+		if (right[i] == '\\') {
+			right[i] = '/';
+		} else if (right[i] >= 'A' && right[i] <= 'Z') {
+			right[i] = (char) (right[i] - 'A' + 'a');
+		}
+	}
+	while (left.size() > 3 && left[left.size() - 1] == '/') {
+		left.erase(left.size() - 1);
+	}
+	while (right.size() > 3 && right[right.size() - 1] == '/') {
+		right.erase(right.size() - 1);
+	}
+	if (left == right) {
+		return true;
+	}
+	return right.size() > left.size()
+		&& right.compare(0, left.size(), left) == 0
+		&& right[left.size()] == '/';
+#else
 	if (base == candidate) {
 		return true;
 	}
@@ -174,6 +220,7 @@ static bool is_same_or_child_path(const std::string& base,
 	return candidate.size() > base.size()
 		&& candidate.compare(0, base.size(), base) == 0
 		&& candidate[base.size()] == '/';
+#endif
 }
 
 static bool init_storage_databases(const std::string& path, std::string& err)
@@ -187,10 +234,21 @@ static bool init_storage_databases(const std::string& path, std::string& err)
 static std::string join_storage_path(const std::string& parent,
 	const char* name)
 {
+#ifdef _WIN32
+	if (parent.empty()) {
+		return name ? name : "";
+	}
+	const char tail = parent[parent.size() - 1];
+	if (tail == '/' || tail == '\\') {
+		return parent + name;
+	}
+	return parent + "\\" + name;
+#else
 	if (parent == "/") {
 		return std::string("/") + name;
 	}
 	return parent + "/" + name;
+#endif
 }
 
 static std::string storage_backup_date_suffix()
@@ -329,8 +387,8 @@ static bool collect_move_items(const std::string& source,
 		if (strcmp(entry->d_name, ".backup") == 0) {
 			continue;
 		}
-		const std::string child_source = source + "/" + entry->d_name;
-		const std::string child_target = target + "/" + entry->d_name;
+		const std::string child_source = join_storage_path(source, entry->d_name);
+		const std::string child_target = join_storage_path(target, entry->d_name);
 		struct stat st;
 		if (lstat(child_source.c_str(), &st) != 0) {
 			err = strerror(errno);
@@ -429,6 +487,25 @@ static bool copy_file_with_progress(const storage_move_item_t& item,
 
 static std::string storage_base_name(const std::string& path)
 {
+#ifdef _WIN32
+	if (path.empty()) {
+		return path;
+	}
+	std::string text = path;
+	for (size_t i = 0; i < text.size(); ++i) {
+		if (text[i] == '\\') {
+			text[i] = '/';
+		}
+	}
+	while (text.size() > 3 && text[text.size() - 1] == '/') {
+		text.erase(text.size() - 1);
+	}
+	if (text.size() >= 2 && text.size() <= 3 && text[1] == ':') {
+		return text;
+	}
+	std::string::size_type pos = text.rfind('/');
+	return pos == std::string::npos ? text : text.substr(pos + 1);
+#else
 	if (path.empty() || path == "/") {
 		return path;
 	}
@@ -438,6 +515,7 @@ static std::string storage_base_name(const std::string& path)
 	}
 	std::string::size_type pos = text.rfind('/');
 	return pos == std::string::npos ? text : text.substr(pos + 1);
+#endif
 }
 
 static std::string wait_storage_conflict_resolution(storage_migrate_task_t& task,
@@ -522,7 +600,7 @@ static bool delete_path_recursive_plain(const std::string& path, std::string& er
 			if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
 				continue;
 			}
-			if (!delete_path_recursive_plain(path + "/" + entry->d_name, err)) {
+			if (!delete_path_recursive_plain(join_storage_path(path, entry->d_name), err)) {
 				closedir(dir);
 				return false;
 			}
@@ -556,7 +634,7 @@ static bool delete_storage_contents_except_backup(const std::string& path,
 		{
 			continue;
 		}
-		if (!delete_path_recursive_plain(path + "/" + entry->d_name, err)) {
+		if (!delete_path_recursive_plain(join_storage_path(path, entry->d_name), err)) {
 			closedir(dir);
 			return false;
 		}
