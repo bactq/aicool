@@ -40,6 +40,7 @@ enum {
 
 static const UINT WM_WEBCOOL_TRAY = WM_APP + 88;
 static const UINT WEBCOOL_TRAY_ID = 1;
+static const UINT_PTR WEBCOOL_SYNC_TIMER_ID = 2;
 static HBRUSH g_control_bg_brush = NULL;
 static HBRUSH g_control_panel_brush = NULL;
 static HFONT g_control_font = NULL;
@@ -260,6 +261,29 @@ static void save_control_config(HWND hwnd) {
 		utf8_to_wide_text(get_window_utf8(hwnd, IDC_SQLITE_EDIT).c_str()));
 	write_profile_text(L"paths", L"ffmpeg_path",
 		utf8_to_wide_text(get_window_utf8(hwnd, IDC_FFMPEG_EDIT).c_str()));
+}
+
+static void update_control_window2(HWND hwnd);
+
+static void sync_upload_dir_from_runtime(HWND hwnd) {
+	webcool_controller* controller =
+		(webcool_controller*) GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+	if (controller == nullptr || !controller->running()) {
+		return;
+	}
+	const std::string runtime_upload_dir = action::runtime_upload_dir_get();
+	if (runtime_upload_dir.empty() || runtime_upload_dir == g_upload_dir) {
+		return;
+	}
+	std::string err;
+	if (!set_config_text(g_upload_dir, sizeof(g_upload_dir),
+		runtime_upload_dir, "file save directory", err))
+	{
+		return;
+	}
+	set_window_utf8(hwnd, IDC_UPLOAD_EDIT, g_upload_dir);
+	write_profile_text(L"paths", L"upload_dir", utf8_to_wide_text(g_upload_dir));
+	update_control_window2(hwnd);
 }
 
 static void update_dos_button_text(HWND hwnd) {
@@ -592,6 +616,7 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 		CREATESTRUCTW* cs = (CREATESTRUCTW*) lparam;
 		SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR) cs->lpCreateParams);
 		SetWindowTextW(hwnd, tr(UI_TITLE));
+		SetTimer(hwnd, WEBCOOL_SYNC_TIMER_ID, 1000, NULL);
 		HFONT font = (HFONT) GetStockObject(DEFAULT_GUI_FONT);
 		CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT,
 			22, 18, 380, 62, hwnd, (HMENU) IDC_STATUS_TEXT,
@@ -815,6 +840,12 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 			return 0;
 		}
 		break;
+	case WM_TIMER:
+		if (wparam == WEBCOOL_SYNC_TIMER_ID) {
+			sync_upload_dir_from_runtime(hwnd);
+			return 0;
+		}
+		break;
 	case WM_WEBCOOL_TRAY:
 		if (lparam == WM_LBUTTONUP || lparam == WM_LBUTTONDBLCLK) {
 			restore_from_tray(hwnd);
@@ -842,6 +873,7 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 		return 0;
 	}
 	case WM_DESTROY:
+		KillTimer(hwnd, WEBCOOL_SYNC_TIMER_ID);
 		remove_tray_icon(hwnd);
 		PostQuitMessage(0);
 		return 0;
