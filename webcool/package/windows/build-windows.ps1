@@ -5,9 +5,11 @@ param(
     [string]$Platform = "x64",
     [switch]$SkipBuild,
     [switch]$NoZip,
+    [switch]$NoInstaller,
     [string]$OutputDir = "",
     [string]$FfmpegPath = "",
-    [string]$MsBuildPath = ""
+    [string]$MsBuildPath = "",
+    [string]$InnoSetupPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,6 +54,34 @@ function Find-MSBuild {
     throw "MSBuild.exe not found. Pass -MsBuildPath or install Visual Studio Build Tools."
 }
 
+function Find-InnoSetup {
+    param([string]$ExplicitPath)
+
+    if ($ExplicitPath -and (Test-Path -LiteralPath $ExplicitPath)) {
+        return (Resolve-Path -LiteralPath $ExplicitPath).Path
+    }
+
+    $cmd = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+    if ($cmd -and (Test-Path -LiteralPath $cmd.Source)) {
+        return $cmd.Source
+    }
+
+    $candidates = @(
+        (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"),
+        (Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 5\ISCC.exe"),
+        (Join-Path $env:ProgramFiles "Inno Setup 5\ISCC.exe")
+    )
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            return $candidate
+        }
+    }
+
+    return ""
+}
+
 function Copy-DirectoryContent {
     param([string]$Source, [string]$Destination)
     if (!(Test-Path -LiteralPath $Source)) {
@@ -59,6 +89,95 @@ function Copy-DirectoryContent {
     }
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
     Copy-Item -Path (Join-Path $Source "*") -Destination $Destination -Recurse -Force
+}
+
+function Escape-InnoString {
+    param([string]$Value)
+    return ($Value -replace '"', '""')
+}
+
+function Write-TextFileUtf8Bom {
+    param([string]$Path, [string]$Value)
+    $encoding = New-Object System.Text.UTF8Encoding $true
+    [System.IO.File]::WriteAllText($Path, $Value, $encoding)
+}
+
+function Write-InnoSetupScript {
+    param(
+        [string]$PackageRoot,
+        [string]$OutputDir,
+        [string]$PackageName,
+        [string]$Version,
+        [string]$Platform,
+        [string]$Configuration
+    )
+
+    $issPath = Join-Path $OutputDir "$PackageName.iss"
+    $setupBaseName = "$PackageName-setup"
+    $source = Escape-InnoString $PackageRoot
+    $out = Escape-InnoString $OutputDir
+    $appVersion = Escape-InnoString $Version
+    $comments = Escape-InnoString "Platform=$Platform; Configuration=$Configuration"
+
+    $iss = @"
+#define MyAppName "webcool"
+#define MyAppVersion "$appVersion"
+#define MyAppPublisher "Aicool"
+#define MyAppExeName "webcool.exe"
+
+[Setup]
+AppId={{4B3CB30F-3F5C-4BC9-98C5-4478D6C69080}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+AppComments=$comments
+DefaultDirName={autopf}\webcool
+DefaultGroupName=webcool
+DisableProgramGroupPage=yes
+AllowNoIcons=yes
+OutputDir=$out
+OutputBaseFilename=$setupBaseName
+Compression=lzma2
+SolidCompression=yes
+WizardStyle=modern
+PrivilegesRequired=admin
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+SetupIconFile=$source\webcool.ico
+UninstallDisplayIcon={app}\webcool.exe
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+
+[Dirs]
+Name: "{commonappdata}\webcool\uploads"; Permissions: users-modify
+
+[Files]
+Source: "$source\webcool.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "$source\webcool.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "$source\sqlite.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "$source\ffmpeg.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "$source\run-webcool.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "$source\install.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "$source\uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "$source\README-Windows.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "$source\html\*"; DestDir: "{app}\html"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{group}\webcool Control Panel"; Filename: "{app}\webcool.exe"; Parameters: "-G -d ""{commonappdata}\webcool\uploads"" -w ""{app}\html"" -S ""{app}\sqlite.dll"" -F ""{app}\ffmpeg.exe"""; WorkingDir: "{app}"
+Name: "{group}\Open webcool"; Filename: "http://127.0.0.1:8080/"
+Name: "{group}\Uninstall webcool"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\webcool Control Panel"; Filename: "{app}\webcool.exe"; Parameters: "-G -d ""{commonappdata}\webcool\uploads"" -w ""{app}\html"" -S ""{app}\sqlite.dll"" -F ""{app}\ffmpeg.exe"""; WorkingDir: "{app}"; Tasks: desktopicon
+
+[Run]
+Filename: "{app}\webcool.exe"; Parameters: "-G -d ""{commonappdata}\webcool\uploads"" -w ""{app}\html"" -S ""{app}\sqlite.dll"" -F ""{app}\ffmpeg.exe"""; Description: "Start webcool Control Panel"; Flags: nowait postinstall skipifsilent
+"@
+
+    Write-TextFileUtf8Bom -Path $issPath -Value $iss
+    return $issPath
 }
 
 function Write-PackageScripts {
@@ -248,6 +367,7 @@ $packageName = "webcool-$Version-windows-$Platform-$($Configuration.ToLowerInvar
 $stageRoot = Join-Path $OutputDir "stage"
 $appRoot = Join-Path $stageRoot $packageName
 $zipPath = Join-Path $OutputDir "$packageName.zip"
+$setupPath = Join-Path $OutputDir "$packageName-setup.exe"
 
 Log "staging package: $appRoot"
 if (Test-Path -LiteralPath $appRoot) {
@@ -257,6 +377,7 @@ New-Item -ItemType Directory -Force -Path $appRoot | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $appRoot "uploads") | Out-Null
 
 Copy-Item -LiteralPath $webcoolExe -Destination (Join-Path $appRoot "webcool.exe") -Force
+Copy-Item -LiteralPath (Join-Path $webcoolRoot "res\webcool.ico") -Destination (Join-Path $appRoot "webcool.ico") -Force
 Copy-Item -LiteralPath $sqliteDll -Destination (Join-Path $appRoot "sqlite.dll") -Force
 Copy-Item -LiteralPath $FfmpegPath -Destination (Join-Path $appRoot "ffmpeg.exe") -Force
 Copy-DirectoryContent -Source (Join-Path $webcoolRoot "html") -Destination (Join-Path $appRoot "html")
@@ -271,8 +392,42 @@ if (!$NoZip) {
     Compress-Archive -LiteralPath $appRoot -DestinationPath $zipPath -Force
 }
 
+$issPath = ""
+if (!$NoInstaller) {
+    Log "creating installer script"
+    New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+    $issPath = Write-InnoSetupScript `
+        -PackageRoot $appRoot `
+        -OutputDir $OutputDir `
+        -PackageName $packageName `
+        -Version $Version `
+        -Platform $Platform `
+        -Configuration $Configuration
+
+    $iscc = Find-InnoSetup -ExplicitPath $InnoSetupPath
+    if ($iscc) {
+        Log "building installer with Inno Setup"
+        if (Test-Path -LiteralPath $setupPath) {
+            Remove-Item -LiteralPath $setupPath -Force
+        }
+        & $iscc $issPath
+        if (!(Test-Path -LiteralPath $setupPath)) {
+            throw "installer was not created: $setupPath"
+        }
+    } else {
+        Write-Warning "Inno Setup compiler (ISCC.exe) was not found. Install Inno Setup 6 or pass -InnoSetupPath to build the setup EXE."
+        Write-Warning "Installer script was generated: $issPath"
+    }
+}
+
 Log "done"
 Write-Host "Package directory: $appRoot"
 if (!$NoZip) {
     Write-Host "Package zip:       $zipPath"
+}
+if (!$NoInstaller) {
+    Write-Host "Installer script:  $issPath"
+    if (Test-Path -LiteralPath $setupPath) {
+        Write-Host "Installer exe:     $setupPath"
+    }
 }
