@@ -3,6 +3,7 @@
 
 #ifdef _WIN32
 #include "../platform_compat.h"
+#include <shlobj.h>
 #else
 #include <dirent.h>
 #include <limits.h>
@@ -49,6 +50,76 @@ static bool seek_file64(FILE* fp, long long offset)
 #endif
 }
 
+#ifdef _WIN32
+static std::string windows_home_path()
+{
+	wchar_t path[MAX_PATH];
+	memset(path, 0, sizeof(path));
+	if (SHGetFolderPathW(NULL, CSIDL_PROFILE, NULL, SHGFP_TYPE_CURRENT, path)
+		== S_OK && path[0] != L'\0')
+	{
+		std::string utf8;
+		if (webcool_wide_to_utf8(path, utf8) && !utf8.empty()) {
+			return utf8;
+		}
+	}
+
+	const char* home = getenv("USERPROFILE");
+	if (home == NULL || *home == '\0') {
+		home = getenv("HOME");
+	}
+	return home && *home ? home : ".";
+}
+
+static std::string windows_last_error_message(DWORD code)
+{
+	wchar_t* buffer = NULL;
+	const DWORD flags = FORMAT_MESSAGE_ALLOCATE_BUFFER
+		| FORMAT_MESSAGE_FROM_SYSTEM
+		| FORMAT_MESSAGE_IGNORE_INSERTS;
+	const DWORD len = FormatMessageW(flags, NULL, code, 0,
+		(LPWSTR) &buffer, 0, NULL);
+	std::string message;
+	if (len > 0 && buffer != NULL) {
+		webcool_wide_to_utf8(buffer, message);
+		while (!message.empty()
+			&& (message[message.size() - 1] == '\r'
+				|| message[message.size() - 1] == '\n'
+				|| message[message.size() - 1] == '.'
+				|| message[message.size() - 1] == ' '))
+		{
+			message.erase(message.size() - 1);
+		}
+	}
+	if (buffer != NULL) {
+		LocalFree(buffer);
+	}
+	if (message.empty()) {
+		char tmp[64];
+		snprintf(tmp, sizeof(tmp), "Windows error %lu", (unsigned long) code);
+		message = tmp;
+	}
+	return message;
+}
+
+static std::wstring windows_dir_pattern_from_utf8(const std::string& path)
+{
+	std::wstring pattern;
+	if (!webcool_utf8_to_wide(path.c_str(), pattern)) {
+		return std::wstring();
+	}
+	const wchar_t tail = pattern.empty() ? L'\0' : pattern[pattern.size() - 1];
+	if (tail != L'/' && tail != L'\\') {
+		pattern += L"\\";
+	}
+	pattern += L"*";
+	return pattern;
+}
+
+static bool collect_windows_directory_entries(const std::string& path,
+	bool show_hidden, std::vector<local_entry_t>& entries, std::string& err);
+#endif
+
 struct local_import_file_t {
 	std::string source;
 	std::string name;
@@ -91,11 +162,7 @@ static bool normalize_local_path(const char* input, std::string& out,
 	err.clear();
 #ifdef _WIN32
 	const bool has_input = input != NULL && *input != '\0';
-	const char* home = getenv("USERPROFILE");
-	if (home == NULL || *home == '\0') {
-		home = getenv("HOME");
-	}
-	std::string text = has_input ? input : (home && *home ? home : ".");
+	std::string text = has_input ? input : windows_home_path();
 	if (text == "/") {
 		text = "\\";
 	}
@@ -131,13 +198,8 @@ static bool normalize_local_path(const char* input, std::string& out,
 
 static std::string current_home_path() {
 #ifdef _WIN32
-	const char* home = getenv("USERPROFILE");
-	if (home == NULL || *home == '\0') {
-		home = getenv("HOME");
-	}
-	if (home == NULL || *home == '\0') {
-		home = ".";
-	}
+	const std::string home_path = windows_home_path();
+	const char* home = home_path.c_str();
 #else
 	const char* home = getenv("HOME");
 	if (home == NULL || *home == '\0') {
@@ -1288,6 +1350,30 @@ static bool validate_local_name(const std::string& name, std::string& err) {
 }
 
 static bool directory_is_empty(const std::string& path) {
+#ifdef _WIN32
+	std::wstring pattern = windows_dir_pattern_from_utf8(path);
+	if (pattern.empty()) {
+		return false;
+	}
+	WIN32_FIND_DATAW data;
+	HANDLE handle = FindFirstFileW(pattern.c_str(), &data);
+	if (handle == INVALID_HANDLE_VALUE) {
+		return false;
+	}
+	do {
+		std::string name;
+		if (!webcool_wide_to_utf8(data.cFileName, name)) {
+			continue;
+		}
+		if (name == "." || name == "..") {
+			continue;
+		}
+		FindClose(handle);
+		return false;
+	} while (FindNextFileW(handle, &data));
+	FindClose(handle);
+	return true;
+#else
 	DIR* dir = opendir(path.c_str());
 	if (dir == NULL) {
 		return false;
@@ -1302,6 +1388,7 @@ static bool directory_is_empty(const std::string& path) {
 	}
 	closedir(dir);
 	return true;
+#endif
 }
 
 static void format_time(time_t ts, char* buf, size_t size) {
@@ -1312,6 +1399,96 @@ static void format_time(time_t ts, char* buf, size_t size) {
 	acl_localtime_r(&ts, &tmv);
 	strftime(buf, size, "%Y-%m-%d %H:%M:%S", &tmv);
 }
+
+#ifdef _WIN32
+static time_t windows_file_time_to_unix(const FILETIME& ft)
+{
+	ULARGE_INTEGER value;
+	value.HighPart = ft.dwHighDateTime;
+	value.LowPart = ft.dwLowDateTime;
+	const unsigned long long ticks_per_second = 10000000ULL;
+	const unsigned long long unix_epoch = 11644473600ULL;
+	const unsigned long long seconds = value.QuadPart / ticks_per_second;
+	return seconds > unix_epoch ? (time_t) (seconds - unix_epoch) : 0;
+}
+
+static bool collect_windows_directory_entries(const std::string& path,
+	bool show_hidden, std::vector<local_entry_t>& entries, std::string& err)
+{
+	err.clear();
+	const std::wstring pattern = windows_dir_pattern_from_utf8(path);
+	if (pattern.empty()) {
+		err = "invalid UTF-8 path";
+		return false;
+	}
+
+	WIN32_FIND_DATAW data;
+	HANDLE handle = FindFirstFileW(pattern.c_str(), &data);
+	if (handle == INVALID_HANDLE_VALUE) {
+		err = windows_last_error_message(GetLastError());
+		return false;
+	}
+
+	do {
+		std::string name;
+		if (!webcool_wide_to_utf8(data.cFileName, name)) {
+			continue;
+		}
+		if (name == "." || name == "..") {
+			continue;
+		}
+		const DWORD attrs = data.dwFileAttributes;
+		if (!show_hidden
+			&& ((attrs & FILE_ATTRIBUTE_HIDDEN) != 0
+				|| (attrs & FILE_ATTRIBUTE_SYSTEM) != 0))
+		{
+			continue;
+		}
+		if ((attrs & FILE_ATTRIBUTE_DIRECTORY) == 0
+			&& (attrs & FILE_ATTRIBUTE_ARCHIVE) == 0
+			&& (attrs & FILE_ATTRIBUTE_NORMAL) == 0)
+		{
+			continue;
+		}
+
+		const std::string child_path = join_local_path(path, name.c_str());
+		local_entry_t item;
+		item.name = name;
+		item.path = child_path;
+		item.directory = (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
+		item.empty_directory = item.directory && directory_is_empty(child_path);
+		ULARGE_INTEGER size;
+		size.HighPart = data.nFileSizeHigh;
+		size.LowPart = data.nFileSizeLow;
+		item.size = item.directory ? 0 : (long long) size.QuadPart;
+		item.created_at = (long long) windows_file_time_to_unix(data.ftCreationTime);
+		item.modified_at = (long long) windows_file_time_to_unix(data.ftLastWriteTime);
+		char created_buf[32];
+		char modified_buf[32];
+		format_time((time_t) item.created_at, created_buf, sizeof(created_buf));
+		format_time((time_t) item.modified_at, modified_buf, sizeof(modified_buf));
+		item.created_time = created_buf;
+		item.modified_time = modified_buf;
+		entries.push_back(item);
+	} while (FindNextFileW(handle, &data));
+
+	const DWORD last_error = GetLastError();
+	FindClose(handle);
+	if (last_error != ERROR_NO_MORE_FILES) {
+		err = windows_last_error_message(last_error);
+		return false;
+	}
+
+	std::sort(entries.begin(), entries.end(),
+		[](const local_entry_t& a, const local_entry_t& b) {
+			if (a.directory != b.directory) {
+				return a.directory > b.directory;
+			}
+			return a.name < b.name;
+		});
+	return true;
+}
+#endif
 
 static bool ends_with_ignore_case(const std::string& text, const char* suffix) {
 	size_t suffix_len = suffix ? strlen(suffix) : 0;
@@ -1461,6 +1638,17 @@ bool LocalDiskListAction::run(request_t& req, response_t& res,
 			return true;
 		}
 
+		const char* show_hidden_text = req.getParameter("show_hidden");
+		const bool show_hidden = show_hidden_text != NULL
+			&& (strcmp(show_hidden_text, "1") == 0
+				|| strcasecmp(show_hidden_text, "true") == 0
+				|| strcasecmp(show_hidden_text, "yes") == 0);
+#ifdef _WIN32
+		if (!collect_windows_directory_entries(path, show_hidden, entries, err)) {
+			json_error(res, 403, err.c_str(), req.isKeepAlive());
+			return true;
+		}
+#else
 		DIR* dir = opendir(path.c_str());
 		if (dir == NULL) {
 #ifdef __APPLE__
@@ -1477,11 +1665,6 @@ bool LocalDiskListAction::run(request_t& req, response_t& res,
 			return true;
 		}
 
-		const char* show_hidden_text = req.getParameter("show_hidden");
-		const bool show_hidden = show_hidden_text != NULL
-			&& (strcmp(show_hidden_text, "1") == 0
-				|| strcasecmp(show_hidden_text, "true") == 0
-				|| strcasecmp(show_hidden_text, "yes") == 0);
 		struct dirent* entry = NULL;
 		while ((entry = readdir(dir)) != NULL) {
 			if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
@@ -1531,6 +1714,7 @@ bool LocalDiskListAction::run(request_t& req, response_t& res,
 				}
 				return a.name < b.name;
 			});
+#endif
 	}
 
 	acl::json json;

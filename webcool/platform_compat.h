@@ -379,6 +379,14 @@ inline DIR* opendir(const char* path)
 	}
 	dir->handle = FindFirstFileW(pattern.c_str(), &dir->data);
 	if (dir->handle == INVALID_HANDLE_VALUE) {
+		const DWORD err = GetLastError();
+		if (err == ERROR_ACCESS_DENIED) {
+			errno = EACCES;
+		} else if (err == ERROR_PATH_NOT_FOUND || err == ERROR_FILE_NOT_FOUND) {
+			errno = ENOENT;
+		} else {
+			errno = EINVAL;
+		}
 		delete dir;
 		return NULL;
 	}
