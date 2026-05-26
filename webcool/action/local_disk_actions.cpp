@@ -91,7 +91,11 @@ static bool normalize_local_path(const char* input, std::string& out,
 	err.clear();
 #ifdef _WIN32
 	const bool has_input = input != NULL && *input != '\0';
-	std::string text = has_input ? input : ".";
+	const char* home = getenv("USERPROFILE");
+	if (home == NULL || *home == '\0') {
+		home = getenv("HOME");
+	}
+	std::string text = has_input ? input : (home && *home ? home : ".");
 	if (text == "/") {
 		text = "\\";
 	}
