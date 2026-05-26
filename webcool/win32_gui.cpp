@@ -47,6 +47,9 @@ static HFONT g_control_font = NULL;
 static HFONT g_control_title_font = NULL;
 static bool g_dos_console_open = false;
 static std::wstring g_control_config_path;
+static const wchar_t* k_control_window_class = L"WebCoolControlWindow";
+static const wchar_t* k_control_single_instance_mutex =
+	L"Local\\AicoolWebcoolControlWindow";
 enum gui_language_t {
 	GUI_LANG_ZH = 0,
 	GUI_LANG_EN = 1
@@ -454,6 +457,18 @@ static void restore_from_tray(HWND hwnd) {
 	remove_tray_icon(hwnd);
 	ShowWindow(hwnd, SW_SHOWNORMAL);
 	SetForegroundWindow(hwnd);
+}
+
+static bool activate_existing_control_window() {
+	HWND hwnd = FindWindowW(k_control_window_class, NULL);
+	if (hwnd == NULL) {
+		return false;
+	}
+	remove_tray_icon(hwnd);
+	ShowWindow(hwnd, SW_RESTORE);
+	ShowWindow(hwnd, SW_SHOWNORMAL);
+	SetForegroundWindow(hwnd);
+	return true;
 }
 
 static void show_tray_menu(HWND hwnd) {
@@ -884,8 +899,18 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 }
 
 int run_windows_control_gui(webcool_controller& controller) {
+	HANDLE single_instance = CreateMutexW(NULL, FALSE,
+		k_control_single_instance_mutex);
+	if (single_instance == NULL) {
+		return 1;
+	}
+	if (GetLastError() == ERROR_ALREADY_EXISTS) {
+		activate_existing_control_window();
+		CloseHandle(single_instance);
+		return 0;
+	}
+
 	load_control_config(controller);
-	const wchar_t* class_name = L"WebCoolControlWindow";
 	WNDCLASSW wc;
 	memset(&wc, 0, sizeof(wc));
 	wc.lpfnWndProc = control_window_proc;
@@ -893,16 +918,18 @@ int run_windows_control_gui(webcool_controller& controller) {
 	wc.hIcon = load_webcool_icon();
 	wc.hCursor = LoadCursorW(NULL, MAKEINTRESOURCEW(32512));
 	wc.hbrBackground = (HBRUSH) (COLOR_WINDOW + 1);
-	wc.lpszClassName = class_name;
+	wc.lpszClassName = k_control_window_class;
 	if (!RegisterClassW(&wc)) {
+		CloseHandle(single_instance);
 		return 1;
 	}
 
-	HWND hwnd = CreateWindowExW(0, class_name, L"webcool 控制界面",
+	HWND hwnd = CreateWindowExW(0, k_control_window_class, L"webcool 控制界面",
 		WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
 		CW_USEDEFAULT, CW_USEDEFAULT, 714, 474,
 		NULL, NULL, GetModuleHandleW(NULL), &controller);
 	if (hwnd == NULL) {
+		CloseHandle(single_instance);
 		return 1;
 	}
 	ShowWindow(hwnd, SW_SHOW);
@@ -913,6 +940,7 @@ int run_windows_control_gui(webcool_controller& controller) {
 		TranslateMessage(&msg);
 		DispatchMessageW(&msg);
 	}
+	CloseHandle(single_instance);
 	return (int) msg.wParam;
 }
 
