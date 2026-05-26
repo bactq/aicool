@@ -14,6 +14,9 @@
       --ok-bg: #ecfff1;
       --warn: #8a5a00;
       --warn-bg: #fff7e8;
+      --ui-scale: 1;
+      --scaled-shell-width: 100%;
+      --scaled-shell-height: calc(100vh - 28px);
     }
 
     * { box-sizing: border-box; }
@@ -33,9 +36,9 @@
     }
 
     .shell {
-      width: 100%;
-      height: calc(100vh - 28px);
-      min-height: calc(100vh - 28px);
+      width: var(--scaled-shell-width);
+      height: var(--scaled-shell-height);
+      min-height: var(--scaled-shell-height);
       margin: 0 auto;
       background: var(--card);
       border: 1px solid var(--line);
@@ -45,6 +48,8 @@
       display: grid;
       grid-template-columns: 270px minmax(0, 1fr);
       overflow: hidden;
+      transform: scale(var(--ui-scale));
+      transform-origin: top left;
     }
 
     .left-pane {
@@ -3475,8 +3480,8 @@
     }
 
     @keyframes rise {
-      from { opacity: 0; transform: translateY(6px); }
-      to   { opacity: 1; transform: translateY(0); }
+      from { opacity: 0; transform: translateY(6px) scale(var(--ui-scale)); }
+      to   { opacity: 1; transform: translateY(0) scale(var(--ui-scale)); }
     }
 
     @media (max-width: 900px) {
@@ -3487,8 +3492,11 @@
       }
 
       .shell {
+        width: 100%;
         height: auto;
+        min-height: 0;
         grid-template-columns: 1fr;
+        transform: none;
       }
 
       .shell.sidebar-collapsed {

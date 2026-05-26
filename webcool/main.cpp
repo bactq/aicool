@@ -5,7 +5,7 @@
 #include "webcool_controller.h"
 #include "server_thread.h"
 
-static const char* g_webcool_version = "1.0.8";
+static const char* g_webcool_version = "1.0.9";
 
 static const char* event_type_name(acl::fiber_event_t event_type) {
 	switch (event_type) {
