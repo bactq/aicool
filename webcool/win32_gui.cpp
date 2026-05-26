@@ -20,10 +20,22 @@ enum {
 	IDC_SQLITE_EDIT = 1013,
 	IDC_FFMPEG_EDIT = 1014,
 	IDC_THREADS_EDIT = 1015,
+	IDC_LANG_COMBO = 1016,
 	IDC_UPLOAD_BROWSE = 1021,
 	IDC_HTML_BROWSE = 1022,
 	IDC_SQLITE_BROWSE = 1023,
-	IDC_FFMPEG_BROWSE = 1024
+	IDC_FFMPEG_BROWSE = 1024,
+	IDC_TITLE_TEXT = 1030,
+	IDC_GROUP_TEXT = 1031,
+	IDC_ADDR_LABEL = 1040,
+	IDC_UPLOAD_LABEL = 1041,
+	IDC_HTML_LABEL = 1042,
+	IDC_SQLITE_LABEL = 1043,
+	IDC_FFMPEG_LABEL = 1044,
+	IDC_THREADS_LABEL = 1045,
+	IDC_LANG_LABEL = 1046,
+	IDM_TRAY_OPEN = 1101,
+	IDM_TRAY_EXIT = 1102
 };
 
 static const UINT WM_WEBCOOL_TRAY = WM_APP + 88;
@@ -33,6 +45,80 @@ static HBRUSH g_control_panel_brush = NULL;
 static HFONT g_control_font = NULL;
 static HFONT g_control_title_font = NULL;
 static bool g_dos_console_open = false;
+static std::wstring g_control_config_path;
+enum gui_language_t {
+	GUI_LANG_ZH = 0,
+	GUI_LANG_EN = 1
+};
+static gui_language_t g_gui_language = GUI_LANG_ZH;
+
+enum ui_text_t {
+	UI_TITLE,
+	UI_STATUS_RUNNING,
+	UI_STATUS_STOPPED,
+	UI_LISTEN_ADDR,
+	UI_UPLOAD_DIR,
+	UI_HTML_HOME,
+	UI_SQLITE_LIB,
+	UI_FFMPEG_EXE,
+	UI_THREADS,
+	UI_LANGUAGE,
+	UI_SERVICE_CONFIG,
+	UI_START,
+	UI_STOP,
+	UI_MINIMIZE,
+	UI_EXIT,
+	UI_OPEN_BROWSER,
+	UI_OPEN_DOS,
+	UI_CLOSE_DOS,
+	UI_INVALID_CONFIG,
+	UI_START_FAILED,
+	UI_OPEN_DOS_FAILED,
+	UI_DOS_TITLE,
+	UI_SELECT_UPLOAD,
+	UI_SELECT_HTML,
+	UI_SELECT_SQLITE,
+	UI_SELECT_FFMPEG,
+	UI_SQLITE_FILTER,
+	UI_FFMPEG_FILTER,
+	UI_TRAY_OPEN
+};
+
+static const wchar_t* tr(ui_text_t id) {
+	const bool en = g_gui_language == GUI_LANG_EN;
+	switch (id) {
+	case UI_TITLE: return en ? L"webcool Control Panel" : L"webcool 控制界面";
+	case UI_STATUS_RUNNING: return en ? L"Status: Running" : L"状态：运行中";
+	case UI_STATUS_STOPPED: return en ? L"Status: Stopped" : L"状态：已停止";
+	case UI_LISTEN_ADDR: return en ? L"Listen address" : L"监听地址";
+	case UI_UPLOAD_DIR: return en ? L"File save directory" : L"文件保存目录";
+	case UI_HTML_HOME: return en ? L"Static resource root" : L"静态资源根目录";
+	case UI_SQLITE_LIB: return en ? L"sqlite library path" : L"sqlite动态库路径";
+	case UI_FFMPEG_EXE: return en ? L"ffmpeg executable path" : L"ffmpeg可执行文件路径";
+	case UI_THREADS: return en ? L"Worker threads" : L"工作线程数";
+	case UI_LANGUAGE: return en ? L"Language" : L"界面语言";
+	case UI_SERVICE_CONFIG: return en ? L"Service configuration" : L"服务配置";
+	case UI_START: return en ? L"Start" : L"启动";
+	case UI_STOP: return en ? L"Stop" : L"停止";
+	case UI_MINIMIZE: return en ? L"Minimize" : L"最小化";
+	case UI_EXIT: return en ? L"Exit" : L"退出";
+	case UI_OPEN_BROWSER: return en ? L"Open Browser" : L"打开浏览器";
+	case UI_OPEN_DOS: return en ? L"Open DOS" : L"打开DOS";
+	case UI_CLOSE_DOS: return en ? L"Close DOS" : L"关闭DOS";
+	case UI_INVALID_CONFIG: return en ? L"Invalid configuration: " : L"配置无效：";
+	case UI_START_FAILED: return en ? L"Failed to start webcool: " : L"启动 webcool 失败：";
+	case UI_OPEN_DOS_FAILED: return en ? L"Failed to open DOS terminal" : L"打开 DOS 终端失败";
+	case UI_DOS_TITLE: return en ? L"webcool DOS Debug Terminal" : L"webcool DOS 调试终端";
+	case UI_SELECT_UPLOAD: return en ? L"Select file save directory" : L"选择文件保存目录";
+	case UI_SELECT_HTML: return en ? L"Select static resource root" : L"选择静态资源根目录";
+	case UI_SELECT_SQLITE: return en ? L"Select sqlite library" : L"选择 sqlite 动态库";
+	case UI_SELECT_FFMPEG: return en ? L"Select ffmpeg executable" : L"选择 ffmpeg 可执行文件";
+	case UI_SQLITE_FILTER: return en ? L"sqlite library\0*.dll\0All files\0*.*\0" : L"sqlite 动态库\0*.dll\0所有文件\0*.*\0";
+	case UI_FFMPEG_FILTER: return en ? L"ffmpeg executable\0*.exe\0All files\0*.*\0" : L"ffmpeg 可执行文件\0*.exe\0所有文件\0*.*\0";
+	case UI_TRAY_OPEN: return en ? L"Open" : L"打开";
+	default: return L"";
+	}
+}
 
 static std::wstring utf8_to_wide_text(const char* text) {
 	std::wstring wide;
@@ -69,9 +155,116 @@ static void set_control_font(HWND hwnd, int id, HFONT font) {
 	SendMessageW(GetDlgItem(hwnd, id), WM_SETFONT, (WPARAM) font, TRUE);
 }
 
+static std::wstring app_config_path() {
+	if (!g_control_config_path.empty()) {
+		return g_control_config_path;
+	}
+	wchar_t path[32768];
+	memset(path, 0, sizeof(path));
+	GetModuleFileNameW(NULL, path, (DWORD) (sizeof(path) / sizeof(path[0])));
+	std::wstring dir(path);
+	const std::wstring::size_type pos = dir.find_last_of(L"\\/");
+	if (pos != std::wstring::npos) {
+		dir.resize(pos);
+	}
+	if (!dir.empty() && dir[dir.size() - 1] != L'\\' && dir[dir.size() - 1] != L'/') {
+		dir += L"\\";
+	}
+	g_control_config_path = dir + L"webcool-control.ini";
+	return g_control_config_path;
+}
+
+static std::wstring read_profile_text(const wchar_t* section,
+	  const wchar_t* key, const wchar_t* fallback) {
+	wchar_t buf[32768];
+	memset(buf, 0, sizeof(buf));
+	GetPrivateProfileStringW(section, key, fallback ? fallback : L"",
+		buf, (DWORD)(sizeof(buf) / sizeof(buf[0])), app_config_path().c_str());
+	return std::wstring(buf);
+}
+
+static int read_profile_int(const wchar_t* section,
+	  const wchar_t* key, int fallback) {
+	return (int)GetPrivateProfileIntW(section, key, fallback,
+		app_config_path().c_str());
+}
+
+static void write_profile_text(const wchar_t* section,
+	  const wchar_t* key, const std::wstring& value) {
+	WritePrivateProfileStringW(section, key, value.c_str(),
+		app_config_path().c_str());
+}
+
+static void write_profile_int(const wchar_t* section,
+	  const wchar_t* key, int value) {
+	wchar_t buf[32];
+	swprintf(buf, sizeof(buf) / sizeof(buf[0]), L"%d", value);
+	write_profile_text(section, key, buf);
+}
+
+static void set_config_text_from_wide(char* dst, size_t dst_size,
+	  const std::wstring& value) {
+	std::string utf8;
+	std::string err;
+	if (webcool_wide_to_utf8(value.c_str(), utf8)) {
+		set_config_text(dst, dst_size, utf8, "control config", err);
+	}
+}
+
+static void load_control_config(webcool_controller& controller) {
+	const std::wstring lang = read_profile_text(L"ui", L"language", L"zh");
+	g_gui_language = _wcsicmp(lang.c_str(), L"en") == 0
+		? GUI_LANG_EN : GUI_LANG_ZH;
+
+	webcool_options options = controller.options();
+	const std::wstring addr = read_profile_text(L"service", L"addr",
+		utf8_to_wide_text(options.addr.c_str()).c_str());
+	std::string addr_utf8;
+	if (webcool_wide_to_utf8(addr.c_str(), addr_utf8) && !addr_utf8.empty()) {
+		options.addr = addr_utf8.c_str();
+	}
+	options.nthreads = read_profile_int(L"service", L"threads",
+		options.nthreads > 0 ? options.nthreads : 2);
+	options.reuse_port = read_profile_int(L"service", L"reuse_port",
+		options.reuse_port ? 1 : 0) != 0;
+	controller.configure(options);
+
+	set_config_text_from_wide(g_upload_dir, sizeof(g_upload_dir),
+		read_profile_text(L"paths", L"upload_dir", utf8_to_wide_text(g_upload_dir).c_str()));
+	set_config_text_from_wide(g_html_home, sizeof(g_html_home),
+		read_profile_text(L"paths", L"html_home", utf8_to_wide_text(g_html_home).c_str()));
+	set_config_text_from_wide(g_sqlite_lib, sizeof(g_sqlite_lib),
+		read_profile_text(L"paths", L"sqlite_lib", utf8_to_wide_text(g_sqlite_lib).c_str()));
+	set_config_text_from_wide(g_ffmpeg_path, sizeof(g_ffmpeg_path),
+		read_profile_text(L"paths", L"ffmpeg_path", utf8_to_wide_text(g_ffmpeg_path).c_str()));
+}
+
+static void save_control_config(HWND hwnd) {
+	webcool_controller* controller =
+		(webcool_controller*) GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+	write_profile_text(L"ui", L"language",
+		g_gui_language == GUI_LANG_EN ? L"en" : L"zh");
+	write_profile_text(L"service", L"addr",
+		utf8_to_wide_text(get_window_utf8(hwnd, IDC_ADDR_EDIT).c_str()));
+	write_profile_int(L"service", L"threads",
+		atoi(get_window_utf8(hwnd, IDC_THREADS_EDIT).c_str()));
+	if (controller != nullptr) {
+		write_profile_int(L"service", L"reuse_port",
+			controller->options().reuse_port ? 1 : 0);
+	}
+	write_profile_text(L"paths", L"upload_dir",
+		utf8_to_wide_text(get_window_utf8(hwnd, IDC_UPLOAD_EDIT).c_str()));
+	write_profile_text(L"paths", L"html_home",
+		utf8_to_wide_text(get_window_utf8(hwnd, IDC_HTML_EDIT).c_str()));
+	write_profile_text(L"paths", L"sqlite_lib",
+		utf8_to_wide_text(get_window_utf8(hwnd, IDC_SQLITE_EDIT).c_str()));
+	write_profile_text(L"paths", L"ffmpeg_path",
+		utf8_to_wide_text(get_window_utf8(hwnd, IDC_FFMPEG_EDIT).c_str()));
+}
+
 static void update_dos_button_text(HWND hwnd) {
 	SetWindowTextW(GetDlgItem(hwnd, IDC_DOS_BTN),
-		g_dos_console_open ? L"关闭DOS" : L"打开DOS");
+		g_dos_console_open ? tr(UI_CLOSE_DOS) : tr(UI_OPEN_DOS));
 }
 
 static void protect_dos_console_window() {
@@ -90,12 +283,12 @@ static bool open_dos_console(HWND hwnd) {
 		return true;
 	}
 	if (GetConsoleWindow() == NULL && !AllocConsole()) {
-		MessageBoxW(hwnd, L"打开 DOS 终端失败", L"webcool",
+		MessageBoxW(hwnd, tr(UI_OPEN_DOS_FAILED), L"webcool",
 			MB_OK | MB_ICONERROR);
 		return false;
 	}
 
-	SetConsoleTitleW(L"webcool DOS 调试终端");
+	SetConsoleTitleW(tr(UI_DOS_TITLE));
 	FILE* fp = NULL;
 	freopen_s(&fp, "CONOUT$", "w", stdout);
 	freopen_s(&fp, "CONOUT$", "w", stderr);
@@ -215,7 +408,7 @@ static void add_tray_icon(HWND hwnd) {
 	nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
 	nid.uCallbackMessage = WM_WEBCOOL_TRAY;
 	nid.hIcon = load_webcool_icon();
-	wcscpy_s(nid.szTip, L"webcool 控制界面");
+	wcscpy_s(nid.szTip, tr(UI_TITLE));
 	Shell_NotifyIconW(NIM_ADD, &nid);
 }
 
@@ -237,6 +430,21 @@ static void restore_from_tray(HWND hwnd) {
 	remove_tray_icon(hwnd);
 	ShowWindow(hwnd, SW_SHOWNORMAL);
 	SetForegroundWindow(hwnd);
+}
+
+static void show_tray_menu(HWND hwnd) {
+	HMENU menu = CreatePopupMenu();
+	if (menu == NULL) {
+		return;
+	}
+	AppendMenuW(menu, MF_STRING, IDM_TRAY_OPEN, tr(UI_TRAY_OPEN));
+	AppendMenuW(menu, MF_STRING, IDM_TRAY_EXIT, tr(UI_EXIT));
+	POINT pt;
+	GetCursorPos(&pt);
+	SetForegroundWindow(hwnd);
+	TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | TPM_LEFTALIGN,
+		pt.x, pt.y, 0, hwnd, NULL);
+	DestroyMenu(menu);
 }
 
 static void enable_config_controls(HWND hwnd, bool enabled) {
@@ -310,10 +518,14 @@ static void update_control_window(HWND hwnd) {
 		return;
 	}
 	const bool running = controller->running();
-	std::wstring status = running ? L"状态：运行中" : L"状态：已停止";
-	status += L"\r\n监听地址：";
+	std::wstring status = running ? tr(UI_STATUS_RUNNING) : tr(UI_STATUS_STOPPED);
+	status += L"\r\n";
+	status += tr(UI_LISTEN_ADDR);
+	status += L": ";
 	status += utf8_to_wide_text(controller->options().addr.c_str());
-	status += L"\r\n存储目录：";
+	status += L"\r\n";
+	status += tr(UI_UPLOAD_DIR);
+	status += L": ";
 	status += utf8_to_wide_text(g_upload_dir);
 	SetWindowTextW(GetDlgItem(hwnd, IDC_STATUS_TEXT), status.c_str());
 	EnableWindow(GetDlgItem(hwnd, IDC_BROWSER_BTN), running ? TRUE : FALSE);
@@ -328,16 +540,48 @@ static void update_control_window2(HWND hwnd) {
 		return;
 	}
 	const bool running = controller->running();
-	std::wstring status = running ? L"状态：运行中" : L"状态：已停止";
-	status += L"\r\n监听地址：";
+	std::wstring status = running ? tr(UI_STATUS_RUNNING) : tr(UI_STATUS_STOPPED);
+	status += L"\r\n";
+	status += tr(UI_LISTEN_ADDR);
+	status += L": ";
 	status += utf8_to_wide_text(controller->options().addr.c_str());
-	status += L"\r\n文件保存目录：";
+	status += L"\r\n";
+	status += tr(UI_UPLOAD_DIR);
+	status += L": ";
 	status += utf8_to_wide_text(g_upload_dir);
 	SetWindowTextW(GetDlgItem(hwnd, IDC_STATUS_TEXT), status.c_str());
 	EnableWindow(GetDlgItem(hwnd, IDC_BROWSER_BTN), running ? TRUE : FALSE);
 	EnableWindow(GetDlgItem(hwnd, IDC_START_BTN), running ? FALSE : TRUE);
 	EnableWindow(GetDlgItem(hwnd, IDC_STOP_BTN), running ? TRUE : FALSE);
 	enable_config_controls(hwnd, !running);
+}
+
+static void apply_control_language(HWND hwnd) {
+	SetWindowTextW(hwnd, tr(UI_TITLE));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_TITLE_TEXT), tr(UI_TITLE));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_GROUP_TEXT), tr(UI_SERVICE_CONFIG));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_ADDR_LABEL), tr(UI_LISTEN_ADDR));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_UPLOAD_LABEL), tr(UI_UPLOAD_DIR));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_HTML_LABEL), tr(UI_HTML_HOME));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_SQLITE_LABEL), tr(UI_SQLITE_LIB));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_FFMPEG_LABEL), tr(UI_FFMPEG_EXE));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_THREADS_LABEL), tr(UI_THREADS));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_LANG_LABEL), tr(UI_LANGUAGE));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_START_BTN), tr(UI_START));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_STOP_BTN), tr(UI_STOP));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_MINIMIZE_BTN), tr(UI_MINIMIZE));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_EXIT_BTN), tr(UI_EXIT));
+	SetWindowTextW(GetDlgItem(hwnd, IDC_BROWSER_BTN), tr(UI_OPEN_BROWSER));
+	update_dos_button_text(hwnd);
+	HWND lang = GetDlgItem(hwnd, IDC_LANG_COMBO);
+	if (lang != NULL) {
+		SendMessageW(lang, CB_RESETCONTENT, 0, 0);
+		SendMessageW(lang, CB_ADDSTRING, 0, (LPARAM)L"中文");
+		SendMessageW(lang, CB_ADDSTRING, 0, (LPARAM)L"English");
+		SendMessageW(lang, CB_SETCURSEL,
+			g_gui_language == GUI_LANG_EN ? 1 : 0, 0);
+	}
+	update_control_window2(hwnd);
 }
 
 static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
@@ -347,28 +591,28 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 	{
 		CREATESTRUCTW* cs = (CREATESTRUCTW*) lparam;
 		SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR) cs->lpCreateParams);
-		SetWindowTextW(hwnd, L"webcool 控制界面");
+		SetWindowTextW(hwnd, tr(UI_TITLE));
 		HFONT font = (HFONT) GetStockObject(DEFAULT_GUI_FONT);
 		CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT,
 			22, 18, 380, 62, hwnd, (HMENU) IDC_STATUS_TEXT,
 			GetModuleHandleW(NULL), NULL);
-		CreateWindowW(L"BUTTON", L"启动", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+		CreateWindowW(L"BUTTON", tr(UI_START), WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
 			22, 98, 78, 32, hwnd, (HMENU) IDC_START_BTN,
 			GetModuleHandleW(NULL), NULL);
-		CreateWindowW(L"BUTTON", L"停止", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+		CreateWindowW(L"BUTTON", tr(UI_STOP), WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
 			116, 98, 78, 32, hwnd, (HMENU) IDC_STOP_BTN,
 			GetModuleHandleW(NULL), NULL);
-		CreateWindowW(L"BUTTON", L"最小化", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+		CreateWindowW(L"BUTTON", tr(UI_MINIMIZE), WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
 			210, 98, 78, 32, hwnd, (HMENU) IDC_MINIMIZE_BTN,
 			GetModuleHandleW(NULL), NULL);
-		CreateWindowW(L"BUTTON", L"退出", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+		CreateWindowW(L"BUTTON", tr(UI_EXIT), WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
 			304, 98, 78, 32, hwnd, (HMENU) IDC_EXIT_BTN,
 			GetModuleHandleW(NULL), NULL);
-		CreateWindowW(L"BUTTON", L"打开浏览器", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-			204, 386, 84, 34, hwnd, (HMENU) IDC_BROWSER_BTN,
+		CreateWindowW(L"BUTTON", tr(UI_OPEN_BROWSER), WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+			204, 386, 104, 34, hwnd, (HMENU) IDC_BROWSER_BTN,
 			GetModuleHandleW(NULL), NULL);
-		CreateWindowW(L"BUTTON", L"打开DOS", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-			288, 386, 78, 34, hwnd, (HMENU) IDC_DOS_BTN,
+		CreateWindowW(L"BUTTON", tr(UI_OPEN_DOS), WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+			320, 386, 82, 34, hwnd, (HMENU) IDC_DOS_BTN,
 			GetModuleHandleW(NULL), NULL);
 		if (g_control_bg_brush == NULL) {
 			g_control_bg_brush = CreateSolidBrush(RGB(244, 247, 251));
@@ -388,30 +632,31 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 		}
 		HFONT ui_font = g_control_font ? g_control_font : font;
 		HFONT title_font = g_control_title_font ? g_control_title_font : font;
-		SetWindowTextW(GetDlgItem(hwnd, IDC_START_BTN), L"启动");
-		SetWindowTextW(GetDlgItem(hwnd, IDC_STOP_BTN), L"停止");
-		SetWindowTextW(GetDlgItem(hwnd, IDC_MINIMIZE_BTN), L"最小化");
-		SetWindowTextW(GetDlgItem(hwnd, IDC_EXIT_BTN), L"退出");
 		SetWindowPos(GetDlgItem(hwnd, IDC_STATUS_TEXT), NULL, 32, 64, 620, 58, SWP_NOZORDER);
-		SetWindowTextW(GetDlgItem(hwnd, IDC_BROWSER_BTN), L"打开浏览器");
 		update_dos_button_text(hwnd);
-		SetWindowPos(GetDlgItem(hwnd, IDC_BROWSER_BTN), NULL, 168, 386, 84, 34, SWP_NOZORDER);
-		SetWindowPos(GetDlgItem(hwnd, IDC_DOS_BTN), NULL, 264, 386, 78, 34, SWP_NOZORDER);
+		SetWindowPos(GetDlgItem(hwnd, IDC_BROWSER_BTN), NULL, 144, 386, 104, 34, SWP_NOZORDER);
+		SetWindowPos(GetDlgItem(hwnd, IDC_DOS_BTN), NULL, 260, 386, 82, 34, SWP_NOZORDER);
 		SetWindowPos(GetDlgItem(hwnd, IDC_START_BTN), NULL, 354, 386, 70, 34, SWP_NOZORDER);
 		SetWindowPos(GetDlgItem(hwnd, IDC_STOP_BTN), NULL, 436, 386, 70, 34, SWP_NOZORDER);
-		SetWindowPos(GetDlgItem(hwnd, IDC_MINIMIZE_BTN), NULL, 518, 386, 74, 34, SWP_NOZORDER);
-		SetWindowPos(GetDlgItem(hwnd, IDC_EXIT_BTN), NULL, 604, 386, 70, 34, SWP_NOZORDER);
-		HWND title = CreateWindowW(L"STATIC", L"webcool 控制界面",
-			WS_CHILD | WS_VISIBLE | SS_LEFT, 28, 18, 300, 30, hwnd, NULL,
+		SetWindowPos(GetDlgItem(hwnd, IDC_MINIMIZE_BTN), NULL, 518, 386, 82, 34, SWP_NOZORDER);
+		SetWindowPos(GetDlgItem(hwnd, IDC_EXIT_BTN), NULL, 612, 386, 62, 34, SWP_NOZORDER);
+		HWND title = CreateWindowW(L"STATIC", tr(UI_TITLE),
+			WS_CHILD | WS_VISIBLE | SS_LEFT, 28, 18, 300, 30, hwnd,
+			(HMENU) IDC_TITLE_TEXT,
 			GetModuleHandleW(NULL), NULL);
 		SendMessageW(title, WM_SETFONT, (WPARAM) title_font, TRUE);
-		HWND group = CreateWindowW(L"BUTTON", L"服务配置",
-			WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 22, 132, 650, 238, hwnd, NULL,
+		HWND group = CreateWindowW(L"BUTTON", tr(UI_SERVICE_CONFIG),
+			WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 22, 132, 650, 238, hwnd,
+			(HMENU) IDC_GROUP_TEXT,
 			GetModuleHandleW(NULL), NULL);
 		SendMessageW(group, WM_SETFONT, (WPARAM) ui_font, TRUE);
 		const wchar_t* labels[] = {
-			L"监听地址", L"文件保存目录", L"静态资源根目录",
-			L"sqlite 动态库路径", L"ffmpeg 可执行文件路径", L"工作线程数"
+			tr(UI_LISTEN_ADDR), tr(UI_UPLOAD_DIR), tr(UI_HTML_HOME),
+			tr(UI_SQLITE_LIB), tr(UI_FFMPEG_EXE), tr(UI_THREADS)
+		};
+		const int label_ids[] = {
+			IDC_ADDR_LABEL, IDC_UPLOAD_LABEL, IDC_HTML_LABEL,
+			IDC_SQLITE_LABEL, IDC_FFMPEG_LABEL, IDC_THREADS_LABEL
 		};
 		const int edit_ids[] = {
 			IDC_ADDR_EDIT, IDC_UPLOAD_EDIT, IDC_HTML_EDIT,
@@ -420,7 +665,8 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 		for (int i = 0; i < 6; ++i) {
 			const int y = 166 + i * 32;
 			HWND label = CreateWindowW(L"STATIC", labels[i], WS_CHILD | WS_VISIBLE | SS_LEFT,
-				42, y + 4, 130, 24, hwnd, NULL, GetModuleHandleW(NULL), NULL);
+				42, y + 4, 130, 24, hwnd, (HMENU)(INT_PTR) label_ids[i],
+				GetModuleHandleW(NULL), NULL);
 			SendMessageW(label, WM_SETFONT, (WPARAM) ui_font, TRUE);
 			const bool has_browse = i >= 1 && i <= 4;
 			HWND edit = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
@@ -439,6 +685,15 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 				SendMessageW(browse, WM_SETFONT, (WPARAM) ui_font, TRUE);
 			}
 		}
+		HWND lang_label = CreateWindowW(L"STATIC", tr(UI_LANGUAGE),
+			WS_CHILD | WS_VISIBLE | SS_LEFT, 310, 18, 92, 24, hwnd,
+			(HMENU) IDC_LANG_LABEL, GetModuleHandleW(NULL), NULL);
+		SendMessageW(lang_label, WM_SETFONT, (WPARAM) ui_font, TRUE);
+		HWND lang_combo = CreateWindowW(L"COMBOBOX", L"",
+			WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+			408, 16, 120, 200, hwnd, (HMENU) IDC_LANG_COMBO,
+			GetModuleHandleW(NULL), NULL);
+		SendMessageW(lang_combo, WM_SETFONT, (WPARAM) ui_font, TRUE);
 		webcool_controller* controller =
 			(webcool_controller*) cs->lpCreateParams;
 		if (controller != nullptr) {
@@ -456,7 +711,7 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 		}
 		set_control_font(hwnd, IDC_BROWSER_BTN, ui_font);
 		set_control_font(hwnd, IDC_DOS_BTN, ui_font);
-		update_control_window2(hwnd);
+		apply_control_language(hwnd);
 		return 0;
 	}
 	case WM_COMMAND:
@@ -464,26 +719,32 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 		webcool_controller* controller =
 			(webcool_controller*) GetWindowLongPtrW(hwnd, GWLP_USERDATA);
 		const int id = LOWORD(wparam);
+		if (id == IDC_LANG_COMBO && HIWORD(wparam) == CBN_SELCHANGE) {
+			const LRESULT sel = SendMessageW(GetDlgItem(hwnd, IDC_LANG_COMBO),
+				CB_GETCURSEL, 0, 0);
+			g_gui_language = sel == 1 ? GUI_LANG_EN : GUI_LANG_ZH;
+			apply_control_language(hwnd);
+			save_control_config(hwnd);
+			return 0;
+		}
 		if (id == IDC_START_BTN && controller != nullptr) {
 			std::string err;
 			webcool_options options = controller->options();
 			if (!read_control_config(hwnd, options, err)) {
-				std::wstring message = L"配置无效：";
+				std::wstring message = tr(UI_INVALID_CONFIG);
 				message += utf8_to_wide_text(err.c_str());
 				MessageBoxW(hwnd, message.c_str(), L"webcool", MB_OK | MB_ICONWARNING);
 				return 0;
 			}
 			controller->configure(options);
 			if (!controller->start(err)) {
-				std::wstring start_message = L"启动 webcool 失败：";
+				std::wstring start_message = tr(UI_START_FAILED);
 				start_message += utf8_to_wide_text(err.c_str());
 				MessageBoxW(hwnd, start_message.c_str(), L"webcool", MB_OK | MB_ICONERROR);
 				update_control_window2(hwnd);
 				return 0;
-				std::wstring message = L"启动 webcool 失败：";
-				message += utf8_to_wide_text(err.c_str());
-				MessageBoxW(hwnd, message.c_str(), L"webcool", MB_OK | MB_ICONERROR);
 			}
+			save_control_config(hwnd);
 			update_control_window2(hwnd);
 			return 0;
 		}
@@ -496,21 +757,21 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 			return 0;
 		}
 		if (id == IDC_UPLOAD_BROWSE) {
-			choose_folder(hwnd, IDC_UPLOAD_EDIT, L"选择文件保存目录");
+			choose_folder(hwnd, IDC_UPLOAD_EDIT, tr(UI_SELECT_UPLOAD));
 			return 0;
 		}
 		if (id == IDC_HTML_BROWSE) {
-			choose_folder(hwnd, IDC_HTML_EDIT, L"选择静态资源根目录");
+			choose_folder(hwnd, IDC_HTML_EDIT, tr(UI_SELECT_HTML));
 			return 0;
 		}
 		if (id == IDC_SQLITE_BROWSE) {
-			choose_file(hwnd, IDC_SQLITE_EDIT, L"选择 sqlite 动态库",
-				L"sqlite 动态库\0*.dll\0所有文件\0*.*\0");
+			choose_file(hwnd, IDC_SQLITE_EDIT, tr(UI_SELECT_SQLITE),
+				tr(UI_SQLITE_FILTER));
 			return 0;
 		}
 		if (id == IDC_FFMPEG_BROWSE) {
-			choose_file(hwnd, IDC_FFMPEG_EDIT, L"选择 ffmpeg 可执行文件",
-				L"ffmpeg 可执行文件\0*.exe\0所有文件\0*.*\0");
+			choose_file(hwnd, IDC_FFMPEG_EDIT, tr(UI_SELECT_FFMPEG),
+				tr(UI_FFMPEG_FILTER));
 			return 0;
 		}
 		if (id == IDC_STOP_BTN && controller != nullptr) {
@@ -526,6 +787,21 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 			if (controller != nullptr) {
 				controller->stop();
 			}
+			save_control_config(hwnd);
+			close_dos_console(hwnd);
+			remove_tray_icon(hwnd);
+			DestroyWindow(hwnd);
+			return 0;
+		}
+		if (id == IDM_TRAY_OPEN) {
+			restore_from_tray(hwnd);
+			return 0;
+		}
+		if (id == IDM_TRAY_EXIT) {
+			if (controller != nullptr) {
+				controller->stop();
+			}
+			save_control_config(hwnd);
 			close_dos_console(hwnd);
 			remove_tray_icon(hwnd);
 			DestroyWindow(hwnd);
@@ -544,6 +820,10 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 			restore_from_tray(hwnd);
 			return 0;
 		}
+		if (lparam == WM_RBUTTONUP || lparam == WM_CONTEXTMENU) {
+			show_tray_menu(hwnd);
+			return 0;
+		}
 		break;
 	case WM_CTLCOLORSTATIC:
 		SetBkMode((HDC) wparam, TRANSPARENT);
@@ -555,6 +835,7 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 		if (controller != nullptr) {
 			controller->stop();
 		}
+		save_control_config(hwnd);
 		close_dos_console(hwnd);
 		remove_tray_icon(hwnd);
 		DestroyWindow(hwnd);
@@ -571,6 +852,7 @@ static LRESULT CALLBACK control_window_proc(HWND hwnd, UINT msg,
 }
 
 int run_windows_control_gui(webcool_controller& controller) {
+	load_control_config(controller);
 	const wchar_t* class_name = L"WebCoolControlWindow";
 	WNDCLASSW wc;
 	memset(&wc, 0, sizeof(wc));
@@ -613,4 +895,3 @@ void ensure_console_for_cli() {
 }
 
 #endif // _WIN32
-

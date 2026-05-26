@@ -153,6 +153,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Dirs]
+Name: "{app}"; Permissions: users-modify
 Name: "{commonappdata}\webcool\uploads"; Permissions: users-modify
 
 [Files]
