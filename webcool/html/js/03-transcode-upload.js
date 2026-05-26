@@ -436,13 +436,8 @@ function appendFilePassword(url, path, local) {
           return;
         }
         syncFolderActionButtons();
-        if (!folderTreeData.length) {
-          folderTree.innerHTML = '';
-          folderTreeEmpty.textContent = t('当前没有文件夹。');
-          folderTreeEmpty.style.display = 'block';
-          return;
-        }
-        folderTreeEmpty.style.display = 'none';
+        folderTreeEmpty.textContent = t('当前没有文件夹。');
+        folderTreeEmpty.style.display = folderTreeData.length ? 'none' : 'block';
         folderTree.innerHTML =
           '<div class="folder-tree-node' + (activeFolderPath ? '' : ' active') + (activeDropFolderPath === '' ? ' drop-target' : '') + '" data-folder-path="">' +
             '<div class="folder-tree-line" style="padding-left:10px;">' +
@@ -576,6 +571,42 @@ function appendFilePassword(url, path, local) {
           ? ('已恢复 ' + restoredCount + ' 个目录')
           : ('已恢复目录' + (lastTargetPath ? ('：' + lastTargetPath) : '')),
           'ok');
+      }
+
+      async function emptyRecycleBin() {
+        const confirmed = await askConfirmDialog({
+          title: t('清空回收站'),
+          description: t('确认清空回收站中的所有文件和目录？此操作不可恢复。'),
+          confirmText: t('清空'),
+          danger: true
+        });
+        if (!confirmed) {
+          return;
+        }
+        const data = await fetchJson(api.files + '?folder=' + encodeURIComponent(RECYCLE_FOLDER_NAME));
+        const files = Array.isArray(data.files) ? data.files.map(normalizeFileRecord) : [];
+        if (!files.length) {
+          showStatus(t('回收站已经是空的'), 'ok');
+          return;
+        }
+        let deletedCount = 0;
+        resetStatus();
+        for (let i = 0; i < files.length; i += 1) {
+          const path = String((files[i] && files[i].path) || '');
+          if (!path || !isRecycleFolderPath(path) || isRecycleRootFolderPath(path)) {
+            continue;
+          }
+          await fetchJson(api.del + '?file=' + encodeURIComponent(path));
+          deletedCount += 1;
+        }
+        selectedFileNames.clear();
+        selectedFolderPaths.clear();
+        if (isRecycleFolderPath(activeFolderPath)) {
+          activeFolderPath = RECYCLE_FOLDER_NAME;
+        }
+        ensureFolderPathExpanded(RECYCLE_FOLDER_NAME);
+        await loadFiles();
+        showStatus(t('回收站已清空，共删除 ') + deletedCount + t(' 个项目'), 'warn');
       }
 
       function getFileTimeText(file, keys) {

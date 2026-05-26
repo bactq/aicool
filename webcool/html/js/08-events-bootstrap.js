@@ -1092,7 +1092,7 @@
             return;
           }
           const path = entry.getAttribute('data-folder-select') || '';
-          if (!canRenameFolderPath(path)) {
+          if (path && !canRenameFolderPath(path) && !isRecycleRootFolderPath(path)) {
             return;
           }
           e.preventDefault();

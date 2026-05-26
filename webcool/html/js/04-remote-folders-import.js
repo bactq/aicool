@@ -859,7 +859,19 @@ function setUnlockedFolderPassword(path, password) {
       }
 
       async function handleFolderContextAction(action, path) {
-        if (!action || !path) {
+        if (!action) {
+          return;
+        }
+        if (action === 'empty-recycle') {
+          await emptyRecycleBin();
+          return;
+        }
+        if (!path && action === 'create') {
+          await createFolderAtPath('');
+          await loadFiles();
+          return;
+        }
+        if (!path) {
           return;
         }
         if (action === 'copy') {

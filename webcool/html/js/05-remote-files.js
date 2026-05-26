@@ -744,13 +744,14 @@ function folderNameFromPath(path) {
         }
       }
 
-      async function createFolderAtCurrentPath() {
-        if (!(await ensureFolderUnlocked(activeFolderPath))) {
+      async function createFolderAtPath(parentPath) {
+        const targetPath = String(parentPath || '');
+        if (!(await ensureFolderUnlocked(targetPath))) {
           return;
         }
         const name = await askTagName({
           title: t('新建子目录'),
-          description: t('请输入要创建在「') + getFolderLabel(activeFolderPath) + t('」下的子目录名称。'),
+          description: t('请输入要创建在「') + getFolderLabel(targetPath) + t('」下的子目录名称。'),
           label: t('目录名称'),
           placeholder: t('请输入目录名称')
         });
@@ -764,14 +765,18 @@ function folderNameFromPath(path) {
         }
         await fetchJson(
           withFolderPassword(
-            api.folderCreate + '?parent=' + encodeURIComponent(activeFolderPath || '') + '&name=' + encodeURIComponent(cleanName),
-            activeFolderPath
+            api.folderCreate + '?parent=' + encodeURIComponent(targetPath) + '&name=' + encodeURIComponent(cleanName),
+            targetPath
           ),
           { method: 'POST' }
         );
-        ensureFolderPathExpanded(activeFolderPath);
+        ensureFolderPathExpanded(targetPath);
         await loadFolderTreeState();
         showStatus(t('已创建文件夹：') + cleanName, 'ok');
+      }
+
+      async function createFolderAtCurrentPath() {
+        await createFolderAtPath(activeFolderPath);
       }
 
       function downloadRemoteListFile(filePath, local) {

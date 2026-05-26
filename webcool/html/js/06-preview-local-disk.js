@@ -351,15 +351,39 @@ function saveUnlockedFolderPasswords() {
 
       function openFolderContextMenu(path, clientX, clientY) {
         closeFolderContextMenu();
-        const node = findFolderNodeByPath(path);
-        if (!node || !canRenameFolderPath(path)) {
+        const folderPath = String(path || '');
+        const isRoot = folderPath === '';
+        const isRecycleRoot = isRecycleRootFolderPath(folderPath);
+        const node = isRoot ? { locked: false } : findFolderNodeByPath(folderPath);
+        if (!node && !isRecycleRoot) {
           return;
         }
         const menu = document.createElement('div');
         menu.className = 'folder-context-menu';
-        menu.setAttribute('data-folder-path', path);
+        menu.setAttribute('data-folder-path', folderPath);
+        if (isRoot) {
+          menu.innerHTML = '<button type="button" class="folder-context-item" data-folder-menu-action="create">' + t('新建子目录') + '</button>';
+          document.body.appendChild(menu);
+          menu.style.left = Math.round(clientX) + 'px';
+          menu.style.top = Math.round(clientY) + 'px';
+          clampFloatingMenuPosition(menu, clientX, clientY);
+          activeFolderContextMenu = menu;
+          return;
+        }
+        if (isRecycleRoot) {
+          menu.innerHTML = '<button type="button" class="folder-context-item danger" data-folder-menu-action="empty-recycle">' + t('清空') + '</button>';
+          document.body.appendChild(menu);
+          menu.style.left = Math.round(clientX) + 'px';
+          menu.style.top = Math.round(clientY) + 'px';
+          clampFloatingMenuPosition(menu, clientX, clientY);
+          activeFolderContextMenu = menu;
+          return;
+        }
+        if (!canRenameFolderPath(folderPath)) {
+          return;
+        }
         const lockActionsHtml = node.locked
-          ? '<button type="button" class="folder-context-item" data-folder-menu-action="' + (unlockedFolderPasswords.has(path) ? 'session-lock' : 'session-unlock') + '">' + t(unlockedFolderPasswords.has(path) ? '加锁' : '解锁') + '</button>' +
+          ? '<button type="button" class="folder-context-item" data-folder-menu-action="' + (unlockedFolderPasswords.has(folderPath) ? 'session-lock' : 'session-unlock') + '">' + t(unlockedFolderPasswords.has(folderPath) ? '加锁' : '解锁') + '</button>' +
             '<button type="button" class="folder-context-item" data-folder-menu-action="remove-lock">' + t('去锁') + '</button>'
           : '<button type="button" class="folder-context-item" data-folder-menu-action="lock">' + t('加锁') + '</button>';
         menu.innerHTML =

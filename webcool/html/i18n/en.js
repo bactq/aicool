@@ -1,6 +1,12 @@
 (function () {
   var textMap = {
     // Shared window-control labels; keep keys aligned with zh.js.
+    '清空回收站': 'Empty Trash',
+    '确认清空回收站中的所有文件和目录？此操作不可恢复。': 'Empty all files and folders in Trash? This cannot be undone.',
+    '清空': 'Empty',
+    '回收站已经是空的': 'Trash is already empty',
+    '回收站已清空，共删除 ': 'Trash emptied. Deleted ',
+    ' 个项目': ' items',
     '文件管理控制台': 'File Management Console',
     '文件控制台': 'File Console',
     '左帧用于功能切换，右帧展示对应内容与操作结果。': 'Use the left pane to switch features; the right pane shows content and actions.',
