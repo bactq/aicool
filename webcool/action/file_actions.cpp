@@ -422,14 +422,57 @@ static bool collect_recycle_directory_entries(const std::string& upload_dir,
 static bool delete_directory_recursive(const std::string& full_path,
 	std::string& err)
 {
-	int ndir, nfile;
-	if (acl_scan_dir_rm(full_path.c_str(), 1, &ndir, &nfile) >= 0) {
-		logger_debug(DEBUG_FILE, 1, "[DEBUG] remove %s ok, ndir=%d, nfile=%d",
-			full_path.c_str(), ndir, nfile);
+	struct stat st;
+	if (lstat(full_path.c_str(), &st) != 0) {
+		if (errno == ENOENT) {
+			return true;
+		}
+		err = strerror(errno);
+		logger_error("stat %s error=%s", full_path.c_str(), err.c_str());
+		return false;
+	}
+
+	if (!S_ISDIR(st.st_mode)) {
+		if (::unlink(full_path.c_str()) == 0 || errno == ENOENT) {
+			return true;
+		}
+		err = strerror(errno);
+		logger_error("unlink %s error=%s", full_path.c_str(), err.c_str());
+		return false;
+	}
+
+	DIR* dir = opendir(full_path.c_str());
+	if (dir == NULL) {
+		if (errno == ENOENT) {
+			return true;
+		}
+		err = strerror(errno);
+		logger_error("opendir %s error=%s", full_path.c_str(), err.c_str());
+		return false;
+	}
+
+	struct dirent* entry = NULL;
+	while ((entry = readdir(dir)) != NULL) {
+		if (strcmp(entry->d_name, ".") == 0
+			|| strcmp(entry->d_name, "..") == 0)
+		{
+			continue;
+		}
+		const std::string child = full_path + "/" + entry->d_name;
+		if (!delete_directory_recursive(child, err)) {
+			closedir(dir);
+			return false;
+		}
+	}
+	closedir(dir);
+
+	if (::rmdir(full_path.c_str()) == 0 || errno == ENOENT) {
+		logger_debug(DEBUG_FILE, 1, "[DEBUG] remove %s ok",
+			full_path.c_str());
 		return true;
 	}
-	err = acl::last_serror();
-	logger_error("remove %s error=%s", full_path.c_str(), err.c_str());
+	err = strerror(errno);
+	logger_error("rmdir %s error=%s", full_path.c_str(), err.c_str());
 	return false;
 }
 
