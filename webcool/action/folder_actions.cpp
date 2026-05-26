@@ -482,9 +482,8 @@ static bool save_folder_locks_locked(const std::string& upload_dir,
 		err = "cannot access upload dir";
 		return false;
 	}
-	const std::string file_path = folder_locks_file_path(upload_dir);
-	const std::string tmp_path = file_path + ".tmp";
-	std::ofstream out(tmp_path.c_str(), std::ios::trunc);
+	std::ofstream out(folder_locks_file_path(upload_dir).c_str(),
+		std::ios::out | std::ios::trunc);
 	if (!out.good()) {
 		err = "open folder locks file failed";
 		return false;
@@ -497,10 +496,6 @@ static bool save_folder_locks_locked(const std::string& upload_dir,
 	out.close();
 	if (!out.good()) {
 		err = "write folder locks file failed";
-		return false;
-	}
-	if (::rename(tmp_path.c_str(), file_path.c_str()) != 0) {
-		err = "save folder locks file failed";
 		return false;
 	}
 	return true;
