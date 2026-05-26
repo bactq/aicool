@@ -69,6 +69,18 @@
     <ClCompile Include="template\html_renderer.cpp">
       <Filter>源文件\template</Filter>
     </ClCompile>
+    <ClCompile Include="server_thread.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="win32_gui.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="config.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="webcool_controller.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="http_servlet.h">
@@ -91,6 +103,18 @@
     </ClInclude>
     <ClInclude Include="template\html_renderer.h">
       <Filter>源文件\template</Filter>
+    </ClInclude>
+    <ClInclude Include="server_thread.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="win32_gui.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="config.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="webcool_controller.h">
+      <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

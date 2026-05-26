@@ -376,7 +376,7 @@
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <AdditionalOptions>/Zc:__cplusplus  /utf-8 %(AdditionalOptions)</AdditionalOptions>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <DisableSpecificWarnings>4819</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4819;4828</DisableSpecificWarnings>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -729,18 +729,26 @@
     <ClCompile Include="action\video_convert_action.cpp" />
     <ClCompile Include="action\video_probe_action.cpp" />
     <ClCompile Include="action\video_resume_action.cpp" />
+    <ClCompile Include="config.cpp" />
     <ClCompile Include="http_servlet.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="server_thread.cpp" />
     <ClCompile Include="template\html_renderer.cpp" />
+    <ClCompile Include="webcool_controller.cpp" />
+    <ClCompile Include="win32_gui.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="action\actions.h" />
     <ClInclude Include="action\action_util.h" />
+    <ClInclude Include="config.h" />
     <ClInclude Include="http_servlet.h" />
     <ClInclude Include="platform_compat.h" />
     <ClInclude Include="resource.h" />
+    <ClInclude Include="server_thread.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="template\html_renderer.h" />
+    <ClInclude Include="webcool_controller.h" />
+    <ClInclude Include="win32_gui.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="webcool.rc" />

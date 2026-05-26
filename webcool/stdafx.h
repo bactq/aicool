@@ -1,5 +1,25 @@
 #pragma once
 
+#include <cstdlib>
+#include <cstdio>
+#include <cstring>
+#include <csignal>
+#include <atomic>
+#include <mutex>
+#include <vector>
+#include <map>
+#include <sys/stat.h>
+
+#ifdef _WIN32
+#include "platform_compat.h"
+#include "resource.h"
+#include <commdlg.h>
+#include <shlobj.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 #include "lib_acl.h"
 #include "acl_cpp/lib_acl.hpp"
 #include "fiber/lib_fiber.hpp"
@@ -17,3 +37,4 @@ typedef acl::HttpServletResponse response_t;
 #define DEBUG_FOLDER    (DEBUG_MIN + 1)
 #define DEBUG_CONN      (DEBUG_MIN + 1)
 #define DEBUG_PAGE      (DEBUG_MIN + 1)
+

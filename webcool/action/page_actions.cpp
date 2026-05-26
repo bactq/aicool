@@ -6,6 +6,10 @@
 #else
 #include <unistd.h>
 #endif
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+#include <vector>
 
 namespace action {
 
@@ -13,9 +17,83 @@ namespace {
 
 static std::string html_home = "/opt/webcool/html";
 
+static std::string trim_static_home(const char* path)
+{
+	std::string value = path ? path : "";
+	while (value.size() > 1) {
+		const char tail = value[value.size() - 1];
+		if (tail != '/' && tail != '\\') {
+			break;
+		}
+#ifdef _WIN32
+		if (value.size() == 3 && value[1] == ':') {
+			break;
+		}
+#endif
+		value.resize(value.size() - 1);
+	}
+	return value;
+}
+
+static std::string join_static_path(const std::string& parent,
+	const char* name)
+{
+	if (parent.empty()) {
+		return name ? name : "";
+	}
+	const char tail = parent[parent.size() - 1];
+	if (tail == '/' || tail == '\\') {
+		return parent + name;
+	}
+	return parent + "/" + name;
+}
+
+static bool load_file_utf8_path(const char* filepath, acl::string& data,
+	std::string& err)
+{
+	data.clear();
+	FILE* fp = fopen(filepath, "rb");
+	if (fp == NULL) {
+		err = strerror(errno);
+		return false;
+	}
+	if (fseek(fp, 0, SEEK_END) != 0) {
+		err = strerror(errno);
+		fclose(fp);
+		return false;
+	}
+	const long size = ftell(fp);
+	if (size < 0) {
+		err = strerror(errno);
+		fclose(fp);
+		return false;
+	}
+	if (fseek(fp, 0, SEEK_SET) != 0) {
+		err = strerror(errno);
+		fclose(fp);
+		return false;
+	}
+	if (size == 0) {
+		fclose(fp);
+		return true;
+	}
+	std::vector<char> buf((size_t) size + 1, '\0');
+	const size_t n = fread(&buf[0], 1, (size_t) size, fp);
+	const bool ok = n == (size_t) size && ferror(fp) == 0;
+	if (!ok) {
+		err = strerror(errno);
+	}
+	fclose(fp);
+	if (!ok) {
+		return false;
+	}
+	data.append(&buf[0], n);
+	return true;
+}
+
 const char* get_index_html_path(acl::string& buff) {
-	buff = html_home;
-	buff += "/main.html";
+	const std::string path = join_static_path(html_home, "main.html");
+	buff = path.c_str();
 	return buff.c_str();
 }
 
@@ -23,21 +101,51 @@ const char* get_static_file_path(const char* path, acl::string& buff,
 	  std::string& ctype) {
 	buff.clear();
 
-	acl::string tmp = path;
-	static char static_prefix[] = "/webcool/html";
-	char *pos = tmp.find(static_prefix);
-	if (pos == nullptr) {
+	const char* static_prefix = "/webcool/html";
+	const size_t prefix_len = strlen(static_prefix);
+	if (path == NULL || strncmp(path, static_prefix, prefix_len) != 0) {
 		return NULL;
 	}
-	pos += sizeof(static_prefix) - 1;
-	acl::string relative_path = pos;
-	relative_path.strip(".."); // Sanity check, to avoid access the root path.
-
-	buff  = html_home;
-	if (*pos != '/') {
-		buff += '/';
+	if (path[prefix_len] != '\0' && path[prefix_len] != '/'
+		&& path[prefix_len] != '\\')
+	{
+		return NULL;
 	}
-	buff += relative_path;
+
+	std::string relative_path = path + prefix_len;
+	for (size_t i = 0; i < relative_path.size(); ++i) {
+		if (relative_path[i] == '\\') {
+			relative_path[i] = '/';
+		}
+	}
+	while (!relative_path.empty() && relative_path[0] == '/') {
+		relative_path.erase(0, 1);
+	}
+	if (relative_path.empty()) {
+		return get_index_html_path(buff);
+	}
+
+	std::string safe_path;
+	size_t start = 0;
+	while (start <= relative_path.size()) {
+		size_t end = relative_path.find('/', start);
+		if (end == std::string::npos) {
+			end = relative_path.size();
+		}
+		const std::string part = relative_path.substr(start, end - start);
+		if (!part.empty() && part != "." && part != "..") {
+			if (!safe_path.empty()) {
+				safe_path += '/';
+			}
+			safe_path += part;
+		}
+		if (end == relative_path.size()) {
+			break;
+		}
+		start = end + 1;
+	}
+
+	buff = join_static_path(html_home, safe_path.c_str()).c_str();
 
 	static std::map<std::string, std::string> types = {
 		{ ".text", "text/plain; charset=utf-8"              },
@@ -50,7 +158,7 @@ const char* get_static_file_path(const char* path, acl::string& buff,
 		{ ".gif",  "image/gif"                             },
 	};
 
-	pos = buff.rfind(".");
+	char* pos = buff.rfind(".");
 	if (pos == nullptr) {
 		ctype = "application/octet-stream";
 	} else {
@@ -69,7 +177,7 @@ const char* get_static_file_path(const char* path, acl::string& buff,
 
 void IndexAction::set_static_home_path(const char* html_home_path) {
 	if (html_home_path != NULL && *html_home_path != '\0') {
-		html_home = html_home_path;
+		html_home = trim_static_home(html_home_path);
 	}
 }
 
@@ -84,11 +192,16 @@ bool IndexAction::run(request_t& req, response_t& res) {
 		filepath = get_static_file_path(path, buff, ctype);
 	}
 
-	logger_debug(DEBUG_PAGE, 1, "path=%s, filepath=%s\r\n", path, filepath);
+	const char* request_path = path ? path : "";
+	const char* file_for_log = filepath ? filepath : "";
+	logger_debug(DEBUG_PAGE, 1, "path=%s, filepath=%s\r\n",
+		request_path, file_for_log);
 
 	acl::string data;
-	if (filepath == NULL || !acl::ifstream::load(filepath, &data)) {
-		buff.format("load %s failed(%s)\r\n", path, acl::last_serror());
+	std::string err;
+	if (filepath == NULL || !load_file_utf8_path(filepath, data, err)) {
+		buff.format("load %s from %s failed(%s)\r\n", request_path,
+			file_for_log, err.empty() ? "bad static path" : err.c_str());
 		return sendText(res, 500, buff.c_str(), req.isKeepAlive());
 	}
 
@@ -105,3 +218,4 @@ bool TemplateReloadAction::run(request_t& req, response_t& res) {
 }
 
 } // namespace action
+
