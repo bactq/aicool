@@ -85,14 +85,14 @@ void *server_thread::run() {
 				break;
 			}
 			// C++11 lambda 协程：捕获连接指针，处理完后自动释放
-			auto fiber = acl::gofiber_stack([this, conn] {
+			auto fb = acl::gofiber_stack([this, conn] {
 				handle_conn(*conn);
 				delete conn;
 				fibers_.erase(acl::fiber::self());
 				stop_wait_group_.done();
 			}, g_stack_size);
 
-			fibers_.insert({ fiber->get_id(), fiber });
+			fibers_.insert({ fb->get_id(), fb });
 			stop_wait_group_.add(1);
 		}
 		stop_wait_group_.done();
