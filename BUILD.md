@@ -2,66 +2,6 @@
 
 [English](#english) | [中文](#chinese)
 
----
-
-## English
-
-aicool is a C++ web service example based on the ACL library.
-
-### Third-Party Dependency
-
-This project imports ACL via Git submodule:
-
-- Path: third-party/acl
-- Repository: https://github.com/acl-dev/acl.git
-
-### Get The Code (Fresh Clone)
-
-For first-time clone, fetch submodules together:
-
-```bash
-git clone --recurse-submodules <repo-url>
-cd aicool
-git submodule status
-```
-
-### Sync Submodule After PULL (Existing Local Repo)
-
-If you have already cloned the main repository locally, run these commands after git pull to sync and initialize submodules:
-
-```bash
-git pull
-git submodule sync --recursive
-git submodule update --init --recursive
-git submodule status
-```
-
-### Build
-
-Run from the repository root:
-
-```bash
-make
-```
-
-The root Makefile will first build the required libraries under third-party/acl, then build aicool from src.
-
-### webcool Packaging Notes
-
-For webcool binary packages (`webcool/package`):
-
-- The installer keeps runtime files inside `/opt/webcool`.
-- ffmpeg is bundled at `/opt/webcool/bin/ffmpeg`.
-- `/usr/local/bin/webcool` is only a launcher entry to start `/opt/webcool/webcool`.
-- You can override runtime ffmpeg path with:
-
-```bash
-webcool -F /custom/path/ffmpeg -s 0.0.0.0:8080 -d ./uploads
-```
-
-[Back to top](#aicool)
-
----
 
 ## Chinese
 
@@ -125,3 +65,64 @@ webcool -F /custom/path/ffmpeg -s 0.0.0.0:8080 -d ./uploads
 ```
 
 [回到顶部](#aicool)
+
+---
+
+## English
+
+aicool is a C++ web service example based on the ACL library.
+
+### Third-Party Dependency
+
+This project imports ACL via Git submodule:
+
+- Path: third-party/acl
+- Repository: https://github.com/acl-dev/acl.git
+
+### Get The Code (Fresh Clone)
+
+For first-time clone, fetch submodules together:
+
+```bash
+git clone --recurse-submodules <repo-url>
+cd aicool
+git submodule status
+```
+
+### Sync Submodule After PULL (Existing Local Repo)
+
+If you have already cloned the main repository locally, run these commands after git pull to sync and initialize submodules:
+
+```bash
+git pull
+git submodule sync --recursive
+git submodule update --init --recursive
+git submodule status
+```
+
+### Build
+
+Run from the repository root:
+
+```bash
+make
+```
+
+The root Makefile will first build the required libraries under third-party/acl, then build aicool from src.
+
+### webcool Packaging Notes
+
+For webcool binary packages (`webcool/package`):
+
+- The installer keeps runtime files inside `/opt/webcool`.
+- ffmpeg is bundled at `/opt/webcool/bin/ffmpeg`.
+- `/usr/local/bin/webcool` is only a launcher entry to start `/opt/webcool/webcool`.
+- You can override runtime ffmpeg path with:
+
+```bash
+webcool -F /custom/path/ffmpeg -s 0.0.0.0:8080 -d ./uploads
+```
+
+[Back to top](#aicool)
+
+---
