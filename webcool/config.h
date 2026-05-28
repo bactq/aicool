@@ -14,5 +14,7 @@ bool set_config_text(char* dst, size_t dst_size,
 std::string join_config_path(const std::string& parent, const char* name);
 void apply_default_upload_dir(bool upload_dir_specified);
 bool readable_regular_file(const std::string& path);
+std::string load_persisted_upload_dir();
+bool persist_upload_dir(const std::string& upload_dir);
 std::string normalize_static_home_path(const std::string& path);
 

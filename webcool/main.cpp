@@ -278,6 +278,18 @@ int main(int argc, char* argv[]) {
 
 	apply_default_upload_dir(upload_dir_specified);
 
+	// 从持久化配置文件加载存储路径（仅当命令行未指定 -d 时）
+	if (!upload_dir_specified) {
+		std::string persisted = load_persisted_upload_dir();
+		if (!persisted.empty()) {
+			std::string persist_err;
+			if (set_config_text(g_upload_dir, sizeof(g_upload_dir),
+				persisted, "persisted storage path", persist_err)) {
+				printf("  从配置文件恢复存储路径: %s\n", persisted.c_str());
+			}
+		}
+	}
+
 	if (show_detail) {
 		print_detail_info(addr, nthreads, reuse_port, daemon_mode);
 		return 0;

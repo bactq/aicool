@@ -1,5 +1,6 @@
 #include "actions.h"
 #include "action_util.h"
+#include "../config.h"
 
 #ifdef _WIN32
 #include "../platform_compat.h"
@@ -742,6 +743,8 @@ void runtime_upload_dir_set(const std::string& upload_dir)
 {
 	std::lock_guard<std::mutex> guard(g_runtime_upload_mutex);
 	g_runtime_upload_dir = upload_dir;
+	// 持久化存储路径到配置文件，重启后可恢复
+	persist_upload_dir(upload_dir);
 }
 
 bool AdminStorageInfoAction::run(request_t& req, response_t& res,

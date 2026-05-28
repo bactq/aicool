@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "config.h"
+#include <fstream>
 
 size_t                g_stack_size = 128000;
 int                   g_rw_timeout = 5;
@@ -72,6 +73,90 @@ void apply_default_upload_dir(bool upload_dir_specified) {
 bool readable_regular_file(const std::string& path) {
 	struct stat st;
 	return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
+}
+
+// ──────────────────────────────────────
+// 持久化配置文件 (webcool.conf)
+// 格式: key=value, 每行一条, # 开头为注释
+// ──────────────────────────────────────
+
+static std::string get_config_file_path() {
+	// 配置文件放在可执行文件同目录下
+	char buf[4096] = "";
+	ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+	if (len > 0) {
+		buf[len] = '\0';
+		std::string exe_path(buf);
+		size_t pos = exe_path.rfind('/');
+		if (pos != std::string::npos) {
+			return exe_path.substr(0, pos + 1) + "webcool.conf";
+		}
+	}
+	return "./webcool.conf";
+}
+
+std::string load_persisted_upload_dir() {
+	const std::string conf_path = get_config_file_path();
+	std::ifstream ifs(conf_path.c_str());
+	if (!ifs.is_open()) {
+		return "";
+	}
+	std::string line;
+	while (std::getline(ifs, line)) {
+		// trim
+		size_t start = line.find_first_not_of(" 	\r\n");
+		if (start == std::string::npos) continue;
+		size_t end = line.find_last_not_of(" 	\r\n");
+		line = line.substr(start, end - start + 1);
+		if (line.empty() || line[0] == '#') continue;
+		const std::string prefix = "upload_dir=";
+		if (line.compare(0, prefix.size(), prefix) == 0) {
+			std::string value = line.substr(prefix.size());
+			// trim value
+			start = value.find_first_not_of(" 	");
+			if (start != std::string::npos) {
+				end = value.find_last_not_of(" 	\r\n");
+				value = value.substr(start, end - start + 1);
+			}
+			return value;
+		}
+	}
+	return "";
+}
+
+bool persist_upload_dir(const std::string& upload_dir) {
+	const std::string conf_path = get_config_file_path();
+
+	// 读取现有配置，保留非 upload_dir 的行
+	std::vector<std::string> other_lines;
+	std::ifstream ifs(conf_path.c_str());
+	if (ifs.is_open()) {
+		std::string line;
+		while (std::getline(ifs, line)) {
+			size_t start = line.find_first_not_of(" 	\r\n");
+			if (start != std::string::npos) {
+				std::string trimmed = line.substr(start);
+				if (trimmed.compare(0, 10, "upload_dir") == 0) {
+					continue;  // 跳过旧的 upload_dir 行
+				}
+			}
+			other_lines.push_back(line);
+		}
+		ifs.close();
+	}
+
+	// 写入新配置
+	std::ofstream ofs(conf_path.c_str(), std::ios::trunc);
+	if (!ofs.is_open()) {
+		return false;
+	}
+	ofs << "# webcool configuration" << std::endl;
+	ofs << "upload_dir=" << upload_dir << std::endl;
+	for (size_t i = 0; i < other_lines.size(); ++i) {
+		ofs << other_lines[i] << std::endl;
+	}
+	ofs.close();
+	return true;
 }
 
 std::string normalize_static_home_path(const std::string& path) {
